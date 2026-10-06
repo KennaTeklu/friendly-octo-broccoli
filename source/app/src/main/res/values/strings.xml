@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pro</string>
+    <string name="shortcut_start">Start Workout</string>
+    <string name="shortcut_start_long">Start today\'s workout</string>
+    <string name="shortcut_resume">Resume</string>
+    <string name="shortcut_resume_long">Resume workout draft</string>
+    <string name="shortcut_backup">Backup</string>
+    <string name="shortcut_backup_long">Backup my data</string>
+</resources>
