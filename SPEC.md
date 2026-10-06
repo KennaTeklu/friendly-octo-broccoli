@@ -134,3 +134,18 @@ Missing screenshots = unverified features = do not claim them.
 - Do not invent features the HTML does not have.
 - Do not drop features the HTML does have.
 - Do not claim a feature without a screenshot.
+
+---
+
+## Appendix — extracted feature data
+
+The full feature inventory extracted from the HTML is in the `spec/` folder. Read these alongside SPEC.md:
+
+- `spec/A-functions.md` — 748 JavaScript function names from the HTML app
+- `spec/B-modules.md` — 35 P4 modules with their methods
+- `spec/C-storage.md` — 33 localStorage/sessionStorage keys
+- `spec/D-ids.md` — 324 UI element IDs
+- `spec/E-css.md` — 569 CSS classes defining the visual identity
+- `spec/G-datakeys.md` — 193 data model keys (import/export round-trip compatibility)
+
+Any function, module, method, key, ID, or class in these appendices that does not have a native equivalent is a gap. Every gap must be either implemented or explicitly marked desktop-only in CHANGES.md.
