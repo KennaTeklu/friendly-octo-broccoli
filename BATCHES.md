@@ -156,3 +156,9 @@ versionCode increments by 1 every batch. First batch = 11. Last batch = 18. `adb
 ## Current batch
 
 **Batch 1 — Merge baseline.** Awaiting delivery.
+---
+
+## Hotfix — HOTFIX-1.1.md must be executed BEFORE Batch 2
+
+Batch 1 shipped with two known issues (Library crash, in-app 3D visuals that must be removed). Both are documented in HOTFIX-1.1.md and must be resolved and re-verified before starting Batch 2.
+
