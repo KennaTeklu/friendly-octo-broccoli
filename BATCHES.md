@@ -162,3 +162,10 @@ versionCode increments by 1 every batch. First batch = 11. Last batch = 18. `adb
 
 Batch 1 shipped with two known issues (Library crash, in-app 3D visuals that must be removed). Both are documented in HOTFIX-1.1.md and must be resolved and re-verified before starting Batch 2.
 
+
+---
+
+## Hotfix required before Batch 2
+
+HOTFIX-1.1.md documents two issues found on the client device during Batch 1 acceptance: (1) Library causes an ANR, and (2) in-app 3D visuals must be removed (HTML uses external browser search for demonstrations, not in-app 3D animation). Both must be fixed and shipped as versionCode 12 / versionName 1.4.2 before Batch 2 work begins.
+
