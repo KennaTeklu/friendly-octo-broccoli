@@ -77,6 +77,27 @@ fun MomentumDialog(onBigger: () -> Unit, onStronger: () -> Unit, onDismiss: () -
     }
 }
 
+/**
+ * BATCH-2A feature 8 — pre-import guard (P4.Studio.guardImport): confirm before
+ * ANY import; only the red DANGER button proceeds.
+ */
+@Composable
+fun ImportGuardDialog(detail: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val c = LocalProColors.current
+    GlassDialogHost(onDismiss = onDismiss) {
+        Text("⚠️ Import data?", style = ProType.cardTitle, color = c.text)
+        Spacer(Modifier.height(8.dp))
+        Text(detail, style = ProType.body2, color = c.text2)
+        Spacer(Modifier.height(8.dp))
+        Text("A guarded snapshot of your current data is taken first, so you can always restore.", style = ProType.small, color = c.text3)
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            P4Button("Yes, import", style = BtnStyle.DANGER, onClick = onConfirm)
+            P4Button("Cancel", style = BtnStyle.SECONDARY, onClick = onDismiss)
+        }
+    }
+}
+
 /** V2 — snapshot restore confirmation. */
 @Composable
 fun RestoreConfirmDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {

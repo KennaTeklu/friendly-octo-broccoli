@@ -15,7 +15,9 @@ import kotlinx.serialization.json.JsonPrimitive
  *   4. ellipsis character … → ...
  *   5. {exercises:[...]} wrapper accepted as the array itself
  *   6. exercise field aliases: Name/title → name, category → group, primaryMuscles → muscles
- * NOT tolerated (matching legacy): BOM, NaN, em-dash keys, ASCII single-quoted keys are left
+ *   7. BATCH-2A P0 fix: string-form special floating-point values ("NaN", NaN,
+ *      "-NaN", "Infinity", "-Infinity", quoted OR bare, in value positions) → null
+ * NOT tolerated (matching legacy): BOM, em-dash keys, ASCII single-quoted keys are left
  * to the strict parser (isLenient already handles unquoted keys in kotlinx-serialization).
  */
 object JsonHeal {
@@ -32,7 +34,66 @@ object JsonHeal {
         s = stripFences(s)
         // 2. trailing commas
         s = stripTrailingCommas(s)
+        // 7. BATCH-2A: special floating-point values in value positions → null
+        //    (quoted "NaN" from the HTML writer + bare NaN from non-conforming writers)
+        s = replaceSpecialValues(s)
         return s.trim()
+    }
+
+    private val SPECIAL_VALUES = setOf("NaN", "-NaN", "Infinity", "-Infinity")
+
+    /**
+     * BATCH-2A P0 fix (part 3). Replace special floating-point VALUE tokens —
+     * both the quoted form the HTML writer emits ("averageRPE": "NaN") and the
+     * bare unquoted form ("averageRPE": NaN) — with null, so the strict parser
+     * never sees a special float. String-aware: tokens inside string literals
+     * are only replaced when the literal itself is the value (i.e. not followed
+     * by ':' which marks a key, and only when preceded by ':', '[' or ','), so
+     * prose like "set 1, NaN, felt heavy" in a notes field is left untouched.
+     */
+    fun replaceSpecialValues(s: String): String {
+        val sb = StringBuilder(s.length + 8)
+        var i = 0
+        fun prevMeaningful(idx: Int): Char {
+            var j = idx - 1
+            while (j >= 0 && s[j].isWhitespace()) j--
+            return if (j >= 0) s[j] else ' '
+        }
+        fun nextMeaningful(idx: Int): Char {
+            var j = idx
+            while (j < s.length && s[j].isWhitespace()) j++
+            return if (j < s.length) s[j] else ' '
+        }
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '"') {
+                // copy the whole string literal verbatim, then decide by context
+                val start = i
+                i++
+                while (i < s.length) {
+                    if (s[i] == '\\' && i + 1 < s.length) { i += 2; continue }
+                    if (s[i] == '"') { i++; break }
+                    i++
+                }
+                val literal = s.substring(start, i)
+                val isKey = nextMeaningful(i) == ':'
+                val body = if (literal.length >= 2) literal.substring(1, literal.length - 1) else ""
+                if (!isKey && body in SPECIAL_VALUES) sb.append("null") else sb.append(literal)
+                continue
+            }
+            if (c == 'N' || c == 'I' || c == '-') {
+                val prev = prevMeaningful(i)
+                if (prev == ':' || prev == '[' || prev == ',') {
+                    var j = i
+                    while (j < s.length && (s[j].isLetterOrDigit() || s[j] == '-')) j++
+                    val token = s.substring(i, j)
+                    if (token in SPECIAL_VALUES) { sb.append("null"); i = j; continue }
+                }
+            }
+            sb.append(c)
+            i++
+        }
+        return sb.toString()
     }
 
     fun stripFences(s: String): String {

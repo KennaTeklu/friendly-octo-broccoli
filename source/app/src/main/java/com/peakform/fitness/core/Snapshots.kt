@@ -18,7 +18,7 @@ object Snapshots {
     private const val PREFIX = "snapshot_"
     private const val CAP = 10
 
-    data class Entry(val id: String, val name: String, val at: Long)
+    data class Entry(val id: String, val name: String, val at: Long, val bytes: Long = 0)
 
     suspend fun list(ctx: Context): List<Entry> = withContext(Dispatchers.IO) {
         val dao = ProStore(ctx).db.dao()
@@ -29,7 +29,8 @@ object Snapshots {
                 try {
                     val o = ProJson.json.parseToJsonElement(raw).jsonObject
                     val at = (o["at"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: 0L
-                    Entry(key, (o["name"] as? JsonPrimitive)?.contentOrNull ?: "Snapshot", at)
+                    // BATCH-2A feature 7: the list shows timestamp AND size
+                    Entry(key, (o["name"] as? JsonPrimitive)?.contentOrNull ?: "Snapshot", at, raw.toByteArray().size.toLong())
                 } catch (_: Exception) { null }
             }
         }.sortedByDescending { it.at }

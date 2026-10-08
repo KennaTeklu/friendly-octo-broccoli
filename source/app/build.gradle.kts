@@ -14,16 +14,33 @@ android {
         applicationId = "com.peakform.fitness"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "1.4.3"
+        versionCode = 14
+        versionName = "1.4.4"
     }
 
     signingConfigs {
         create("release") {
             // Deterministic uber-apk-signer embedded debug keystore —
             // cert SHA-256 1e08a903aef9c3a721510b64ec764d01d3d094eb954161b62544ea8f187b5953
-            // (unchanged across all batches so adb install -r upgrades in place)
-            storeFile = file("${rootDir}/keystore/debug.keystore")
+            // (unchanged across all batches so adb install -r upgrades in place).
+            // BATCH-2A cleanup: the keystore no longer lives in the source tree.
+            // Resolution order: -Ppro.keystore=<path> → $PRO_KEYSTORE →
+            // <repo-root>/keystore/debug.keystore (next to source/, not inside it) →
+            // ~/.keys/debug.keystore.
+            val keystoreCandidates = listOf(
+                providers.gradleProperty("pro.keystore").orNull,
+                System.getenv("PRO_KEYSTORE"),
+                File(rootDir.parentFile, "keystore/debug.keystore").absolutePath,
+                File(System.getProperty("user.home"), "keys/debug.keystore").absolutePath,
+            ).filterNotNull().filter { File(it).isFile() }
+            if (keystoreCandidates.isEmpty()) {
+                throw GradleException(
+                    "Release keystore not found. Place debug.keystore (cert 1e08a903…) at " +
+                    "${File(rootDir.parentFile, "keystore/debug.keystore").absolutePath} or ~/.keys/debug.keystore, " +
+                    "or pass -Ppro.keystore=<path> / set PRO_KEYSTORE."
+                )
+            }
+            storeFile = file(keystoreCandidates.first())
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"

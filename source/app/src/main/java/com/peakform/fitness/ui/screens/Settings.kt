@@ -75,7 +75,14 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
     var showLegal by remember { mutableStateOf(false) }
     var resetFlow by remember { mutableStateOf(false) }
     var pendingExport: JsonObject? by remember { mutableStateOf<JsonObject?>(null) }
+    var pendingExportText: Pair<String, String>? by remember { mutableStateOf(null) } // kind to "text/csv"|"application/json" + payload (feature 1/4/5/6)
     var pendingImport = remember { mutableStateOf(false) }
+    // BATCH-2A: guard + merge-report state for every import path
+    var pendingImportKind by remember { mutableStateOf<String?>(null) } // backup | exercises | phrasebook | bundle
+    var pendingImportRaw by remember { mutableStateOf<String?>(null) }
+    var importReport by remember { mutableStateOf<Backup.ImportResult?>(null) }
+    var listReport by remember { mutableStateOf<List<String>?>(null) }
+    var bundleReport by remember { mutableStateOf<Backup.BundleImportResult?>(null) }
 
     fun refresh() { ver.intValue++; ProState.notifyChanged() }
 
@@ -92,14 +99,44 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
         }
         pendingExport = null
     }
+    val textExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/*")) { uri ->
+        val (kind, payload) = pendingExportText ?: return@rememberLauncherForActivityResult
+        if (uri != null) {
+            val ok = Backup.writeTextToUri(ctx, uri, payload)
+            toast = if (ok) "$kind exported ✓" else "Export failed"
+            if (ok && kind == "CSV history") {
+                // feature 1: SAF save PLUS system share
+                try {
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/csv"
+                        putExtra(android.content.Intent.EXTRA_TEXT, payload)
+                    }
+                    ctx.startActivity(android.content.Intent.createChooser(send, "Share workout history CSV"))
+                } catch (_: Exception) {}
+            }
+        }
+        pendingExportText = null
+    }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             scope.launch {
                 val raw = Backup.readJsonFromUri(ctx, uri)
                 if (raw != null) {
-                    val res = Backup.import(ctx, raw)
-                    toast = res.message
-                    refresh()
+                    // feature 8: guard EVERY import — only a red confirm proceeds
+                    pendingImportKind = "backup"
+                    pendingImportRaw = raw
+                } else toast = "Could not read file"
+            }
+        }
+    }
+    val fileImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val raw = Backup.readJsonFromUri(ctx, uri)
+                if (raw != null) {
+                    val kind = pendingImportKind ?: "backup"
+                    pendingImportKind = kind
+                    pendingImportRaw = raw
                 } else toast = "Could not read file"
             }
         }
@@ -169,19 +206,58 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
                             exportLauncher.launch(ProState.exportFileName("export"))
                         },
                         onImport = { importLauncher.launch(arrayOf("application/json", "text/plain")) },
-                        onQuickSnap = {
-                            scope.launch {
-                                ProStore(ctx).snapshotVault("quick", ProState.data, ProState.currentWorkout)
-                                toast = "Quick snapshot saved"
-                                refresh()
+                        onExportCsv = {
+                            val (csv, rows) = Exporter.historyCsvPerSet()
+                            pendingExportText = "CSV history" to csv
+                            textExportLauncher.launch(ProState.exportFileName("history").replace(".json", ".csv"))
+                            if (rows == 0) toast = "No logged sets yet — the CSV will only hold the header"
+                        },
+                        onExportLibrary = {
+                            val json = Studio.exportLibrary(ctx)
+                            pendingExportText = "Custom exercises" to json
+                            textExportLauncher.launch(ProState.exportFileName("custom-exercises"))
+                        },
+                        onImportLibrary = {
+                            pendingImportKind = "exercises"
+                            fileImportLauncher.launch(arrayOf("application/json", "text/plain"))
+                        },
+                        onExportConsent = {
+                            val json = Consent.exportLog(ctx)
+                            pendingExportText = "Consent log" to json
+                            textExportLauncher.launch(ProState.exportFileName("consent-log"))
+                        },
+                        onExportFeedback = {
+                            val json = Exporter.feedbackJson(ctx)
+                            pendingExportText = "Feedback" to json
+                            textExportLauncher.launch(ProState.exportFileName("feedback"))
+                        },
+                        onExportPhrasebook = {
+                            val json = Vocab.exportPhrasebook(ctx)
+                            pendingExportText = "Phrasebook" to json
+                            textExportLauncher.launch(ProState.exportFileName("phrasebook-L${Vocab.currentLevel(ctx)}"))
+                        },
+                        onImportPhrasebook = {
+                            pendingImportKind = "phrasebook"
+                            fileImportLauncher.launch(arrayOf("application/json", "text/plain"))
+                        },
+                        onSnapshots = { onOpenSection("snapshots") },
+                        onPasteJson = { onOpenSection("pasteimport") },
+                        onExportBundle = {
+                            cs.launch {
+                                val json = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    Backup.exportBundleV1(ctx)
+                                }
+                                pendingExport = json
+                                exportLauncher.launch(ProState.exportFileName("app-bundle"))
                             }
                         },
+                        onImportBundle = {
+                            pendingImportKind = "bundle"
+                            fileImportLauncher.launch(arrayOf("application/json", "text/plain"))
+                        },
+                        onFeedback = { onOpenSection("feedback") },
                         )
                         Spacer(Modifier.height(8.dp))
-                        P4Button("Snapshots (list & restore)", icon = "fa-camera", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
-                            onOpenSection("snapshots")
-                        }
-                        Spacer(Modifier.height(6.dp))
                         Text("Cloud backup: exports go through the system file picker — choose your Google Drive folder there.", style = ProType.small, color = c.text3)
                     }
                     "Training environment" -> TrainingEnvCardBody { toast = it; refresh() }
@@ -235,9 +311,100 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
         }, ctx = ctx)
     }
 
+    // BATCH-2A feature 8: pre-import guard — red confirm before ANY import proceeds
+    val guardKind = pendingImportKind
+    val guardRaw = pendingImportRaw
+    if (guardKind != null && guardRaw != null) {
+        ImportGuardDialog(
+            detail = when (guardKind) {
+                "backup" -> "This merges the selected backup into your current data."
+                "exercises" -> "Custom exercises are MERGED — same name updates, new name adds. Existing data is never replaced."
+                "phrasebook" -> "The phrasebook merges into the reading-level ladders for the current level."
+                "bundle" -> "A full app bundle RESTORES everything: workouts, exercises, library, profiles, snapshots, settings and consent logs."
+                else -> "Proceed with the import?"
+            },
+            onConfirm = {
+                val kind = pendingImportKind
+                val raw = pendingImportRaw
+                pendingImportKind = null
+                pendingImportRaw = null
+                when (kind) {
+                    "backup" -> scope.launch {
+                        val res = Backup.import(ctx, raw ?: "")
+                        // feature 11: merge report surfaced as a dialog on EVERY import
+                        importReport = res
+                        refresh()
+                    }
+                    "exercises" -> {
+                        // feature 3: heal + merge + added/updated/rejected counts
+                        listReport = Studio.importAndMerge(ctx, raw ?: "")
+                        Badges.bumpCounter(ctx, "imports")
+                        refresh()
+                    }
+                    "phrasebook" -> {
+                        // feature 6: merge with added/updated/rejected counts
+                        val r = Vocab.importPhrasebookReport(ctx, raw ?: "")
+                        toast = "Phrasebook merged — added ${r.added}, updated ${r.updated}, rejected ${r.rejected}"
+                        refresh()
+                    }
+                    "bundle" -> {
+                        // feature 10: full restore with per-section details
+                        bundleReport = Backup.importBundleV1(ctx, raw ?: "")
+                        refresh()
+                    }
+                }
+            },
+            onDismiss = {
+                pendingImportKind = null
+                pendingImportRaw = null
+            },
+        )
+    }
+
+    // feature 11: merge report dialog after every backup import
+    importReport?.let { r ->
+        MergeReportDialog(
+            result = r,
+            onClose = {
+                importReport = null
+                toast = if (r.ok) "Import finished" else "Import failed"
+            },
+        )
+    }
+
+    // features 3/10: line-list report dialogs (custom exercises / bundle restore)
+    listReport?.let { lines ->
+        ListReportDialog(title = "Custom exercises merge report", lines = lines, onClose = { listReport = null })
+    }
+    bundleReport?.let { r ->
+        ListReportDialog(
+            title = if (r.ok) "App bundle restored" else "Bundle import failed",
+            lines = if (r.ok) listOf(r.message) + r.details else listOf(r.message),
+            onClose = { bundleReport = null },
+        )
+    }
+
     if (showLegal) {
         LegalCenterDialog(onClose = { showLegal = false })
     }
+}
+
+/** Line-list report dialog (custom-exercise merge report, bundle restore details). */
+@Composable
+fun ListReportDialog(title: String, lines: List<String>, onClose: () -> Unit) {
+    val c = LocalProColors.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onClose,
+        containerColor = c.glass2,
+        shape = RoundedCornerShape(28.dp),
+        title = { Text(title, style = ProType.cardTitle, color = c.text) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()).heightIn(max = 420.dp)) {
+                lines.forEach { line -> Text(line, style = ProType.small, color = c.text2, modifier = Modifier.padding(vertical = 1.dp)) }
+            }
+        },
+        confirmButton = { P4Button("Done", onClick = onClose, style = BtnStyle.PRIMARY, minHeight = 40) },
+    )
 }
 
 @Composable
@@ -453,20 +620,59 @@ private fun PowerCardBody(onToast: (String) -> Unit) {
 }
 
 @Composable
-private fun DataCardBody(onExport: () -> Unit, onExportA: () -> Unit, onImport: () -> Unit, onQuickSnap: () -> Unit) {
+private fun DataCardBody(
+    onExport: () -> Unit,
+    onExportA: () -> Unit,
+    onImport: () -> Unit,
+    onExportCsv: () -> Unit,
+    onExportLibrary: () -> Unit,
+    onImportLibrary: () -> Unit,
+    onExportConsent: () -> Unit,
+    onExportFeedback: () -> Unit,
+    onExportPhrasebook: () -> Unit,
+    onImportPhrasebook: () -> Unit,
+    onSnapshots: () -> Unit,
+    onPasteJson: () -> Unit,
+    onExportBundle: () -> Unit,
+    onImportBundle: () -> Unit,
+    onFeedback: () -> Unit,
+) {
     val c = LocalProColors.current
+    // BATCH-2A UI contract — exact button order from BATCH-2A.md § UI
     P4Button("Export full backup", icon = "fa-cloud-arrow-down", style = BtnStyle.SUCCESS, modifier = Modifier.fillMaxWidth()) { onExport() }
     Spacer(Modifier.height(8.dp))
-    P4Button("Export workout JSON (legacy format)", icon = "fa-download", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onExportA() }
+    P4Button("Export workout JSON (Format A)", icon = "fa-download", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onExportA() }
     Spacer(Modifier.height(8.dp))
     P4Button("Import backup", icon = "fa-upload", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onImport() }
     Spacer(Modifier.height(8.dp))
-    P4Button("Quick snapshot", icon = "fa-camera", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) { onQuickSnap() }
+    P4Button("Export workout history as CSV", icon = "fa-file-csv", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onExportCsv() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Export custom exercises", icon = "fa-file-export", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onExportLibrary() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Import custom exercises", icon = "fa-file-import", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onImportLibrary() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Export consent log", icon = "fa-scale-balanced", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onExportConsent() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Export feedback", icon = "fa-comment-dots", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onExportFeedback() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Export phrasebook", icon = "fa-language", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onExportPhrasebook() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Import phrasebook", icon = "fa-language", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onImportPhrasebook() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Snapshots", icon = "fa-camera", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) { onSnapshots() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Paste JSON to import", icon = "fa-clipboard", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onPasteJson() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Export full app bundle", icon = "fa-box-archive", style = BtnStyle.SUCCESS, modifier = Modifier.fillMaxWidth()) { onExportBundle() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Import full app bundle", icon = "fa-box-open", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onImportBundle() }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Feedback (write a note)", icon = "fa-pen", style = BtnStyle.GHOST, modifier = Modifier.fillMaxWidth()) { onFeedback() }
     Spacer(Modifier.height(10.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         com.peakform.fitness.ui.FaIcon("fa-shield-halved", size = 13.sp, tint = c.ok)
         Spacer(Modifier.width(8.dp))
-        Text("Every import takes a guarded snapshot first. Exports import cleanly into the old app.", style = ProType.small, color = c.text3)
+        Text("Every import asks for a red confirm and takes a guarded snapshot first. Exports import cleanly into the old app.", style = ProType.small, color = c.text3)
     }
 }
 

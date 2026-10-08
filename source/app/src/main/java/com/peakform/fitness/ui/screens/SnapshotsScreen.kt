@@ -56,13 +56,14 @@ fun SnapshotsScreen(onClose: () -> Unit) {
         } else {
             entries.forEach { e ->
                 val whenTxt = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.US).format(java.util.Date(e.at))
+                val sizeTxt = if (e.bytes >= 1024) "${(e.bytes + 512) / 1024} KB" else "${e.bytes} B"
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surface).border(1.dp, c.hairline, RoundedCornerShape(14.dp))
                     .clickable { confirmRestore = e }.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     FaIcon("fa-clock-rotate-left", size = 14.sp, tint = c.accent)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(e.name, style = ProType.label, color = c.text)
-                        Text(whenTxt, style = ProType.small, color = c.text3)
+                        Text("$whenTxt · $sizeTxt", style = ProType.small, color = c.text3)
                     }
                     Text("restore", style = ProType.small, color = c.accent)
                     Spacer(Modifier.width(10.dp))

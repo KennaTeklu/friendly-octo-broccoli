@@ -288,6 +288,12 @@ object ProState {
 object ProfileRegistry {
     data class Profile(val id: String, val name: String, val emoji: String?, val createdAt: Long, val slot: Int)
 
+    /** Raw registry JSON for the full-app-bundle export (feature 10). */
+    fun rawJson(ctx: Context): String? {
+        val sp = ctx.getSharedPreferences("registry", Context.MODE_PRIVATE)
+        return sp.getString("pro_profiles_v2", null) ?: sp.getString("profiles", null)
+    }
+
     fun read(ctx: Context): Triple<List<Profile>, String?, Boolean> {
         val sp = ctx.getSharedPreferences("registry", Context.MODE_PRIVATE)
         val raw = sp.getString("pro_profiles_v2", null) ?: sp.getString("profiles", null)

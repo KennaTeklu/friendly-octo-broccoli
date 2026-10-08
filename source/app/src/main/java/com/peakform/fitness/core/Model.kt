@@ -33,6 +33,7 @@ object ProJson {
         encodeDefaults = true
         explicitNulls = false
         prettyPrint = false
+        allowSpecialFloatingPointValues = true
     }
     val pretty: Json = Json(from = json) { prettyPrint = true; prettyPrintIndent = "  " }
 

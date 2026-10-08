@@ -425,6 +425,8 @@ fun AppShell(
                         "glossary" -> GlossaryScreen(onClose = { go("settings") })
                         "profiles" -> ProfilesScreen(onClose = { go("dashboard") })
                         "snapshots" -> SnapshotsScreen(onClose = { go("settings") })
+                        "pasteimport" -> PasteJsonScreen(onClose = { go("settings") })
+                        "feedback" -> FeedbackScreen(onClose = { go("settings") })
                         "mycycle" -> MyCycleScreen(onClose = { go("dashboard") })
                         "badges" -> BadgeGalleryScreen()
                     }

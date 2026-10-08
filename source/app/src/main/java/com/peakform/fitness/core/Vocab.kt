@@ -25,6 +25,7 @@ object Vocab {
     )
 
     const val PREF_KEY = "p4_vocab"
+    const val CUSTOM_KEY = "p4_vocab_custom"
     private var ladders: Map<String, List<String>> = emptyMap()
 
     fun init(ctx: Context) {
@@ -39,7 +40,42 @@ object Vocab {
             ProLog.e("VOCAB", "ladder load failed: ${e.message}")
             emptyMap()
         }
+        // BATCH-2A feature 6: re-apply the persisted custom phrasebook over the assets
+        assetLadders = ladders
+        ladders = ladders + readCustom(ctx)
         ProLog.i("VOCAB", "ladders loaded: ${ladders.size} keys")
+    }
+
+    private fun readCustom(ctx: Context): Map<String, List<String>> = try {
+        val raw = ProPrefs.get(ctx, CUSTOM_KEY) ?: return emptyMap()
+        if (raw.isBlank()) emptyMap() else {
+            ProJson.json.parseToJsonElement(raw).jsonObject.mapValues { (_, v) ->
+                v.jsonArray.map { (it as JsonPrimitive).content }
+            }
+        }
+    } catch (e: Exception) {
+        ProLog.w("VOCAB", "custom ladders load failed: ${e.message}")
+        emptyMap()
+    }
+
+    /** Re-read the persisted custom phrasebook after a bundle import (feature 10). */
+    fun reloadCustom(ctx: Context) {
+        ladders = ladders + readCustom(ctx)
+    }
+
+    private fun persistCustom(ctx: Context) {
+        val custom = ladders.filterKeys { key -> key !in ASSET_LADDER_KEYS || customDiffersFromAsset(key) }
+        ProPrefs.put(ctx, CUSTOM_KEY, ProJson.json.encodeToString(
+            JsonObject.serializer(),
+            JsonObject(custom.mapValues { (_, v) -> JsonArray(v.map { JsonPrimitive(it) }) })))
+    }
+
+    private var assetLadders: Map<String, List<String>> = emptyMap()
+    private val ASSET_LADDER_KEYS: Set<String> get() = assetLadders.keys
+
+    private fun customDiffersFromAsset(key: String): Boolean {
+        val asset = assetLadders[key] ?: return true
+        return ladders[key] != asset
     }
 
     fun currentLevel(ctx: Context): Int = ProPrefs.get(ctx, PREF_KEY)?.toIntOrNull()?.coerceIn(1, 10) ?: 5
@@ -92,6 +128,46 @@ object Vocab {
         } catch (e: Exception) {
             ProLog.e("VOCAB", "phrasebook import failed: ${e.message}")
             0
+        }
+    }
+
+    /** Phrasebook merge report (BATCH-2A feature 6): added / updated / rejected counts. */
+    data class PhrasebookReport(val added: Int, val updated: Int, val rejected: Int, val total: Int)
+
+    fun importPhrasebookReport(ctx: Context, raw: String): PhrasebookReport {
+        val level = currentLevel(ctx)
+        var added = 0; var updated = 0; var rejected = 0; var total = 0
+        try {
+            val obj = ProJson.json.parseToJsonElement(JsonHeal.heal(raw)).jsonObject
+            val updatedLadders = ladders.toMutableMap()
+            obj.forEach { (key, value) ->
+                total++
+                val text = (value as? JsonPrimitive)?.contentOrNull
+                if (text.isNullOrBlank()) { rejected++; return@forEach }
+                val ladder = updatedLadders[key]?.toMutableList()
+                if (ladder == null || level - 1 !in ladder.indices) {
+                    // unknown/short key: build a fresh 10-slot ladder (L5 keeps the key, legacy invariant)
+                    val fresh = MutableList(10) { idx -> if (idx == 4) key else "" }
+                    if (level - 1 in fresh.indices) {
+                        fresh[level - 1] = text
+                        updatedLadders[key] = fresh
+                        added++
+                    } else rejected++
+                    return@forEach
+                }
+                val existing = ladder[level - 1]
+                if (existing == text) { rejected++; return@forEach }
+                ladder[level - 1] = text
+                updatedLadders[key] = ladder
+                if (existing.isBlank()) added++ else updated++
+            }
+            ladders = updatedLadders
+            persistCustom(ctx)
+            ProLog.i("VOCAB", "phrasebook merge: +$added ~$updated x$rejected of $total at L$level")
+            return PhrasebookReport(added, updated, rejected, total)
+        } catch (e: Exception) {
+            ProLog.e("VOCAB", "phrasebook import failed: ${e.message}")
+            return PhrasebookReport(0, 0, if (total > 0) total else 1, total)
         }
     }
 
