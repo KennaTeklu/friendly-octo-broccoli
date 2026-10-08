@@ -1,6 +1,7 @@
 package com.peakform.fitness
 
 import android.content.Context
+import androidx.compose.material3.Text
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,23 @@ import com.peakform.fitness.ui.screens.SettingsScreen
 import com.peakform.fitness.ui.screens.SnapshotsScreen
 import com.peakform.fitness.ui.screens.StudioScreen
 import com.peakform.fitness.ui.screens.WorkoutScreen
+import com.peakform.fitness.ui.screens.RestTimer
+import com.peakform.fitness.ui.screens.LongevityCircleCard
+import com.peakform.fitness.ui.screens.StrengthForecastCard
+import com.peakform.fitness.ui.screens.GoalCycleCard
+import com.peakform.fitness.ui.screens.VolumeBars
+import com.peakform.fitness.ui.screens.ComponentRadar
+import com.peakform.fitness.ui.screens.FrequencyStrip
+import com.peakform.fitness.ui.screens.RpeHistogram
+import com.peakform.fitness.ui.screens.VolumeChart
+import com.peakform.fitness.ui.screens.VolumeByMuscle7d
+import com.peakform.fitness.ui.screens.FiveYearMonteCarlo
+import com.peakform.fitness.ui.screens.MuscleSparklines
+import com.peakform.fitness.ui.screens.RecordsBoard
+import com.peakform.fitness.ui.screens.projection3MonthPublic
+import com.peakform.fitness.ui.components.SectionTitle
+import com.peakform.fitness.ui.components.GlassCard
+import com.peakform.fitness.ui.screens.CompositeChart
 import com.peakform.fitness.ui.screens.HealthClearanceCardBody
 import com.peakform.fitness.ui.screens.PrivacyCardBody
 import com.peakform.fitness.ui.screens.AboutCardBody
@@ -196,6 +214,12 @@ class VerifyScreenshots {
     fun workoutAndShare() {
         seedDraft()
         snap("feature-workout") { WorkoutScreen(onRequireGenerate = {}, onOpenSection = {}) }
+        // BATCH-2: rest timer running — set the app-scope RestTimer state directly
+        // (no coroutine needed for a static screenshot)
+        RestTimer.total = 120
+        RestTimer.secondsLeft = 87
+        snap("feature-workout-rest-timer") { WorkoutScreen(onRequireGenerate = {}, onOpenSection = {}) }
+        RestTimer.stop()
         val w = ProState.currentWorkout ?: return
         snap("feature-workout-share-qr") { ShareSheet(workout = w, onDismiss = {}) }
     }
@@ -203,6 +227,108 @@ class VerifyScreenshots {
     @Test
     fun progressCharts() {
         snap("feature-progress") { ProgressScreen(onOpenSection = {}) }
+    }
+
+    // ---- BATCH-2: individual Progress chart screenshots (13 minimum) ----
+    @Test
+    fun progressChartItems() {
+        seedDraft()
+        // seed some completed workouts so the charts have data
+        ProState.data = ProState.data.copy(
+            workouts = ProState.data.workouts + listOf(
+                WorkoutRecord(
+                    id = "w_done_1", date = ProState.todayLocal(), type = "push", name = "Push Day",
+                    dateCompleted = ProState.nowIso(),
+                    exercises = listOf(
+                        WorkoutExercise(
+                            id = "bench_press", name = "Bench Press", muscleGroup = listOf("chest"),
+                            prescribed = Prescription(sets = 3, reps = "8-12", weight = 135.0),
+                            actual = com.peakform.fitness.core.ActualPerformance(weight = 135.0, sets = 3, reps = listOf(10.0, 8.0, 8.0), firstRPE = 8.0, volume = 3510.0),
+                            equipment = "barbell",
+                        ),
+                        WorkoutExercise(
+                            id = "squat", name = "Back Squat", muscleGroup = listOf("quadriceps"),
+                            prescribed = Prescription(sets = 3, reps = "5-8", weight = 185.0),
+                            actual = com.peakform.fitness.core.ActualPerformance(weight = 185.0, sets = 3, reps = listOf(6.0, 5.0, 5.0), firstRPE = 9.0, volume = 2960.0),
+                            equipment = "barbell",
+                        ),
+                    ),
+                    summary = com.peakform.fitness.core.WorkoutSummary(totalVolume = 6470.0),
+                ),
+            ),
+        )
+        // 1. longevity circle
+        snap("progress-01-longevity-circle") {
+            GlassCardHost2 { SectionTitle("fa-heart-pulse", "Longevity Score"); LongevityCircleCard() }
+        }
+        // 2. strength forecast (forecastTotal + forecastWilks)
+        snap("progress-02-strength-forecast") {
+            GlassCardHost2 { SectionTitle("fa-weight-hanging", "Strength Forecast"); StrengthForecastCard() }
+        }
+        // 3. volume bars (last 8 workouts)
+        snap("progress-03-volume-bars") {
+            GlassCardHost2 { SectionTitle("fa-chart-simple", "Volume — Last 8 Workouts"); VolumeBars(1) }
+        }
+        // 4. 11-component radar
+        snap("progress-04-component-radar") {
+            GlassCardHost2 { SectionTitle("fa-bullseye", "11-Component Radar"); ComponentRadar(1) }
+        }
+        // 5. 8-week frequency chart
+        snap("progress-05-frequency-strip") {
+            GlassCardHost2 { SectionTitle("fa-calendar-week", "Workout Frequency — 8 Weeks"); FrequencyStrip(1) }
+        }
+        // 6. RPE histogram
+        snap("progress-06-rpe-histogram") {
+            GlassCardHost2 { SectionTitle("fa-gauge", "RPE Trends"); RpeHistogram(1) }
+        }
+        // 7. volume chart (line, BATCH-2 addition)
+        snap("progress-07-volume-chart") {
+            GlassCardHost2 { SectionTitle("fa-chart-line", "Volume Trend (per session)"); VolumeChart(1) }
+        }
+        // 8. strength trend (composite chart)
+        snap("progress-08-strength-trend") {
+            GlassCardHost2 {
+                val composite = com.peakform.fitness.engine.Stats.dashboardComposite(null)
+                SectionTitle("fa-arrow-trend-up", "Strength Trend (est. 1RM)")
+                CompositeChart(points = composite)
+            }
+        }
+        // 9. records board
+        snap("progress-09-records-board") {
+            GlassCardHost2 { SectionTitle("fa-trophy", "Records Board"); RecordsBoard() }
+        }
+        // 10. goal cycle status
+        snap("progress-10-goal-cycle") {
+            GlassCardHost2 { SectionTitle("fa-flag-checkered", "Goal Cycle"); GoalCycleCard() }
+        }
+        // 11. 3-month projection
+        snap("progress-11-3month-projection") {
+            GlassCardHost2 {
+                val composite = com.peakform.fitness.engine.Stats.dashboardComposite(null)
+                SectionTitle("fa-arrow-trend-up", "3-Month Projection")
+                val p = projection3MonthPublic(composite)
+                androidx.compose.material3.Text(p ?: "Log a few workouts to see your projection.", color = androidx.compose.ui.graphics.Color.White)
+            }
+        }
+        // 12. 5-year Monte Carlo forecast
+        snap("progress-12-5yr-monte-carlo") {
+            GlassCardHost2 { SectionTitle("fa-dice", "5-Year Forecast (Monte Carlo)"); FiveYearMonteCarlo(1) }
+        }
+        // 13. per-muscle sparklines
+        snap("progress-13-per-muscle-sparklines") {
+            GlassCardHost2 { SectionTitle("fa-wave-square", "Per-Muscle Sparklines (4 weeks)"); MuscleSparklines(1) }
+        }
+        // 14. volume by muscle (7 days, BATCH-2 addition)
+        snap("progress-14-volume-by-muscle-7d") {
+            GlassCardHost2 { SectionTitle("fa-dumbbell", "Volume by Muscle — Last 7 Days"); VolumeByMuscle7d(1) }
+        }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun GlassCardHost2(inner: @androidx.compose.runtime.Composable () -> Unit) {
+        androidx.compose.foundation.layout.Column(
+            androidx.compose.ui.Modifier.fillMaxWidth().padding(16.dp),
+        ) { inner() }
     }
 
     @Test

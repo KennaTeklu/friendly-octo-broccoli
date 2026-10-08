@@ -14,8 +14,20 @@ android {
         applicationId = "com.peakform.fitness"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.4.0"
+        versionCode = 13
+        versionName = "1.4.3"
+    }
+
+    signingConfigs {
+        create("release") {
+            // Deterministic uber-apk-signer embedded debug keystore —
+            // cert SHA-256 1e08a903aef9c3a721510b64ec764d01d3d094eb954161b62544ea8f187b5953
+            // (unchanged across all batches so adb install -r upgrades in place)
+            storeFile = file("${rootDir}/keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -23,6 +35,7 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             isDebuggable = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

@@ -26,6 +26,8 @@ import com.peakform.fitness.ui.components.*
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlin.random.Random
 
 /**
  * Progress — 1:1 port of #progress-section (scr-progress.md):
@@ -93,6 +95,18 @@ fun ProgressScreen(onOpenSection: (String) -> Unit) {
         // strength forecast (SBD)
         GlassCard(padding = PaddingValues(16.dp)) {
             SectionTitle("fa-weight-hanging", "Strength Forecast", Modifier)
+            // BATCH-2: forecastTotal (sum of S/B/D est1RM) + forecastWilks (bodyweight-normalized)
+            val sbdTotal = forecast.take(3).sumOf { it.est1RM }
+            val bodyweight = ProState.data.user.weight?.takeIf { it > 0 } ?: 1.0
+            val wilks = sbdTotal / bodyweight
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(c.surface2).padding(8.dp)) {
+                    Column { Text("forecastTotal", fontSize = 9.sp, color = c.text3); Text("${sbdTotal.toInt()} lbs", style = ProType.label, color = c.accent) }
+                }
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(c.surface2).padding(8.dp)) {
+                    Column { Text("forecastWilks", fontSize = 9.sp, color = c.text3); Text(String.format("%.2f", wilks), style = ProType.label, color = c.accent) }
+                }
+            }
             forecast.take(4).forEach { row ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                     com.peakform.fitness.ui.FaIcon("fa-dumbbell", size = 12.sp, tint = c.accent)
@@ -182,6 +196,30 @@ fun ProgressScreen(onOpenSection: (String) -> Unit) {
             } else {
                 Text(projected, style = ProType.body2, color = c.text2)
             }
+        }
+
+        // BATCH-2: Volume by muscle (last 7 days) — distinct from the last-8-workouts bar chart
+        GlassCard(padding = PaddingValues(16.dp)) {
+            SectionTitle("fa-dumbbell", "Volume by Muscle — Last 7 Days", Modifier)
+            VolumeByMuscle7d(ver.intValue)
+        }
+
+        // BATCH-2: Volume trend line chart (canvas volumeChart, line 6505)
+        GlassCard(padding = PaddingValues(16.dp)) {
+            SectionTitle("fa-chart-line", "Volume Trend (per session)", Modifier)
+            VolumeChart(ver.intValue)
+        }
+
+        // BATCH-2: 5-year Monte Carlo forecast
+        GlassCard(padding = PaddingValues(16.dp)) {
+            SectionTitle("fa-dice", "5-Year Forecast (Monte Carlo)", Modifier)
+            FiveYearMonteCarlo(ver.intValue)
+        }
+
+        // BATCH-2: per-muscle sparklines (last 4 weeks)
+        GlassCard(padding = PaddingValues(16.dp)) {
+            SectionTitle("fa-wave-square", "Per-Muscle Sparklines (4 weeks)", Modifier)
+            MuscleSparklines(ver.intValue)
         }
 
         P4Button("Back to Dashboard", icon = "fa-arrow-left", style = BtnStyle.GHOST, modifier = Modifier.fillMaxWidth()) {
@@ -364,6 +402,8 @@ fun RecordsBoard() {
 }
 
 /** SC7: simple linear projection of the composite trend, 3 months out. */
+fun projection3MonthPublic(points: List<Stats.CompositePoint>): String? = projection3Month(points)
+
 private fun projection3Month(points: List<Stats.CompositePoint>): String? {
     if (points.size < 6) return null
     val n = points.size
@@ -377,4 +417,272 @@ private fun projection3Month(points: List<Stats.CompositePoint>): String? {
         else -> "holding steady"
     }
     return "Composite score is $direction — projected ${'$'}{projected.toInt()}/100 in 3 months (now ${'$'}{lastVal.toInt()})."
+}
+
+// ---------------- BATCH-2 progress additions ----------------
+
+// ---------------- BATCH-2 progress additions ----------------
+
+/** Public wrapper for the longevity circle hero card (for individual screenshot capture). */
+@Composable
+fun LongevityCircleCard() {
+    val c = LocalProColors.current
+    val longevity = remember { Stats.calculateLongevityScore() }
+    val strengthProgress = remember { Stats.calculateOverallStrengthProgress() }
+    val streak = remember { Stats.calculateStreak() }
+    GlassCard(padding = PaddingValues(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val color = when {
+                longevity.total >= 80 -> c.ok
+                longevity.total >= 60 -> c.warn
+                else -> c.bad
+            }
+            ProgressRing(pct = longevity.total.toDouble(), sizeDp = 100, ringWidth = 8, color = color) {
+                Box(Modifier.size(80.dp).clip(RoundedCornerShape(999.dp)).background(c.surface), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("${longevity.total}", fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = color, fontFamily = SpaceGrotesk)
+                        Text("/100", fontSize = 10.sp, color = c.text3)
+                    }
+                }
+            }
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text("Longevity Score", style = ProType.cardTitle, color = c.text)
+                Text(longevity.status, style = ProType.body2, color = color)
+                Spacer(Modifier.height(6.dp))
+                Text("Overall strength progress ${String.format("%.1f", strengthProgress)}%", style = ProType.small, color = c.text3)
+                Text("$streak day streak", style = ProType.small, color = c.text3)
+            }
+        }
+    }
+}
+
+/** Public wrapper for the strength forecast card (for individual screenshot capture). */
+@Composable
+fun StrengthForecastCard() {
+    val c = LocalProColors.current
+    val forecast = remember { Stats.strengthForecast() }
+    GlassCard(padding = PaddingValues(16.dp)) {
+        val sbdTotal = forecast.take(3).sumOf { it.est1RM }
+        val bodyweight = ProState.data.user.weight?.takeIf { it > 0 } ?: 1.0
+        val wilks = sbdTotal / bodyweight
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(c.surface2).padding(8.dp)) {
+                Column { Text("forecastTotal", fontSize = 9.sp, color = c.text3); Text("${sbdTotal.toInt()} lbs", style = ProType.label, color = c.accent) }
+            }
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(c.surface2).padding(8.dp)) {
+                Column { Text("forecastWilks", fontSize = 9.sp, color = c.text3); Text(String.format("%.2f", wilks), style = ProType.label, color = c.accent) }
+            }
+        }
+        forecast.take(4).forEach { row ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                com.peakform.fitness.ui.FaIcon("fa-dumbbell", size = 12.sp, tint = c.accent)
+                Spacer(Modifier.width(8.dp))
+                Text(row.lift.replace('_', ' ').replaceFirstChar { it.uppercase() }, style = ProType.body2, color = c.text2, modifier = Modifier.weight(1f))
+                Text("${row.est1RM.toInt()} lbs", style = ProType.label, color = c.text)
+                Spacer(Modifier.width(8.dp))
+                Text("×${String.format("%.2f", row.bodyweightRatio)} BW", style = ProType.small, color = c.text3)
+            }
+        }
+        if (forecast.isEmpty()) Text("Log some workouts to see your forecast.", style = ProType.small, color = c.text3)
+    }
+}
+
+/** Public wrapper for the goal cycle status card (for individual screenshot capture). */
+@Composable
+fun GoalCycleCard() {
+    val c = LocalProColors.current
+    GlassCard(padding = PaddingValues(16.dp)) {
+        val gc = ProState.data.user.goalCycle
+        if (gc == null || gc.goals.isEmpty()) {
+            Text("No goal cycle active. Goals arrive with your next cycle.", style = ProType.small, color = c.text3)
+        } else {
+            KeyValueRow("Cycle", "#${gc.cycleNumber}")
+            KeyValueRow("Started", gc.startDate.ifBlank { "—" })
+            KeyValueRow("Achievement", "${gc.achievementRate.toInt()}%")
+            gc.goals.take(4).forEach { g ->
+                KeyValueRow(g.title.ifBlank { g.key.replace('_', ' ') }, "${g.current.toInt()} / ${g.target.toInt()} ${g.unit}")
+            }
+        }
+    }
+}
+
+/** Box-Muller transform — generates a standard-normal sample (mean=0, stddev=1).
+ * Kotlin's stdlib Random doesn't ship nextGaussian, so we implement it here. */
+private fun nextGaussian(rng: kotlin.random.Random): Double {
+    var u = 0.0
+    var v = 0.0
+    while (u == 0.0) u = rng.nextDouble()
+    while (v == 0.0) v = rng.nextDouble()
+    return kotlin.math.sqrt(-2.0 * kotlin.math.ln(u)) * kotlin.math.cos(2.0 * Math.PI * v)
+}
+
+/** Volume by muscle — total volume per major muscle group over the last 7 days. */
+@Composable
+fun VolumeByMuscle7d(ver: Int = 0) {
+    val c = LocalProColors.current
+    val byMuscle = remember(ver) {
+        val now = System.currentTimeMillis()
+        val weekAgo = now - 7L * 24 * 3600 * 1000
+        val map = HashMap<String, Double>()
+        ProState.data.workouts.filter { it.isCompleted }.forEach { w ->
+            val ms = ProState.utcDayMillis(w.date)
+            if (ms in weekAgo..now) {
+                w.exercises.forEach { ex ->
+                    val vol = ex.actual?.volume ?: ((ex.actual?.weight ?: 0.0) * (ex.actual?.sets ?: 0))
+                    if (vol > 0) {
+                        ex.muscleGroup.forEach { m ->
+                            map.merge(m, vol) { a, b -> a + b }
+                        }
+                    }
+                }
+            }
+        }
+        map.entries.sortedByDescending { it.value }.take(10).toList()
+    }
+    if (byMuscle.isEmpty()) {
+        Text("No volume logged in the last 7 days.", style = ProType.small, color = c.text3)
+        return
+    }
+    val maxV = byMuscle.maxOf { it.value }.takeIf { it > 0 } ?: 1.0
+    byMuscle.forEach { (muscle, vol) ->
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(muscle.replace('_', ' ').replaceFirstChar { it.uppercase() }, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
+            Box(Modifier.width(120.dp)) { ProgressBar((vol / maxV * 100), c.accent, height = 7) }
+            Spacer(Modifier.width(8.dp))
+            Text("${vol.toInt()} lbs", style = ProType.small, color = c.text, textAlign = TextAlign.End, modifier = Modifier.width(70.dp))
+        }
+    }
+}
+
+/** Volume trend line chart — total volume per workout over time (canvas volumeChart, line 6505). */
+@Composable
+fun VolumeChart(ver: Int = 0) {
+    val c = LocalProColors.current
+    val points = remember(ver) {
+        ProState.data.workouts.filter { it.isCompleted }.takeLast(20).map { it.summary?.totalVolume ?: 0.0 }
+    }
+    if (points.size < 2) {
+        Text("Log at least 2 workouts to see the trend.", style = ProType.small, color = c.text3)
+        return
+    }
+    val maxV = points.maxOrNull()?.takeIf { it > 0 } ?: 1.0
+    Canvas(Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(12.dp)).background(c.bg2)) {
+        val n = points.size
+        val stepX = if (n > 1) size.width / (n - 1) else size.width
+        val path = Path()
+        val fillPath = Path()
+        points.forEachIndexed { i, v ->
+            val x = i * stepX
+            val y = size.height - (size.height * (v / maxV).toFloat() * 0.85f) - 8f
+            if (i == 0) { path.moveTo(x, y); fillPath.moveTo(x, size.height); fillPath.lineTo(x, y) }
+            else { path.lineTo(x, y); fillPath.lineTo(x, y) }
+        }
+        fillPath.lineTo((n - 1) * stepX, size.height)
+        fillPath.close()
+        drawPath(fillPath, c.accent.copy(alpha = 0.18f))
+        drawPath(path, c.accent, style = Stroke(width = 3f))
+    }
+    Text("Last ${points.size} sessions · peak ${maxV.toInt()} lbs", style = ProType.small, color = c.text3)
+}
+
+/**
+ * 5-year Monte Carlo forecast — projects the user's composite strength forward 260 weeks
+ * (5 yr × 52 wk/yr) under random weekly perturbation. Runs 1000 scenarios, reports
+ * median + 5th/95th percentile of the projected composite score.
+ */
+@Composable
+fun FiveYearMonteCarlo(ver: Int = 0) {
+    val c = LocalProColors.current
+    val result = remember(ver) {
+        val history = Stats.dashboardComposite(null)
+        val current = history.lastOrNull()?.value ?: 50.0
+        // slope per workout, estimated from history (fallback: +0.05/workout)
+        val slope = if (history.size >= 4) {
+            val recent = history.takeLast(4)
+            (recent.last().value - recent.first().value) / kotlin.math.max(1, recent.size - 1)
+        } else 0.05
+        val rng = Random(42L)
+        val weeks = 260
+        val scenarios = 1000
+        val projections = DoubleArray(scenarios) {
+            var v = current
+            for (w in 0 until weeks) {
+                // weekly drift = slope × (sessions/week ~ 3) + Gaussian noise (Box-Muller)
+                val noise = nextGaussian(rng)
+                v += slope * 3 + noise * 0.4
+                v = v.coerceIn(0.0, 100.0)
+            }
+            v
+        }
+        projections.sort()
+        Triple(projections[scenarios / 20], projections[scenarios / 2], projections[scenarios * 19 / 20])
+    }
+    val (p5, p50, p95) = result
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(c.surface2).padding(8.dp)) {
+            Column { Text("5th pctile", fontSize = 9.sp, color = c.text3); Text("${p5.toInt()}", style = ProType.label, color = c.bad) }
+        }
+        Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(c.accentSoft).padding(8.dp)) {
+            Column { Text("Median", fontSize = 9.sp, color = c.text3); Text("${p50.toInt()}", style = ProType.label, color = c.accent) }
+        }
+        Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(c.surface2).padding(8.dp)) {
+            Column { Text("95th pctile", fontSize = 9.sp, color = c.text3); Text("${p95.toInt()}", style = ProType.label, color = c.ok) }
+        }
+    }
+    Text("1000 scenarios × 260 weeks (5 yr). Projected composite score distribution.", style = ProType.small, color = c.text3)
+}
+
+/** Per-muscle sparklines — inline 4-week volume trend, one per major muscle group. */
+@Composable
+fun MuscleSparklines(ver: Int = 0) {
+    val c = LocalProColors.current
+    val data = remember(ver) {
+        val now = System.currentTimeMillis()
+        val fourWeeksAgo = now - 28L * 24 * 3600 * 1000
+        // group completed workouts into 4 weekly buckets per muscle
+        val muscles = ProState.data.workouts
+            .filter { it.isCompleted }
+            .flatMap { it.exercises }
+            .flatMap { it.muscleGroup }
+            .distinct()
+            .take(8)
+        muscles.map { muscle ->
+            muscle to IntArray(4) { weekIdx ->
+                val weekStart = fourWeeksAgo + weekIdx * 7L * 24 * 3600 * 1000
+                val weekEnd = weekStart + 7L * 24 * 3600 * 1000
+                ProState.data.workouts.filter { it.isCompleted }.sumOf { w ->
+                    val ms = ProState.utcDayMillis(w.date)
+                    if (ms in weekStart until weekEnd) {
+                        w.exercises.filter { muscle in it.muscleGroup }.sumOf { ex ->
+                            ex.actual?.volume ?: ((ex.actual?.weight ?: 0.0) * (ex.actual?.sets ?: 0))
+                        }
+                    } else 0.0
+                }.toInt()
+            }
+        }
+    }
+    if (data.isEmpty() || data.all { it.second.sum() == 0 }) {
+        Text("No per-muscle volume data in the last 4 weeks.", style = ProType.small, color = c.text3)
+        return
+    }
+    data.forEach { (muscle, weeks) ->
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(muscle.replace('_', ' ').replaceFirstChar { it.uppercase() }, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
+            // mini sparkline canvas (80×24)
+            Canvas(Modifier.width(80.dp).height(24.dp)) {
+                val maxV = weeks.maxOrNull()?.takeIf { it > 0 } ?: 1
+                val stepX = size.width / kotlin.math.max(1, weeks.size - 1)
+                val path = Path()
+                weeks.forEachIndexed { i, v ->
+                    val x = i * stepX
+                    val y = size.height - (size.height * (v.toFloat() / maxV) * 0.9f) - 2f
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path, c.accent, style = Stroke(width = 2f))
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("${weeks.sum()} lbs", style = ProType.small, color = c.text, textAlign = TextAlign.End, modifier = Modifier.width(60.dp))
+        }
+    }
 }

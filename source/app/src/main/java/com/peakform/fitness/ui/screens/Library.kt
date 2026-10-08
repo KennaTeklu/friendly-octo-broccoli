@@ -6,9 +6,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,6 +35,13 @@ import com.peakform.fitness.ui.components.*
  * 6 group-by options, Expand/Collapse All, fitness-component chips, clickable muscle tags →
  * Muscle Wiki, "How to do"/"Images" browser buttons, Tested 1RM / Est. 1RM / Last / Next /
  * Done-Nx / New card lines, persisted collapse state (p4_library_collapsed).
+ *
+ * HOTFIX-1.1 Fix 1: converted from Column(verticalScroll)+forEach to LazyColumn
+ * with key+contentType on every item. Only visible items compose now — the original
+ * eager layout of all 1,413 cards was the ANR root cause (5s+ main-thread block).
+ * Group headers render by default; cards only compose when their group is expanded
+ * AND scrolled into view. Collapsing a group removes its items from the LazyColumn
+ * item list (state cleanup), matching the HTML's streamGroupCards contract.
  */
 @Composable
 fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
@@ -141,110 +149,132 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+    val cap = if (search.isNotBlank()) 200 else 60
+    // HOTFIX-1.1 Fix 1: hoist `components` OUT of the LazyColumn DSL — remember() is @Composable
+    // and the LazyListScope is not a composable scope.
+    val components = remember(all) { all.flatMap { it.fitnessComponents }.distinct().sorted() }
+    // HOTFIX-1.1 Fix 1: LazyColumn + key + contentType on every item.
+    // Only visible items compose. Group headers always render; cards compose only
+    // when their group is expanded AND scrolled into view.
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Spacer(Modifier.height(4.dp))
-        SectionTitle("fa-book-open", "Exercise Library")
-        Text("${all.size} Movements Available", style = ProType.small, color = c.text3)
-
-        ProTextField(value = search, onValueChange = { search = it }, placeholder = "Search exercises or muscles...")
-
-        // group-by pills (6 across, wrapping)
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            groupings.chunked(3).forEach { rowDefs ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    rowDefs.forEach { (key, label) ->
-                        val idx = groupings.indexOfFirst { it.first == key }
-                        val active = groupBy == idx
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(if (active) c.accentSoft else c.surface2)
-                                .border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
-                                .clickable { groupBy = idx }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(label, fontSize = 12.sp, color = if (active) c.accent else c.text2, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, maxLines = 1)
+        // ---- sticky search + group-by + expand/collapse + component chips header ----
+        item(key = "hdr_title", contentType = "header") {
+            SectionTitle("fa-book-open", "Exercise Library")
+            Text("${all.size} Movements Available", style = ProType.small, color = c.text3)
+        }
+        item(key = "hdr_search", contentType = "header") {
+            ProTextField(value = search, onValueChange = { search = it }, placeholder = "Search exercises or muscles...")
+        }
+        item(key = "hdr_groupby", contentType = "header") {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                groupings.chunked(3).forEach { rowDefs ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowDefs.forEach { (key, label) ->
+                            val idx = groupings.indexOfFirst { it.first == key }
+                            val active = groupBy == idx
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(if (active) c.accentSoft else c.surface2)
+                                    .border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
+                                    .clickable { groupBy = idx }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(label, fontSize = 12.sp, color = if (active) c.accent else c.text2, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item(key = "hdr_expand_collapse", contentType = "header") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                P4Button("Expand All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
+                    collapsedGroups = emptySet(); persistCollapse()
+                }
+                P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
+                    collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
+                }
+            }
+        }
+        // component filter chips (only rendered if non-empty)
+        if (components.isNotEmpty()) {
+            item(key = "hdr_components", contentType = "header") {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (componentFilter == null) c.accentSoft else c.surface2)
+                        .border(1.dp, if (componentFilter == null) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
+                        .clickable { componentFilter = null }.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        Text("All", fontSize = 10.sp, color = if (componentFilter == null) c.accent else c.text2)
+                    }
+                    components.forEach { comp ->
+                        val active = componentFilter == comp
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (active) c.accentSoft else c.surface2)
+                            .border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
+                            .clickable { componentFilter = if (active) null else comp }.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                            Text(comp.replace('_', ' ').replaceFirstChar { it.uppercase() }, fontSize = 10.sp, color = if (active) c.accent else c.text2, maxLines = 1)
                         }
                     }
                 }
             }
         }
 
-        // LB2: Expand All / Collapse All
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            P4Button("Expand All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
-                collapsedGroups = emptySet(); persistCollapse()
-            }
-            P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
-                collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
-            }
-        }
-
-        // LB3: component filter chips
-        val components = remember(all) { all.flatMap { it.fitnessComponents }.distinct().sorted() }
-        if (components.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (componentFilter == null) c.accentSoft else c.surface2)
-                    .border(1.dp, if (componentFilter == null) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
-                    .clickable { componentFilter = null }.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("All", fontSize = 10.sp, color = if (componentFilter == null) c.accent else c.text2)
-                }
-                components.forEach { comp ->
-                    val active = componentFilter == comp
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (active) c.accentSoft else c.surface2)
-                        .border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
-                        .clickable { componentFilter = if (active) null else comp }.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                        Text(comp.replace('_', ' ').replaceFirstChar { it.uppercase() }, fontSize = 10.sp, color = if (active) c.accent else c.text2, maxLines = 1)
-                    }
-                }
-            }
-        }
-
-        val cap = if (search.isNotBlank()) 200 else 60
+        // ---- groups + cards (lazy) ----
         grouped.forEach { (group, list) ->
             val isCollapsed = group in collapsedGroups
-            GlassCard(padding = PaddingValues(0.dp)) {
-                Row(
-                    Modifier.fillMaxWidth().clickable {
-                        collapsedGroups = if (isCollapsed) collapsedGroups - group else collapsedGroups + group
-                        persistCollapse()
-                    }.padding(horizontal = 16.dp, vertical = 13.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(group, style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
-                    Text("(${list.size})", style = ProType.small, color = c.text3)
-                    Spacer(Modifier.width(8.dp))
-                    com.peakform.fitness.ui.FaIcon(if (isCollapsed) "fa-chevron-down" else "fa-chevron-up", size = 12.sp, tint = c.accent)
+            // group header — always rendered
+            item(key = "grp_$group", contentType = "groupHeader") {
+                GlassCard(padding = PaddingValues(0.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            collapsedGroups = if (isCollapsed) collapsedGroups - group else collapsedGroups + group
+                            persistCollapse()
+                        }.padding(horizontal = 16.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(group, style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
+                        Text("(${list.size})", style = ProType.small, color = c.text3)
+                        Spacer(Modifier.width(8.dp))
+                        com.peakform.fitness.ui.FaIcon(if (isCollapsed) "fa-chevron-down" else "fa-chevron-up", size = 12.sp, tint = c.accent)
+                    }
                 }
-                AnimatedVisibility(visible = !isCollapsed) {
-                    Column(Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        list.take(cap).forEach { ex ->
-                            LibraryCard(
-                                ex = ex,
-                                onOpen = { openDetail = ex },
-                                onAdd = { onAddToWorkout(ex) },
-                                onMuscleTap = { wikiFor = it },
-                            )
-                        }
-                        if (list.size > cap) {
-                            Text("Showing $cap of ${list.size} — refine search", style = ProType.small, color = c.text3)
-                        }
+            }
+            // cards — only added to the LazyColumn item list when group is expanded.
+            // Collapsing the group removes the items entirely (memory freed, matches HTML streamGroupCards).
+            if (!isCollapsed) {
+                items(
+                    items = list.take(cap),
+                    key = { ex -> "card_${ex.id}" },
+                    contentType = { "card" },
+                ) { ex ->
+                    LibraryCard(
+                        ex = ex,
+                        onOpen = { openDetail = ex },
+                        onAdd = { onAddToWorkout(ex) },
+                        onMuscleTap = { wikiFor = it },
+                    )
+                }
+                if (list.size > cap) {
+                    item(key = "more_$group", contentType = "more") {
+                        Text("Showing $cap of ${list.size} — refine search", style = ProType.small, color = c.text3)
                     }
                 }
             }
         }
+
         if (filtered.isEmpty()) {
-            EmptyState("fa-magnifying-glass", "No exercises match your search", "Try a different term or clear the filter.")
+            item(key = "empty", contentType = "empty") {
+                EmptyState("fa-magnifying-glass", "No exercises match your search", "Try a different term or clear the filter.")
+            }
         }
-        Spacer(Modifier.height(120.dp))
+        item(key = "bottom_spacer", contentType = "spacer") {
+            Spacer(Modifier.height(120.dp))
+        }
     }
 
     openDetail?.let { ex ->

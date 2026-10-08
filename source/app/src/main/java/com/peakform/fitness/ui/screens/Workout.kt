@@ -64,6 +64,9 @@ fun WorkoutScreen(
     var showShare by remember { mutableStateOf(false) }
     var showMomentum by remember { mutableStateOf(false) }
     var prToast by remember { mutableStateOf<String?>(null) }
+    // BATCH-2: regenerate confirm (top + bottom buttons share the same flow) + replace confirm
+    var confirmRegenerate by remember { mutableStateOf(false) }
+    var confirmReplace by remember { mutableStateOf<Int?>(null) }
 
     val workout = ProState.currentWorkout
     Column(
@@ -74,7 +77,13 @@ fun WorkoutScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Spacer(Modifier.height(4.dp))
-        Text("Today's Workout", style = ProType.sectionTitle, color = c.text)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Today's Workout", style = ProType.sectionTitle, color = c.text, modifier = Modifier.weight(1f))
+            // BATCH-2: top regenerate button (regenerateWorkoutBtn, same flow as bottom)
+            if (workout != null && workout.exercises.isNotEmpty()) {
+                P4Button("Regenerate", icon = "fa-rotate", style = BtnStyle.GHOST, minHeight = 34, onClick = { confirmRegenerate = true })
+            }
+        }
 
         // chips row
         if (workout != null && workout.exercises.isNotEmpty()) {
@@ -164,7 +173,25 @@ fun WorkoutScreen(
                         confirmSkip = index
                     },
                     onStartRest = { sec -> RestTimer.start(sec) },
+                    // BATCH-2: replace (confirm) + resume (clear actual, re-open logger)
+                    onAskReplace = { confirmReplace = index },
+                    onResume = {
+                        val w = ProState.currentWorkout ?: return@ExerciseCard
+                        val cleared = w.exercises.mapIndexed { i, e ->
+                            if (i == index) e.copy(actual = null, skipped = false) else e
+                        }
+                        ProState.currentWorkout = w.copy(exercises = cleared)
+                        ProState.performSave()
+                        openCardIndex = index
+                        ver.intValue++
+                        ProState.notifyChanged()
+                    },
                 )
+            }
+
+            // BATCH-2: bottom regenerate button (bottomRegenerateWorkoutBtn — same flow as top)
+            P4Button("Regenerate Workout", icon = "fa-rotate", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
+                confirmRegenerate = true
             }
 
             // complete button
@@ -240,6 +267,49 @@ fun WorkoutScreen(
         )
     }
 
+    // ---- BATCH-2: replace confirmation (swaps the exercise for a fresh pick) ----
+    confirmReplace?.let { idx ->
+        val w = ProState.currentWorkout
+        val name = w?.exercises?.getOrNull(idx)?.name ?: ""
+        SwalDialog(
+            title = "Replace Exercise?",
+            text = "Replace \"$name\" with a different exercise for the same muscle group? The current exercise will be removed from this workout.",
+            confirmText = "Replace",
+            cancelText = "Keep it",
+            onConfirm = {
+                confirmReplace = null
+                val cur = ProState.currentWorkout ?: return@SwalDialog
+                ProState.currentWorkout = Sessions.removeExerciseFromWorkout(cur, idx)
+                ProState.performSave()
+                if (openCardIndex == idx) openCardIndex = -1
+                ver.intValue++
+                ProState.notifyChanged()
+            },
+            onDismiss = { confirmReplace = null },
+        )
+    }
+
+    // ---- BATCH-2: regenerate confirmation (top + bottom button share this flow) ----
+    if (confirmRegenerate) {
+        SwalDialog(
+            title = "Regenerate Workout?",
+            text = "This will replace today's workout with a fresh one based on your current fatigue, recovery, and progression. Any logged sets will be lost.",
+            confirmText = "Regenerate",
+            cancelText = "Cancel",
+            onConfirm = {
+                confirmRegenerate = false
+                scope.launch {
+                    val result = Generator.performGenerateWorkout(suppressConfirm = true)
+                    ProState.currentWorkout = result.workout
+                    ProState.performSave()
+                    ProState.notifyChanged()
+                    ver.intValue++
+                }
+            },
+            onDismiss = { confirmRegenerate = false },
+        )
+    }
+
     // ---- complete confirmation ----
     if (completeDialog && workout != null) {
         val unlogged = Sessions.unloggedExercises(workout)
@@ -312,9 +382,19 @@ fun ExerciseCard(
     onSkip: (String) -> Unit,
     onRemove: () -> Unit,
     onStartRest: (Int) -> Unit,
+    // BATCH-2: replace (confirm) + resume (re-open logger for a completed/skipped exercise)
+    onAskReplace: () -> Unit = {},
+    onResume: () -> Unit = {},
 ) {
     val c = LocalProColors.current
     val isDrill = exercise.noFatigue || exercise.isWarmup || exercise.isCooldown || exercise.isComponentDrill
+
+    // BATCH-2: per-card UI toggles for superset / drop set / warmup (transient, not persisted —
+    // matches the HTML's behavior where these are session-level display flags).
+    var isSuperset by remember(exercise.id) { mutableStateOf(false) }
+    var isDropset by remember(exercise.id) { mutableStateOf(false) }
+    var isWarmupToggled by remember(exercise.id) { mutableStateOf(exercise.isWarmup) }
+    var showInstructions by remember(exercise.id) { mutableStateOf(false) }
 
     // card state
     val has1RM = (ProState.data.exercises[exercise.id]?.tested1RM ?: 0.0) > 0
@@ -405,6 +485,31 @@ fun ExerciseCard(
             }
         }
 
+        // BATCH-2: 'How to do' + 'Images' buttons — always visible (open system browser)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            P4Button("How to do", icon = "fa-magnifying-glass", style = BtnStyle.GHOST, minHeight = 32, modifier = Modifier.weight(1f)) {
+                openExerciseBrowser(exercise.name + " how to do", images = false)
+            }
+            P4Button("Images", icon = "fa-image", style = BtnStyle.GHOST, minHeight = 32, modifier = Modifier.weight(1f)) {
+                openExerciseBrowser(exercise.name + " exercise", images = true)
+            }
+        }
+
+        // BATCH-2: plate math — shown on each working set when a barbell weight is prescribed
+        // (e.g., "45 + 45 + 25" per side for 205 lbs with a 45-lb bar).
+        val prescribedW = rx.weight
+        if (exercise.equipment.equals("barbell", ignoreCase = true) && prescribedW != null && prescribedW > 45.0) {
+            Spacer(Modifier.height(6.dp))
+            val plates = plateMath(prescribedW)
+            if (plates.isNotEmpty()) {
+                Text(
+                    "Plate math: ${plates.joinToString(" + ")} lbs/side (×2 + 45 bar = ${prescribedW.toInt()} lbs)",
+                    style = ProType.small, color = c.accent,
+                )
+            }
+        }
+
         AnimatedVisibility(visible = expanded) {
             Column {
                 Spacer(Modifier.height(12.dp))
@@ -412,6 +517,35 @@ fun ExerciseCard(
                     Text(exercise.progressionNotes, style = ProType.small, color = c.text3)
                     Spacer(Modifier.height(10.dp))
                 }
+
+                // BATCH-2: superset / drop set / warmup toggles (3 chips, mutually compatible)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PlateToggleChip("Superset", active = isSuperset, tint = c.accent) { isSuperset = !isSuperset; if (isSuperset) isDropset = false }
+                    PlateToggleChip("Drop set", active = isDropset, tint = c.warn) { isDropset = !isDropset; if (isDropset) isSuperset = false }
+                    PlateToggleChip("Warmup", active = isWarmupToggled, tint = c.ok) { isWarmupToggled = !isWarmupToggled }
+                }
+                Spacer(Modifier.height(10.dp))
+
+                // BATCH-2: 'Show Instructions' toggle — expands a numbered step list
+                if (exercise.instructions.isNotEmpty()) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { showInstructions = !showInstructions }.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        com.peakform.fitness.ui.FaIcon(if (showInstructions) "fa-chevron-down" else "fa-chevron-right", size = 12.sp, tint = c.accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (showInstructions) "Hide instructions" else "Show instructions (${exercise.instructions.size} steps)", style = ProType.body2, color = c.accent)
+                    }
+                    AnimatedVisibility(visible = showInstructions) {
+                        Column(Modifier.padding(start = 20.dp, top = 4.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            exercise.instructions.forEachIndexed { i, step ->
+                                Text("${i + 1}. $step", style = ProType.body2, color = c.text2)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
                 if (exercise.skipped) {
                     Text("Skipped — ${exercise.actual?.notes ?: ""}", style = ProType.body2, color = c.text3)
                 } else if (exercise.actual != null) {
@@ -449,11 +583,19 @@ fun ExerciseCard(
                         )
                     }
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         P4Button("Skip", onClick = onAskSkip, style = BtnStyle.GHOST, minHeight = 40, modifier = Modifier.weight(1f))
                         if (!exercise.isWarmup && !exercise.isCooldown) {
+                            P4Button("Replace", onClick = onAskReplace, style = BtnStyle.GHOST, minHeight = 40, modifier = Modifier.weight(1f))
                             P4Button("Remove", onClick = onRemove, style = BtnStyle.GHOST, minHeight = 40, modifier = Modifier.weight(1f))
                         }
+                    }
+                }
+                // BATCH-2: Resume action — re-opens the logger for a completed/skipped exercise
+                if (exercise.isLogged) {
+                    Spacer(Modifier.height(8.dp))
+                    P4Button("Resume this exercise", icon = "fa-rotate-left", style = BtnStyle.INFO, minHeight = 38, modifier = Modifier.fillMaxWidth()) {
+                        onResume()
                     }
                 }
             }
@@ -496,5 +638,52 @@ fun RxLine(label: String, value: String) {
         Text(label, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = 0.8.sp, color = c.accent)
         Spacer(Modifier.height(2.dp))
         Text(value, fontSize = 22.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = c.accent, fontFamily = SpaceGrotesk)
+    }
+}
+
+// ---- BATCH-2 helpers ----
+
+/** Opens the system browser with a Google search for the exercise (How-to or Images tab). */
+private fun openExerciseBrowser(query: String, images: Boolean) {
+    val ctx = com.peakform.fitness.ui.Fa.appContext ?: return
+    val url = "https://www.google.com/search?q=" + android.net.Uri.encode(query) + if (images) "&tbm=isch" else ""
+    try {
+        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: Exception) { }
+}
+
+/**
+ * Plate math — computes the plate denominations per side for a barbell load.
+ * Standard 45-lb Olympic bar, plates in 45/35/25/10/5/2.5 lb denominations.
+ * Returns the per-side plate list (e.g., 205 lbs → [45, 25, 10] = 80 lbs/side × 2 + 45 bar = 205).
+ */
+fun plateMath(totalLbs: Double, barWeight: Double = 45.0): List<Int> {
+    if (totalLbs <= barWeight) return emptyList()
+    val perSide = (totalLbs - barWeight) / 2.0
+    val denominations = listOf(45, 35, 25, 10, 5, 2)
+    val plates = mutableListOf<Int>()
+    var remaining = perSide
+    for (d in denominations) {
+        while (remaining >= d - 0.01) {
+            plates.add(d)
+            remaining -= d
+        }
+    }
+    return plates
+}
+
+/** A small toggle chip used for superset / drop set / warmup flags on exercise cards. */
+@Composable
+fun PlateToggleChip(label: String, active: Boolean, tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    val c = LocalProColors.current
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (active) tint.copy(alpha = 0.18f) else c.surface2)
+            .border(1.dp, if (active) tint else c.hairline2, RoundedCornerShape(999.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+    ) {
+        Text(label, fontSize = 11.sp, color = if (active) tint else c.text2, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
     }
 }

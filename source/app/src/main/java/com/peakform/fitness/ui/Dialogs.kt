@@ -21,25 +21,7 @@ import com.peakform.fitness.core.WorkoutRecord
 import com.peakform.fitness.ui.components.BtnStyle
 import com.peakform.fitness.ui.components.P4Button
 
-/** Local ZXing QR rendering (no network). */
-object Qr {
-    fun encode(text: String, size: Int = 512): android.graphics.Bitmap {
-        val hints = mapOf(
-            com.google.zxing.EncodeHintType.ERROR_CORRECTION to com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H,
-            com.google.zxing.EncodeHintType.CHARACTER_SET to "UTF-8",
-        )
-        val bits = com.google.zxing.qrcode.QRCodeWriter().encode(
-            text, com.google.zxing.BarcodeFormat.QR_CODE, size, size, hints,
-        )
-        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565)
-        for (x in 0 until size) {
-            for (y in 0 until size) {
-                bmp.setPixel(x, y, if (bits.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
-            }
-        }
-        return bmp
-    }
-}
+/** Local ZXing QR rendering — see ShareSheet.kt for the canonical definition. */
 
 /**
  * Shared dialogs, implemented as in-composition glass dialogs (same idiom as the
@@ -114,45 +96,7 @@ fun RestoreConfirmDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> U
     }
 }
 
-/** SH1–SH4 — workout share: local QR + share text + system share + copy. */
-@Composable
-fun ShareSheet(workout: WorkoutRecord, onDismiss: () -> Unit) {
-    val c = LocalProColors.current
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-    val text = androidx.compose.runtime.remember(workout.id) { com.peakform.fitness.core.ShareText.workoutShareText(workout) }
-    val qr = androidx.compose.runtime.remember(workout.id) {
-        try { Qr.encode(com.peakform.fitness.core.ShareText.qrPayload(workout)) } catch (_: Exception) { null }
-    }
-    GlassDialogHost(onDismiss = onDismiss) {
-        Text("Share workout", style = ProType.cardTitle, color = c.text)
-        Spacer(Modifier.height(12.dp))
-        qr?.let {
-            androidx.compose.foundation.Image(
-                it.asImageBitmap(),
-                contentDescription = "Workout QR code",
-                modifier = Modifier.size(190.dp).clip(RoundedCornerShape(12.dp)),
-            )
-            Spacer(Modifier.height(10.dp))
-        }
-        Text("📋 What will be copied", style = ProType.small, color = c.text3)
-        Spacer(Modifier.height(4.dp))
-        Text(text, style = ProType.small, color = c.text2, maxLines = 8)
-        Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            P4Button("Copy", style = BtnStyle.SECONDARY, minHeight = 38, onClick = {
-                clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
-            })
-            P4Button("Share", style = BtnStyle.PRIMARY, minHeight = 38, onClick = {
-                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_TEXT, text)
-                }
-                ctx.startActivity(android.content.Intent.createChooser(send, "Share workout"))
-            })
-        }
-    }
-}
+/** SH1–SH4 — workout share: see ShareSheet.kt for the canonical definition (QR + share text + system share + copy). */
 
 /** LB detail — exercise detail sheet as a glass dialog. */
 @Composable
