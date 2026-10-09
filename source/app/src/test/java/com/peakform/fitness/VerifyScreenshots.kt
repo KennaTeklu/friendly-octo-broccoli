@@ -170,15 +170,21 @@ class VerifyScreenshots {
         listOf(0 to "feature-onboarding-welcome", 1 to "feature-onboarding-birthdate",
             2 to "feature-onboarding-reading-level", 3 to "feature-onboarding-theme",
             4 to "feature-onboarding-consent").forEach { (step, file) ->
-            ProPrefs.put(ctx, OnboardDraftKey, """{"step":$step,"name":"Jordan","birth":"1996-04-12","gender":"male"}""")
+            // BATCH-4B item 2: draft now lives in per-profile Room meta, not ProPrefs.
+            com.peakform.fitness.core.ProfileState.put(ctx, OnboardDraftKey, """{"step":$step,"name":"Jordan","birth":"1996-04-12","gender":"male"}""")
             snap(file) { OnboardingWizard(onFinished = {}) }
         }
     }
 
-    private val OnboardDraftKey get() = "p4_ob_draft"
+    private val OnboardDraftKey get() = com.peakform.fitness.core.ProfileState.K_OB_DRAFT
 
     @Test
     fun healthScreen() {
+        // BATCH-4B item 8: per-profile intro — first-time call shows the intro.
+        com.peakform.fitness.core.ProfileState.remove(ctx, Health.K_INTRO_SEEN)
+        snap("feature-health-screen-intro") { HealthScreenFlow(onDone = {}) }
+        // mark intro seen so subsequent snaps go straight to questions/joints/result
+        Health.markIntroSeen(ctx)
         snap("feature-health-screen") { HealthScreenFlow(onDone = {}) }
         // joints phase
         snap("feature-health-joints") { HealthScreenFlow(onDone = {}, startPhase = "joints") }
@@ -193,9 +199,10 @@ class VerifyScreenshots {
     @Test
     fun dashboard() {
         seedDraft()
-        // tier C banner visible
-        ProPrefs.put(ctx, Health.K_TIER, "C")
+        // tier C banner visible — BATCH-4B item 2: per-profile Health state
+        com.peakform.fitness.core.ProfileState.put(ctx, Health.K_TIER, "C")
         snap("feature-dashboard") { DashboardScreen(onStartWorkout = {}, onResumeWorkout = {}, onOpenSection = {}) }
+        com.peakform.fitness.core.ProfileState.remove(ctx, Health.K_TIER)
     }
 
     @Test

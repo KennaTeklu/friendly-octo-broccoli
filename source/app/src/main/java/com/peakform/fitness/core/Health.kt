@@ -22,13 +22,17 @@ private val strList = ListSerializer(String.serializer())
 object Health {
 
     // ---- storage keys (legacy K map, L64645–64650) ----
-    const val K_SCREENED = "p4_health_screened_at"
-    const val K_TIER = "p4_health_tier"
-    const val K_GENERAL = "p4_health_general"
-    const val K_FOLLOWUP = "p4_health_followup"
-    const val K_JOINTS = "p4_health_joints"
-    const val K_UNLOCKED = "p4_health_unlocked_at"
-    const val K_DECLARED = "p4_health_declared"
+    // BATCH-4B items 2 & 8: moved to per-profile Room `meta` table via ProfileState,
+    // so each profile keeps its own health-screen answers / tier / clearance.
+    const val K_SCREENED = ProfileState.K_HEALTH_SCREENED
+    const val K_TIER = ProfileState.K_HEALTH_TIER
+    const val K_GENERAL = ProfileState.K_HEALTH_GENERAL
+    const val K_FOLLOWUP = ProfileState.K_HEALTH_FOLLOWUP
+    const val K_JOINTS = ProfileState.K_HEALTH_JOINTS
+    const val K_UNLOCKED = ProfileState.K_HEALTH_UNLOCKED
+    const val K_DECLARED = ProfileState.K_HEALTH_DECLARED
+    /** BATCH-4B item 8: per-profile flag — has the user seen the health-screen intro? */
+    const val K_INTRO_SEEN = ProfileState.K_HEALTH_INTRO_SEEN
 
     data class GenQuestion(val id: String, val important: Boolean, val text: String)
     data class FollowUp(val id: String, val text: String)
@@ -112,13 +116,15 @@ object Health {
     }
 
     // ---- persistence ----
+    // BATCH-4B item 2: writes go through ProfileState (per-profile Room meta)
+    // so each profile keeps its own health-screen answers.
     fun saveScreen(ctx: Context, data: ScreenData) {
-        ProPrefs.put(ctx, K_SCREENED, ProState.nowIso())
-        ProPrefs.put(ctx, K_TIER, data.tier ?: "A")
-        ProPrefs.put(ctx, K_GENERAL, ProJson.json.encodeToString(strBoolMap, data.general))
-        ProPrefs.put(ctx, K_FOLLOWUP, ProJson.json.encodeToString(strBoolMap, data.followup))
-        ProPrefs.put(ctx, K_JOINTS, ProJson.json.encodeToString(strList, data.joints))
-        if (data.general.values.any { it }) ProPrefs.put(ctx, K_DECLARED, ProState.nowIso())
+        ProfileState.put(ctx, K_SCREENED, ProState.nowIso())
+        ProfileState.put(ctx, K_TIER, data.tier ?: "A")
+        ProfileState.put(ctx, K_GENERAL, ProJson.json.encodeToString(strBoolMap, data.general))
+        ProfileState.put(ctx, K_FOLLOWUP, ProJson.json.encodeToString(strBoolMap, data.followup))
+        ProfileState.put(ctx, K_JOINTS, ProJson.json.encodeToString(strList, data.joints))
+        if (data.general.values.any { it }) ProfileState.put(ctx, K_DECLARED, ProState.nowIso())
     }
 
     fun loadScreen(ctx: Context): ScreenData {
@@ -127,31 +133,35 @@ object Health {
             general = general,
             followup = decodeMap(ctx, K_FOLLOWUP),
             joints = try {
-                ProPrefs.get(ctx, K_JOINTS)?.let {
+                ProfileState.get(ctx, K_JOINTS)?.let {
                     ProJson.json.decodeFromString(strList, it)
                 } ?: emptyList()
             } catch (_: Exception) { emptyList() },
-            tier = ProPrefs.get(ctx, K_TIER),
-            screenedAt = ProPrefs.get(ctx, K_SCREENED),
+            tier = ProfileState.get(ctx, K_TIER),
+            screenedAt = ProfileState.get(ctx, K_SCREENED),
         )
     }
 
     private fun decodeMap(ctx: Context, key: String): Map<String, Boolean> = try {
-        ProPrefs.get(ctx, key)?.let {
+        ProfileState.get(ctx, key)?.let {
             ProJson.json.decodeFromString(strBoolMap, it)
         } ?: emptyMap()
     } catch (_: Exception) { emptyMap() }
 
-    fun isScreened(ctx: Context): Boolean = !ProPrefs.get(ctx, K_SCREENED).isNullOrBlank()
-    fun tier(ctx: Context): String? = ProPrefs.get(ctx, K_TIER)
+    fun isScreened(ctx: Context): Boolean = !ProfileState.get(ctx, K_SCREENED).isNullOrBlank()
+    fun tier(ctx: Context): String? = ProfileState.get(ctx, K_TIER)
     fun chosenJoints(ctx: Context): List<String> = loadScreen(ctx).joints
+
+    /** BATCH-4B item 8: per-profile flag — has the user seen the health-screen intro? */
+    fun hasSeenIntro(ctx: Context): Boolean = ProfileState.get(ctx, K_INTRO_SEEN) == "true"
+    fun markIntroSeen(ctx: Context) { ProfileState.put(ctx, K_INTRO_SEEN, "true") }
 
     /** Tier C soft lock: generation blocked until clearance recorded (L64834–64837). */
     fun isGenerationLocked(ctx: Context): Boolean =
-        tier(ctx) == "C" && ProPrefs.get(ctx, K_UNLOCKED).isNullOrBlank()
+        tier(ctx) == "C" && ProfileState.get(ctx, K_UNLOCKED).isNullOrBlank()
 
     fun confirmClearance(ctx: Context) {
-        ProPrefs.put(ctx, K_UNLOCKED, ProState.nowIso())
+        ProfileState.put(ctx, K_UNLOCKED, ProState.nowIso())
         Consent.record(ctx, "health_clearance", "Workout generation unlocked — doctor clearance self-recorded")
     }
 

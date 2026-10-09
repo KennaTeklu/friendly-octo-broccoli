@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
             com.peakform.fitness.engine.Sessions.recomputeAggregates()
         }
         ThemeController.load(ProPrefs.get(this, "p4_theme"))
+        ThemeController.loadDynamic(ProPrefs.get(this, "p4_dynamic"))
         Vocab.init(this)
         Badges.init(this)
         applyScreenshotSafeMode()
@@ -107,7 +108,14 @@ class MainActivity : ComponentActivity() {
             var migrationPhase by remember { mutableStateOf<String?>(null) }
             var migrationInfo by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(Unit) {
+                // BATCH-4B item 2/6: one-shot v18 meta migration — copy legacy
+                // global p4_onboarded / p4_health_* into every profile's Room
+                // `meta` table so existing users keep their onboarded state.
+                com.peakform.fitness.core.ProfileState.migrateFromPrefs(ctx)
                 ProState.loadAll()
+                // BATCH-4B item 6: stamp the active profile's first-launch
+                // timestamp (a new-user signal — never overwrites if present).
+                com.peakform.fitness.core.ProfileState.stampFirstLaunch(ctx)
                 Library.ensure(ctx)
                 booted = true
                 if (!MigrationBridge.isDone(ctx) && !MigrationBridge.running) {
@@ -128,7 +136,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            ProTheme(dark = ThemeController.dark, accent = ThemeController.accent(), dynamic = ProPrefs.get(this, "p4_dynamic") == "on") {
+            ProTheme(dark = ThemeController.dark, accent = ThemeController.accent(), dynamic = ThemeController.dynamic) {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -239,9 +247,26 @@ fun AppShell(
     val askProfiles = remember { Profiles.shouldAskOnBoot(ctx) }
     var showProfilePicker by remember { mutableStateOf(askProfiles) }
 
-    // onboarding gate: never onboarded AND no workout history (history rescue)
-    val needOnboarding = remember { OnboardDraft.needed(ctx) && ProState.data.workouts.isEmpty() }
+    // onboarding gate: BATCH-4B item 6/7 — multi-signal new-user detection.
+    // Re-evaluates on every ProState.notifyChanged() so a freshly switched
+    // profile (e.g. brand-new "Alex" with no data) re-runs the wizard.
+    val onboardingVer = remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        val l: () -> Unit = { onboardingVer.intValue++ }
+        ProState.listeners.add(l)
+        onDispose { ProState.listeners.remove(l) }
+    }
+    val needOnboarding = remember(onboardingVer.intValue) {
+        OnboardDraft.needed(ctx) && ProState.data.workouts.isEmpty()
+    }
     var onboardingActive by remember { mutableStateOf(needOnboarding) }
+    LaunchedEffect(needOnboarding) {
+        // BATCH-4B item 7: when the active profile flips to "new" (e.g. a freshly
+        // created profile with no data), surface the wizard; when it flips back
+        // to "existing", dismiss it. Idempotent — the wizard's own finish also
+        // dismisses via onFinished.
+        if (needOnboarding && !onboardingActive) onboardingActive = true
+    }
 
     // POST_NOTIFICATIONS runtime request (Android 13+), once, after onboarding
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -453,8 +478,7 @@ fun AppShell(
             quickChips = {
                 P4Button(if (ThemeController.dark) "Light" else "Dark", onClick = {
                     val newMode = if (ThemeController.dark) "light" else "dark"
-                    ThemeController.set(newMode, ThemeController.accentId)
-                    ProPrefs.put(ctx, "p4_theme", """{"mode":"$newMode","accent":"${ThemeController.accentId}"}""")
+                    ThemeController.set(newMode, ThemeController.accentId, ctx)
                 }, icon = if (ThemeController.dark) "fa-sun" else "fa-moon", style = BtnStyle.SECONDARY, minHeight = 36)
                 P4Button("Export", onClick = { go("settings") }, icon = "fa-file-export", style = BtnStyle.SECONDARY, minHeight = 36)
                 P4Button("Resume", onClick = { go("workout") }, icon = "fa-play", style = BtnStyle.SECONDARY, minHeight = 36)

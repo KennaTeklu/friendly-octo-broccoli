@@ -161,8 +161,9 @@ class Batch4SettingsScreenshots {
             tier = "A", screenedAt = ProState.nowIso(),
         ))
         snap("batch4-02-health-clearance") { CardHost("Health & clearance", "fa-notes-medical") { HealthClearanceCardBody(noop, noopSection) } }
-        ProPrefs.remove(ctx, Health.K_TIER)
-        ProPrefs.remove(ctx, Health.K_SCREENED)
+        // BATCH-4B item 2: Health state is now per-profile (Room meta, not ProPrefs).
+        com.peakform.fitness.core.ProfileState.remove(ctx, Health.K_TIER)
+        com.peakform.fitness.core.ProfileState.remove(ctx, Health.K_SCREENED)
     }
 
     @Test fun appearance() { snap("batch4-03-appearance") { CardHost("Appearance", "fa-palette") { AppearanceCardBody(noop) } } }

@@ -25,6 +25,12 @@ import com.peakform.fitness.ui.components.*
  * HealthScreen — P4 Health Screen v2 (PF L64638–64930): 7 general questions,
  * conditional follow-ups, joint picker, verdict tiers A/B/C. Tier C = soft lock
  * (browse free, generation blocked until clearance recorded in Settings).
+ *
+ * BATCH-4B item 8: a brief intro phase ("intro") now precedes the questions
+ * the first time the screen is opened for a profile. After completion,
+ * `p4_health_intro_seen` (per-profile Room meta) is set and the intro never
+ * shows again for that profile. Re-running the screen still works — the user
+ * lands directly on the questions on subsequent opens.
  */
 @Composable
 fun HealthScreenFlow(
@@ -35,7 +41,9 @@ fun HealthScreenFlow(
 ) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    var phase by remember { mutableStateOf(startPhase) }
+    // BATCH-4B item 8: surface the intro the first time per profile.
+    val hasSeenIntro = remember { Health.hasSeenIntro(ctx) }
+    var phase by remember { mutableStateOf(if (hasSeenIntro) startPhase else "intro") }
     var answers by remember { mutableStateOf(mapOf<String, Boolean>()) }
     var followup by remember { mutableStateOf(mapOf<String, Boolean>()) }
     var joints by remember { mutableStateOf(listOf<String>()) }
@@ -51,6 +59,7 @@ fun HealthScreenFlow(
         if (!embedded) Spacer(Modifier.height(8.dp))
         Text(
             when (phase) {
+                "intro" -> "Health check"
                 "general" -> "Health check"
                 "followup" -> "A few follow-ups"
                 "joints" -> "Any problem joints?"
@@ -60,6 +69,7 @@ fun HealthScreenFlow(
         )
         Text(
             when (phase) {
+                "intro" -> "A 7-question PAR-Q — once per profile."
                 "general" -> "Tap the ones that apply to you. 7 questions, once."
                 "followup" -> "Just to size the risk properly."
                 "joints" -> "Multi-select. We'll auto-skip movements that load them heavily."
@@ -70,6 +80,39 @@ fun HealthScreenFlow(
         Spacer(Modifier.height(2.dp))
 
         when (phase) {
+            "intro" -> {
+                // BATCH-4B item 8: brief intro before the questions, the first time per profile.
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(c.accentSoft)
+                        .border(1.dp, c.accentLine, RoundedCornerShape(16.dp))
+                        .padding(16.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FaIcon("fa-notes-medical", size = 18.sp, tint = c.accent)
+                            Spacer(Modifier.width(10.dp))
+                            Text("What this is", style = ProType.cardTitle, color = c.text)
+                        }
+                        Text(
+                            "Pro uses your answers to choose exercises that fit you — and to flag when a doctor should sign off before you train. There are 7 short questions, plus a follow-up or two if anything applies, plus a quick joint picker. Nothing leaves this device.",
+                            style = ProType.body2, color = c.text2,
+                        )
+                        Text(
+                            "You can stop at any time. Your tier (Clear / Clear with modification / Sign-off required) appears at the end, and you can re-run this screen from Settings later if your situation changes.",
+                            style = ProType.body2, color = c.text2,
+                        )
+                        Text(
+                            "This is general fitness guidance, not medical care.",
+                            style = ProType.small, color = c.text3,
+                        )
+                    }
+                }
+                P4Button("Let's go", icon = "fa-arrow-right", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth(), onClick = {
+                    Health.markIntroSeen(ctx)
+                    phase = "general"
+                })
+            }
             "general" -> {
                 gen.forEach { q ->
                     val on = answers[q.id] == true

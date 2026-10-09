@@ -126,7 +126,7 @@ fun OnboardingWizard(onFinished: () -> Unit) {
                             .border(2.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp))
                             .clickable {
                                 dark = m == "dark"
-                                ThemeController.set(if (dark) "dark" else "light", accentId)
+                                ThemeController.set(if (dark) "dark" else "light", accentId, ctx)
                             }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 FaIcon(ic, size = 13.sp, tint = if (active) c.accent else c.text2)
@@ -144,7 +144,7 @@ fun OnboardingWizard(onFinished: () -> Unit) {
                                 .border(if (accentId == a.id) 3.dp else 1.dp, if (accentId == a.id) c.text else c.hairline2, CircleShape)
                                 .clickable {
                                     accentId = a.id
-                                    ThemeController.set(if (dark) "dark" else "light", a.id)
+                                    ThemeController.set(if (dark) "dark" else "light", a.id, ctx)
                                 })
                         }
                     }

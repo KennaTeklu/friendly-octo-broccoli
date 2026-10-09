@@ -43,6 +43,9 @@ object ProState {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val saveMutex = Mutex()
     private var draftDebounceJob: kotlinx.coroutines.Job? = null
+    /** BATCH-4B item 2 race fix: track the saveWorkoutData coroutine so flush()
+     *  can join it before reopenStore() closes the old store's DB. */
+    @Volatile private var saveJob: kotlinx.coroutines.Job? = null
 
     val listeners = mutableListOf<() -> Unit>()
 
@@ -183,7 +186,7 @@ object ProState {
 
     // ---------- saves (translation of saveWorkoutData / performSave) ----------
     fun saveWorkoutData() {
-        scope.launch {
+        saveJob = scope.launch {
             val s = store ?: return@launch
             val d = data
             s.saveAggregate(d, null)
@@ -221,8 +224,10 @@ object ProState {
         val cw = currentWorkout ?: return
         saveCurrentWorkoutToStorage()
         // timestamped emergency backup (legacy workoutEmergencyBackup v2)
+        // BATCH-4B item 2: moved to per-profile Room meta so a draft in profile A
+        // never crosses over into profile B on switch.
         val c = ctx ?: return  // JVM tests / pre-init: in-memory only, never crash
-        ProPrefs.put(c, "workoutEmergencyBackup", ProJson.json.encodeToString(
+        ProfileState.put(c, ProfileState.K_EMERGENCY_BACKUP, ProJson.json.encodeToString(
             JsonObject.serializer(),
             JsonObject(mutableMapOf(
                 "workout" to ProJson.encodeElement(WorkoutRecord.serializer(), cw),
@@ -232,17 +237,21 @@ object ProState {
         ))
     }
 
-    /** Flush pending saves (called on onStop). */
+    /** Flush pending saves (called on onStop / before profile switch).
+     *  BATCH-4B item 2 race fix: blocks until the in-flight saveWorkoutData
+     *  coroutine finishes, so the next reopenStore() can safely close the old
+     *  store's DB without a "connection pool has been closed" race. */
     fun flush() {
         draftDebounceJob?.cancel()
         draftDebounceJob = null
         if (currentWorkout != null) performSave()
         saveWorkoutData()
+        kotlinx.coroutines.runBlocking { saveJob?.join() }
     }
 
     private fun readEmergencyBackup(): WorkoutRecord? {
         val c = ctx ?: return null
-        val raw = ProPrefs.get(c, "workoutEmergencyBackup") ?: return null
+        val raw = ProfileState.get(c, ProfileState.K_EMERGENCY_BACKUP) ?: return null
         return try {
             val obj = ProJson.json.decodeFromString(JsonObject.serializer(), raw)
             val wEl = obj["workout"] ?: return null
@@ -251,7 +260,7 @@ object ProState {
     }
 
     fun clearEmergencyBackup() {
-        ctx?.let { ProPrefs.remove(it, "workoutEmergencyBackup") }
+        ctx?.let { ProfileState.remove(it, ProfileState.K_EMERGENCY_BACKUP) }
     }
 
     fun newWorkoutId(): String = "workout_${System.currentTimeMillis()}"

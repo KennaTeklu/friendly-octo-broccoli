@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -607,17 +608,18 @@ fun AppearanceCardBody(onToast: (String) -> Unit) {
 private fun appearanceInner(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    val themeRaw = ProPrefs.get(LocalContext.current, "p4_theme")
-    var mode by remember { mutableStateOf(if (themeRaw?.contains("\"light\"") == true) "light" else "dark") }
-    var accentId by remember { mutableStateOf(ThemeController.accentId) }
+    // BATCH-4B item 1: no local `remember` shadow copy of accentId/mode — read
+    // straight from ThemeController so the picker can never lag behind the
+    // source of truth, and so a swatch tap re-colors the whole app instantly.
+    val mode = if (ThemeController.dark) "dark" else "light"
+    val accentId = ThemeController.accentId
+    val dynamic = ThemeController.dynamic
 
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         listOf("dark" to "fa-moon", "light" to "fa-sun").forEach { (m, ic) ->
             val active = mode == m
             Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(2.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
-                mode = m
-                ThemeController.set(m, accentId)
-                ProPrefs.put(ctx, "p4_theme", """{"mode":"$m","accent":"$accentId"}""")
+                ThemeController.set(m, accentId, ctx)
                 onToast("Theme updated — $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name}")
             }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -629,20 +631,22 @@ private fun appearanceInner(onToast: (String) -> Unit) {
         }
     }
     Spacer(Modifier.height(12.dp))
+    // BATCH-4B item 1: when Material You is on, dim the palette and surface a hint —
+    // the user needs to understand why their chosen color isn't applying.
+    val paletteAlpha = if (dynamic) 0.4f else 1f
     ACCENTS.chunked(8).forEach { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
             row.forEach { a ->
                 val active = accentId == a.id
                 Box(
                     Modifier
+                        .alpha(paletteAlpha)
                         .size(32.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
                         .background(if (ThemeController.dark) a.darkHex else a.lightHex)
                         .border(if (active) 3.dp else 1.dp, if (active) c.text else c.hairline2, androidx.compose.foundation.shape.CircleShape)
-                        .clickable {
-                            accentId = a.id
-                            ThemeController.set(mode, a.id)
-                            ProPrefs.put(ctx, "p4_theme", """{"mode":"$mode","accent":"$accentId"}""")
+                        .clickable(enabled = !dynamic) {
+                            ThemeController.set(mode, a.id, ctx)
                             onToast("Theme updated — $mode · ${a.name}")
                         }
                 )
@@ -651,15 +655,23 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     }
     val accentName = ACCENTS.firstOrNull { it.id == accentId }?.name ?: ""
     Text(accentName, fontSize = 12.sp, color = c.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-    Text("All 16 colors available", style = ProType.small, color = c.text3, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+    if (dynamic) {
+        Text(
+            "Material You is active — turn it off below to apply your selected color.",
+            style = ProType.small, color = c.warn, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
+    } else {
+        Text("All 16 colors available", style = ProType.small, color = c.text3, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+    }
     Spacer(Modifier.height(12.dp))
     ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProPrefs.get(LocalContext.current, "p4_gym") == "on") { on ->
         ProPrefs.put(ctx, "p4_gym", if (on) "on" else "off")
         onToast(if (on) "Gym Mode ON — huge buttons, no waiting on animations." else "Gym Mode off.")
     }
-    ToggleRow("Material You color", "Tint Pro with your wallpaper palette (Android 12+)", checked = ProPrefs.get(ctx, "p4_dynamic") == "on") { on ->
-        ProPrefs.put(ctx, "p4_dynamic", if (on) "on" else "off")
-        onToast(if (on) "Material You color on — reopen the app to apply fully." else "Material You color off.")
+    ToggleRow("Material You color", "Tint Pro with your wallpaper palette (Android 12+). When on, your selected accent is ignored.", checked = dynamic) { on ->
+        ThemeController.setDynamic(on, ctx)
+        onToast(if (on) "Material You color on — wallpaper palette applied." else "Material You color off — your selected accent applies now.")
     }
 }
 
@@ -668,17 +680,19 @@ private fun appearanceInner(onToast: (String) -> Unit) {
 fun ThemePickerCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    var accentId by remember { mutableStateOf(ThemeController.accentId) }
-    var mode by remember { mutableStateOf(if (ThemeController.dark) "dark" else "light") }
+    // BATCH-4B item 1: read straight from ThemeController (no local shadow copies),
+    // so the picker is always in sync with the source of truth and the whole app
+    // re-colors the instant a swatch is tapped.
+    val accentId = ThemeController.accentId
+    val mode = if (ThemeController.dark) "dark" else "light"
+    val dynamic = ThemeController.dynamic
     Text("Pick a color theme — applies instantly and persists across restarts.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(10.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf("dark" to "fa-moon", "light" to "fa-sun").forEach { (m, ic) ->
             val active = mode == m
             Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(1.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
-                mode = m
-                ThemeController.set(m, accentId)
-                ProPrefs.put(ctx, "p4_theme", """{"mode":"$m","accent":"$accentId"}""")
+                ThemeController.set(m, accentId, ctx)
                 onToast("Theme: $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name ?: ""}")
             }.padding(vertical = 11.dp), contentAlignment = Alignment.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -690,18 +704,18 @@ fun ThemePickerCardBody(onToast: (String) -> Unit) {
         }
     }
     Spacer(Modifier.height(10.dp))
+    val paletteAlpha = if (dynamic) 0.4f else 1f
     ACCENTS.chunked(4).forEach { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
             row.forEach { a ->
                 val active = accentId == a.id
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).clickable {
-                    accentId = a.id
-                    ThemeController.set(mode, a.id)
-                    ProPrefs.put(ctx, "p4_theme", """{"mode":"$mode","accent":"$accentId"}""")
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).clickable(enabled = !dynamic) {
+                    ThemeController.set(mode, a.id, ctx)
                     onToast("Accent: ${a.name}")
                 }) {
                     Box(
                         Modifier
+                            .alpha(paletteAlpha)
                             .size(34.dp)
                             .clip(androidx.compose.foundation.shape.CircleShape)
                             .background(if (ThemeController.dark) a.darkHex else a.lightHex)
@@ -712,6 +726,14 @@ fun ThemePickerCardBody(onToast: (String) -> Unit) {
                 }
             }
         }
+    }
+    if (dynamic) {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Material You is active — your selected accent is ignored. Turn Material You off in Appearance to apply this color.",
+            style = ProType.small, color = c.warn, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

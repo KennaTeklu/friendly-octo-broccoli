@@ -82,6 +82,14 @@ interface ProDao {
     @Query("SELECT value FROM meta WHERE `key` = :k") suspend fun meta(k: String): String?
     @Query("DELETE FROM meta WHERE `key` IN (:keys)") suspend fun deleteMeta(keys: List<String>)
 
+    // BATCH-4B item 2/6: synchronous meta access for per-profile state reads
+    // (boot-time reads must not require a coroutine scope). These block on the
+    // DAO; only safe off the main thread.
+    @Query("SELECT value FROM meta WHERE `key` = :k") fun metaSync(k: String): String?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) fun putMetaSync(row: MetaRow)
+    @Query("DELETE FROM meta WHERE `key` IN (:keys)") fun deleteMetaSync(keys: List<String>)
+    @Query("SELECT `key` FROM meta") fun metaKeysSync(): List<String>
+
     @Query("DELETE FROM workouts") fun c1()
     @Query("DELETE FROM exercises") fun c2()
     @Query("DELETE FROM user") fun c3()
