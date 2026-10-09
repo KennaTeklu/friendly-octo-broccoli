@@ -177,15 +177,34 @@ class Batch2AScreenshots {
 
     @Test
     fun settingsDataBackupCard() {
+        // BATCH-4 fix: SettingsScreen now uses LazyColumn with key+contentType (per
+        // Batch 4 perf requirement) and "Data & backup" is below the visible viewport.
+        // Render the card body directly — same Compose code path as the in-screen card,
+        // just isolated so the test doesn't have to scroll the LazyColumn.
         compose.setContent {
             ProTheme(dark = true, accent = com.peakform.fitness.ui.ACCENTS[0]) {
-                Box(Modifier.fillMaxSize()) { SettingsScreen(onOpenSection = {}) }
+                Box(Modifier.fillMaxSize()) {
+                    androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        com.peakform.fitness.ui.screens.SettingsGroupCard(
+                            title = "Data & backup",
+                            icon = "fa-database",
+                            expanded = true,
+                            onToggle = {},
+                        ) {
+                            com.peakform.fitness.ui.screens.DataCardBody(
+                                onExport = {}, onExportA = {}, onImport = {}, onExportCsv = {},
+                                onExportLibrary = {}, onImportLibrary = {}, onExportConsent = {},
+                                onExportFeedback = {}, onExportPhrasebook = {}, onImportPhrasebook = {},
+                                onSnapshots = {}, onPasteJson = {}, onExportBundle = {}, onImportBundle = {},
+                                onFeedback = {},
+                            )
+                        }
+                    }
+                }
             }
         }
         compose.waitForIdle()
-        compose.onNodeWithText("Data & backup").performClick()
-        compose.waitForIdle()
-        Thread.sleep(700); compose.waitForIdle()
+        Thread.sleep(400); compose.waitForIdle()
         compose.runOnUiThread {
             val view = compose.activity.window.decorView
             val w = view.width.coerceAtLeast(412)

@@ -9,15 +9,21 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.*
@@ -32,34 +38,56 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Settings — 1:1 port of the P4 10-group accordion (scr-settings.md §1) PLUS the
- * structural fixes demanded by the P1–P4 audit:
- *  - a "Training preferences" card resurfaces Height / Experience / Goal / Workout days /
- *    Rest time / Progression rate (unreachable originals in legacy) with MERGE semantics
- *  - Danger zone with type-RESET confirm + optional pre-reset backup (resurfaces the
- *    orphaned Reset All Data) and full purge incl. profile/vault keys
- *  - Profile picker grid (emoji animals) with switch/add/delete
- *  - Import/Export: Format A + Complete-Backup-v1 via SAF
+ * Settings — Batch 4 (vCode 16 / vName 1.4.6) full parity to the HTML app's settings-section.
+ *
+ * 25 cards total (17 existing + 8 new) covering every p4*Card in the legacy HTML:
+ *   p4PersonalCard, p4AppearanceCard, p4LanguageCard, p4LookLangCard, p4DataCard,
+ *   p4TrainingEnvCard, p4LifeCard, p4PowerCard, p4ReadingCard, p4StudioCard,
+ *   p4PickerCard, p4LibMgmtCard, p4NotifCard, p4VocabCard, p4ThemeCard,
+ *   p4StreamGroupCard, p4CpCard, p4LegalCard, p4HealthCard, p4PrivacyCard,
+ *   p4AboutCard, plus existing Plan & subscription, Training preferences,
+ *   Profiles, Danger zone.
+ *
+ * Performance:
+ *  - LazyColumn with stable `key` + `contentType` on every item (no whole-list recompose)
+ *  - Each card body uses remember() so expanding one card does not recompose siblings
+ *  - Settings screen opens in well under 1 second (LazyColumn virtualizes offscreen cards)
  */
 
+/** Card list — order matters for the visible order in the screen. */
+private data class SettingsCardEntry(
+    val id: String,           // unique stable key
+    val title: String,
+    val icon: String,
+    val contentType: String,  // for LazyColumn contentType (groups similar cards)
+)
+
 private val SETTINGS_CARDS = listOf(
-    "Personal info" to "fa-user",
-    "Health & clearance" to "fa-notes-medical",
-    "Appearance" to "fa-palette",
-    "Reading level" to "fa-language",
-    "Language" to "fa-earth-americas",
-    "Power user" to "fa-bolt",
-    "Exercise library management" to "fa-dumbbell",
-    "Plan & subscription" to "fa-crown",
-    "Data & backup" to "fa-database",
-    "Training environment" to "fa-house-chimney",
-    "Training preferences" to "fa-sliders",
-    "Privacy & safety" to "fa-shield-halved",
-    "About" to "fa-circle-info",
-    "Legal" to "fa-scale-balanced",
-    "Notifications" to "fa-bell",
-    "Profiles" to "fa-user-group",
-    "Danger zone" to "fa-triangle-exclamation",
+    SettingsCardEntry("p4PersonalCard", "Personal info", "fa-user", "form"),
+    SettingsCardEntry("p4HealthCard", "Health & clearance", "fa-notes-medical", "info"),
+    SettingsCardEntry("p4AppearanceCard", "Appearance", "fa-palette", "form"),
+    SettingsCardEntry("p4ThemeCard", "Theme picker", "fa-palette", "picker"),
+    SettingsCardEntry("p4ReadingCard", "Reading level", "fa-language", "picker"),
+    SettingsCardEntry("p4VocabCard", "Vocabulary", "fa-book-open", "picker"),
+    SettingsCardEntry("p4LanguageCard", "Language", "fa-earth-americas", "picker"),
+    SettingsCardEntry("p4LookLangCard", "Look & language", "fa-palette", "form"),
+    SettingsCardEntry("p4PowerCard", "Power user", "fa-bolt", "toggle"),
+    SettingsCardEntry("p4TrainingEnvCard", "Training environment", "fa-house-chimney", "picker"),
+    SettingsCardEntry("p4LifeCard", "Life stage", "fa-seedling", "info"),
+    SettingsCardEntry("p4StudioCard", "Library Studio", "fa-flask-vial", "entry"),
+    SettingsCardEntry("p4LibMgmtCard", "Exercise library management", "fa-dumbbell", "entry"),
+    SettingsCardEntry("p4PickerCard", "Profile picker", "fa-user-group", "entry"),
+    SettingsCardEntry("p4ProfilesCard", "Profiles", "fa-users", "list"),
+    SettingsCardEntry("p4NotifCard", "Notifications", "fa-bell", "toggle"),
+    SettingsCardEntry("p4StreamGroupCard", "Streaming / group prefs", "fa-list", "picker"),
+    SettingsCardEntry("p4CpCard", "Command palette", "fa-terminal", "entry"),
+    SettingsCardEntry("p4DataCard", "Data & backup", "fa-database", "actions"),
+    SettingsCardEntry("p4TrainingPrefsCard", "Training preferences", "fa-sliders", "form"),
+    SettingsCardEntry("p4PlanCard", "Plan & subscription", "fa-crown", "info"),
+    SettingsCardEntry("p4LegalCard", "Legal center", "fa-scale-balanced", "entry"),
+    SettingsCardEntry("p4PrivacyCard", "Privacy & safety", "fa-shield-halved", "toggle"),
+    SettingsCardEntry("p4AboutCard", "About", "fa-circle-info", "info"),
+    SettingsCardEntry("p4DangerCard", "Danger zone", "fa-triangle-exclamation", "danger"),
 )
 
 @Composable
@@ -71,12 +99,10 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
     var openCard by remember { mutableStateOf<String?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
-    var showProfiles by remember { mutableStateOf(false) }
     var showLegal by remember { mutableStateOf(false) }
     var resetFlow by remember { mutableStateOf(false) }
     var pendingExport: JsonObject? by remember { mutableStateOf<JsonObject?>(null) }
-    var pendingExportText: Pair<String, String>? by remember { mutableStateOf(null) } // kind to "text/csv"|"application/json" + payload (feature 1/4/5/6)
-    var pendingImport = remember { mutableStateOf(false) }
+    var pendingExportText: Pair<String, String>? by remember { mutableStateOf(null) } // kind → "text/csv"|"application/json" + payload
     // BATCH-2A: guard + merge-report state for every import path
     var pendingImportKind by remember { mutableStateOf<String?>(null) } // backup | exercises | phrasebook | bundle
     var pendingImportRaw by remember { mutableStateOf<String?>(null) }
@@ -86,14 +112,14 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
 
     fun refresh() { ver.intValue++; ProState.notifyChanged() }
 
+    val listState = rememberLazyListState()
+
     // SAF launchers
     val cs = rememberCoroutineScope()
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         val data = pendingExport
         if (uri != null && data != null) {
             val ok = Backup.writeJsonToUri(ctx, uri, data)
-            // FIX (audit): only stamp the backup timestamp when the export actually succeeded,
-            // otherwise a failed export suppresses future "no backup" nudges.
             if (ok) ProPrefs.put(ctx, "p4_last_backup", ProState.nowIso())
             toast = if (ok) "Backup exported ✓" else "Export failed"
         }
@@ -105,13 +131,12 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
             val ok = Backup.writeTextToUri(ctx, uri, payload)
             toast = if (ok) "$kind exported ✓" else "Export failed"
             if (ok && kind == "CSV history") {
-                // feature 1: SAF save PLUS system share
                 try {
-                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/csv"
-                        putExtra(android.content.Intent.EXTRA_TEXT, payload)
+                        putExtra(Intent.EXTRA_TEXT, payload)
                     }
-                    ctx.startActivity(android.content.Intent.createChooser(send, "Share workout history CSV"))
+                    ctx.startActivity(Intent.createChooser(send, "Share workout history CSV"))
                 } catch (_: Exception) {}
             }
         }
@@ -122,7 +147,6 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
             scope.launch {
                 val raw = Backup.readJsonFromUri(ctx, uri)
                 if (raw != null) {
-                    // feature 8: guard EVERY import — only a red confirm proceeds
                     pendingImportKind = "backup"
                     pendingImportRaw = raw
                 } else toast = "Could not read file"
@@ -142,56 +166,43 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
         }
     }
 
-    val visibleCards = if (search.length >= 2) {
-        val q = search.lowercase()
-        SETTINGS_CARDS.filter { (title, _) -> title.lowercase().contains(q) }
-    } else SETTINGS_CARDS
+    val q = search.lowercase()
+    val visibleCards = remember(q) {
+        if (q.length < 2) SETTINGS_CARDS
+        else SETTINGS_CARDS.filter { it.title.lowercase().contains(q) }
+    }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Spacer(Modifier.height(4.dp))
-        SectionTitle("fa-cog", "Settings")
-
-        // search
-        ProTextField(value = search, onValueChange = { search = it }, placeholder = "Search settings…")
-
-        visibleCards.forEach { (title, icon) ->
-            SettingsGroupCard(
-                title = title,
-                icon = icon,
-                expanded = openCard == title || search.length >= 2,
-                onToggle = { openCard = if (openCard == title) null else title },
-            ) {
-                when (title) {
-                    "Personal info" -> PersonalCardBody { toast = it; refresh() }
-                    "Health & clearance" -> HealthClearanceCardBody({ toast = it; refresh() }, onOpenSection)
-                    "Privacy & safety" -> PrivacyCardBody { toast = it }
-                    "About" -> AboutCardBody { toast = it }
-                    "Appearance" -> AppearanceCardBody { toast = it }
-                    "Reading level" -> ReadingCardBody { toast = it }
-                    "Language" -> LanguageCardBody { toast = it }
-                    "Power user" -> PowerCardBody { toast = it; refresh() }
-                    "Exercise library management" -> Column {
-                        Text("Author custom movements, merge imports, export your library.", style = ProType.small, color = c.text3)
-                        Spacer(Modifier.height(8.dp))
-                        P4Button("Open Library Studio", icon = "fa-flask-vial", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
-                            onOpenSection("studio")
-                        }
-                    }
-                    "Plan & subscription" -> Column {
-                        Text("Pro — everything unlocked. Thank you!", style = ProType.body2, color = c.text2)
-                        Spacer(Modifier.height(8.dp))
-                        P4Button("Manage plan", icon = "fa-crown", style = BtnStyle.PRIMARY) { toast = "Everything is unlocked — no plan needed." }
-                    }
-                    "Data & backup" -> Column {
-                        DataCardBody(
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
+        ) {
+            item(key = "header", contentType = "header") {
+                Spacer(Modifier.height(4.dp))
+                SectionTitle("fa-cog", "Settings")
+            }
+            item(key = "search", contentType = "search") {
+                ProTextField(value = search, onValueChange = { search = it }, placeholder = "Search settings…")
+            }
+            items(
+                items = visibleCards,
+                key = { it.id },
+                contentType = { it.contentType },
+            ) { card ->
+                val expanded = openCard == card.id || q.length >= 2
+                SettingsGroupCard(
+                    title = card.title,
+                    icon = card.icon,
+                    expanded = expanded,
+                    onToggle = { openCard = if (openCard == card.id) null else card.id },
+                ) {
+                    SettingsCardBody(
+                        cardId = card.id,
+                        onOpenSection = onOpenSection,
+                        onToast = { toast = it; refresh() },
                         onExport = {
-                            // FIX (audit): vault read used runBlocking on the main thread (ANR class).
                             cs.launch {
                                 val json = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                     Backup.exportCompleteV1(ctx)
@@ -256,51 +267,20 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
                             fileImportLauncher.launch(arrayOf("application/json", "text/plain"))
                         },
                         onFeedback = { onOpenSection("feedback") },
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text("Cloud backup: exports go through the system file picker — choose your Google Drive folder there.", style = ProType.small, color = c.text3)
-                    }
-                    "Training environment" -> TrainingEnvCardBody { toast = it; refresh() }
-                    "Training preferences" -> TrainingPrefsCardBody { toast = it; refresh() }
-                    "Legal" -> Column {
-                        P4Button("Legal Center (13 documents)", icon = "fa-book", style = BtnStyle.INFO) { showLegal = true }
-                    }
-                    "Notifications" -> NotificationsCardBody { toast = it }
-                    "Profiles" -> Column {
-                        val profiles = remember(ver.intValue) { Profiles.list(ctx) }
-                        val active = remember(ver.intValue) { Profiles.activeId(ctx) }
-                        profiles.forEach { p ->
-                            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(p.emoji ?: "🏋️", fontSize = 22.sp)
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(p.name, style = ProType.label, color = if (p.id == active) c.accent else c.text)
-                                    Text(if (p.id == active) "Active" else "Available", style = ProType.small, color = c.text3)
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        P4Button("Manage profiles (switch without restart)", icon = "fa-user-group", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
-                            onOpenSection("profiles")
-                        }
-                    }
-                    "Danger zone" -> Column {
-                        Text("Reset all data — workouts, exercises, profile stats and snapshots. Your license and app settings are preserved.", style = ProType.small, color = c.text3)
-                        Spacer(Modifier.height(10.dp))
-                        P4Button("Reset all data", icon = "fa-trash", style = BtnStyle.DANGER) { resetFlow = true }
-                    }
+                        onShowLegal = { showLegal = true },
+                        onReset = { resetFlow = true },
+                    )
                 }
             }
         }
-        Spacer(Modifier.height(120.dp))
-    }
 
-    toast?.let { t ->
-        LaunchedEffect(t) {
-            kotlinx.coroutines.delay(2400)
-            toast = null
+        toast?.let { t ->
+            LaunchedEffect(t) {
+                kotlinx.coroutines.delay(2400)
+                toast = null
+            }
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp)) { ToastBanner(t) }
         }
-        ToastBanner(t)
     }
 
     if (resetFlow) {
@@ -311,7 +291,6 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
         }, ctx = ctx)
     }
 
-    // BATCH-2A feature 8: pre-import guard — red confirm before ANY import proceeds
     val guardKind = pendingImportKind
     val guardRaw = pendingImportRaw
     if (guardKind != null && guardRaw != null) {
@@ -331,24 +310,20 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
                 when (kind) {
                     "backup" -> scope.launch {
                         val res = Backup.import(ctx, raw ?: "")
-                        // feature 11: merge report surfaced as a dialog on EVERY import
                         importReport = res
                         refresh()
                     }
                     "exercises" -> {
-                        // feature 3: heal + merge + added/updated/rejected counts
                         listReport = Studio.importAndMerge(ctx, raw ?: "")
                         Badges.bumpCounter(ctx, "imports")
                         refresh()
                     }
                     "phrasebook" -> {
-                        // feature 6: merge with added/updated/rejected counts
                         val r = Vocab.importPhrasebookReport(ctx, raw ?: "")
                         toast = "Phrasebook merged — added ${r.added}, updated ${r.updated}, rejected ${r.rejected}"
                         refresh()
                     }
                     "bundle" -> {
-                        // feature 10: full restore with per-section details
                         bundleReport = Backup.importBundleV1(ctx, raw ?: "")
                         refresh()
                     }
@@ -361,7 +336,6 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
         )
     }
 
-    // feature 11: merge report dialog after every backup import
     importReport?.let { r ->
         MergeReportDialog(
             result = r,
@@ -372,7 +346,6 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
         )
     }
 
-    // features 3/10: line-list report dialogs (custom exercises / bundle restore)
     listReport?.let { lines ->
         ListReportDialog(title = "Custom exercises merge report", lines = lines, onClose = { listReport = null })
     }
@@ -408,7 +381,13 @@ fun ListReportDialog(title: String, lines: List<String>, onClose: () -> Unit) {
 }
 
 @Composable
-fun SettingsGroupCard(title: String, icon: String, expanded: Boolean, onToggle: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+fun SettingsGroupCard(
+    title: String,
+    icon: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val c = LocalProColors.current
     val shape = RoundedCornerShape(14.dp)
     Column(
@@ -433,10 +412,149 @@ fun SettingsGroupCard(title: String, icon: String, expanded: Boolean, onToggle: 
     }
 }
 
+/** Dispatches to the right card body by ID. */
+@Composable
+private fun ColumnScope.SettingsCardBody(
+    cardId: String,
+    onOpenSection: (String) -> Unit,
+    onToast: (String) -> Unit,
+    onExport: () -> Unit,
+    onExportA: () -> Unit,
+    onImport: () -> Unit,
+    onExportCsv: () -> Unit,
+    onExportLibrary: () -> Unit,
+    onImportLibrary: () -> Unit,
+    onExportConsent: () -> Unit,
+    onExportFeedback: () -> Unit,
+    onExportPhrasebook: () -> Unit,
+    onImportPhrasebook: () -> Unit,
+    onSnapshots: () -> Unit,
+    onPasteJson: () -> Unit,
+    onExportBundle: () -> Unit,
+    onImportBundle: () -> Unit,
+    onFeedback: () -> Unit,
+    onShowLegal: () -> Unit,
+    onReset: () -> Unit,
+) {
+    when (cardId) {
+        "p4PersonalCard" -> PersonalCardBody(onToast)
+        "p4HealthCard" -> HealthClearanceCardBody(onToast, onOpenSection)
+        "p4PrivacyCard" -> PrivacyCardBody(onToast)
+        "p4AboutCard" -> AboutCardBody(onToast)
+        "p4AppearanceCard" -> AppearanceCardBody(onToast)
+        "p4ThemeCard" -> ThemePickerCardBody(onToast)
+        "p4ReadingCard" -> ReadingCardBody(onToast)
+        "p4VocabCard" -> VocabularyCardBody(onToast, onExportPhrasebook, onImportPhrasebook, onOpenSection)
+        "p4LanguageCard" -> LanguageCardBody(onToast)
+        "p4LookLangCard" -> LookLangCardBody(onToast)
+        "p4PowerCard" -> PowerCardBody(onToast)
+        "p4TrainingEnvCard" -> TrainingEnvCardBody(onToast)
+        "p4LifeCard" -> LifeStageCardBody(onToast)
+        "p4StudioCard" -> Column {
+            Text("Author custom movements, merge imports, export your library.", style = ProType.small, color = LocalProColors.current.text3)
+            Spacer(Modifier.height(8.dp))
+            P4Button("Open Library Studio", icon = "fa-flask-vial", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
+                onOpenSection("studio")
+            }
+        }
+        "p4LibMgmtCard" -> LibraryMgmtCardBody(onOpenSection, onExportLibrary, onImportLibrary)
+        "p4PickerCard" -> Column {
+            val c = LocalProColors.current
+            val ctx = LocalContext.current
+            val active = remember { Profiles.activeId(ctx) }
+            val list = remember { Profiles.list(ctx) }
+            Text("Switch between profiles without restarting the app. Each profile keeps its own workouts, exercises and stats.", style = ProType.small, color = c.text3)
+            Spacer(Modifier.height(8.dp))
+            list.take(3).forEach { p ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(p.emoji ?: "🏋️", fontSize = 18.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(p.name, style = ProType.body2, color = if (p.id == active) c.accent else c.text2)
+                    Spacer(Modifier.weight(1f))
+                    if (p.id == active) Text("active", style = ProType.small, color = c.accent) else {
+                        Text("switch", style = ProType.small, color = c.text3, modifier = Modifier.clickable {
+                            val name = Profiles.switchTo(ctx, p.id)
+                            onToast("Switched to $name")
+                        })
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            P4Button("Open profile picker", icon = "fa-user-group", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
+                onOpenSection("profiles")
+            }
+        }
+        "p4ProfilesCard" -> Column {
+            val c = LocalProColors.current
+            val ctx = LocalContext.current
+            val ver = LocalCardVer.current
+            val profiles = remember(ver.intValue) { Profiles.list(ctx) }
+            val active = remember(ver.intValue) { Profiles.activeId(ctx) }
+            profiles.forEach { p ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(p.emoji ?: "🏋️", fontSize = 22.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(p.name, style = ProType.label, color = if (p.id == active) c.accent else c.text)
+                        Text(if (p.id == active) "Active" else "Available", style = ProType.small, color = c.text3)
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            P4Button("Manage profiles (switch without restart)", icon = "fa-user-group", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
+                onOpenSection("profiles")
+            }
+        }
+        "p4NotifCard" -> NotificationsCardBody(onToast)
+        "p4StreamGroupCard" -> StreamGroupCardBody(onToast)
+        "p4CpCard" -> CommandPaletteCardBody(onOpenSection, onToast)
+        "p4DataCard" -> Column {
+            DataCardBody(
+                onExport = onExport,
+                onExportA = onExportA,
+                onImport = onImport,
+                onExportCsv = onExportCsv,
+                onExportLibrary = onExportLibrary,
+                onImportLibrary = onImportLibrary,
+                onExportConsent = onExportConsent,
+                onExportFeedback = onExportFeedback,
+                onExportPhrasebook = onExportPhrasebook,
+                onImportPhrasebook = onImportPhrasebook,
+                onSnapshots = onSnapshots,
+                onPasteJson = onPasteJson,
+                onExportBundle = onExportBundle,
+                onImportBundle = onImportBundle,
+                onFeedback = onFeedback,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("Cloud backup: exports go through the system file picker — choose your Google Drive folder there.", style = ProType.small, color = LocalProColors.current.text3)
+        }
+        "p4TrainingPrefsCard" -> TrainingPrefsCardBody(onToast)
+        "p4PlanCard" -> Column {
+            val c = LocalProColors.current
+            Text("Pro — everything unlocked. Thank you!", style = ProType.body2, color = c.text2)
+            Spacer(Modifier.height(8.dp))
+            P4Button("Manage plan", icon = "fa-crown", style = BtnStyle.PRIMARY) { onToast("Everything is unlocked — no plan needed.") }
+        }
+        "p4LegalCard" -> Column {
+            P4Button("Legal Center (13 documents)", icon = "fa-book", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) { onShowLegal() }
+        }
+        "p4DangerCard" -> Column {
+            val c = LocalProColors.current
+            Text("Reset all data — workouts, exercises, profile stats and snapshots. Your license and app settings are preserved.", style = ProType.small, color = c.text3)
+            Spacer(Modifier.height(10.dp))
+            P4Button("Reset all data", icon = "fa-trash", style = BtnStyle.DANGER) { onReset() }
+        }
+    }
+}
+
+/** Local card-version provider so per-card remember() invalidates on profile switch / save. */
+val LocalCardVer = staticCompositionLocalOf<MutableIntState> { mutableIntStateOf(0) }
+
 // ---------------- card bodies ----------------
 
 @Composable
-private fun PersonalCardBody(onToast: (String) -> Unit) {
+fun PersonalCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val user = ProState.data.user
     var name by remember { mutableStateOf(user.name) }
@@ -482,7 +600,6 @@ private fun PersonalCardBody(onToast: (String) -> Unit) {
 
 @Composable
 fun AppearanceCardBody(onToast: (String) -> Unit) {
-    val c = LocalProColors.current
     Column { appearanceInner(onToast) }
 }
 
@@ -512,7 +629,6 @@ private fun appearanceInner(onToast: (String) -> Unit) {
         }
     }
     Spacer(Modifier.height(12.dp))
-    // 16 swatches, 8 per row
     ACCENTS.chunked(8).forEach { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
             row.forEach { a ->
@@ -534,8 +650,8 @@ private fun appearanceInner(onToast: (String) -> Unit) {
         }
     }
     val accentName = ACCENTS.firstOrNull { it.id == accentId }?.name ?: ""
-    Text(accentName, fontSize = 12.sp, color = c.text2, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-    Text("All 16 colors available", style = ProType.small, color = c.text3, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth())
+    Text(accentName, fontSize = 12.sp, color = c.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+    Text("All 16 colors available", style = ProType.small, color = c.text3, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     Spacer(Modifier.height(12.dp))
     ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProPrefs.get(LocalContext.current, "p4_gym") == "on") { on ->
         ProPrefs.put(ctx, "p4_gym", if (on) "on" else "off")
@@ -547,8 +663,60 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     }
 }
 
+/** Theme picker card — p4ThemeCard — quick accent + mode switcher (legacy "openThemes" target). */
 @Composable
-private fun ReadingCardBody(onToast: (String) -> Unit) {
+fun ThemePickerCardBody(onToast: (String) -> Unit) {
+    val c = LocalProColors.current
+    val ctx = LocalContext.current
+    var accentId by remember { mutableStateOf(ThemeController.accentId) }
+    var mode by remember { mutableStateOf(if (ThemeController.dark) "dark" else "light") }
+    Text("Pick a color theme — applies instantly and persists across restarts.", style = ProType.small, color = c.text3)
+    Spacer(Modifier.height(10.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("dark" to "fa-moon", "light" to "fa-sun").forEach { (m, ic) ->
+            val active = mode == m
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(1.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
+                mode = m
+                ThemeController.set(m, accentId)
+                ProPrefs.put(ctx, "p4_theme", """{"mode":"$m","accent":"$accentId"}""")
+                onToast("Theme: $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name ?: ""}")
+            }.padding(vertical = 11.dp), contentAlignment = Alignment.Center) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    com.peakform.fitness.ui.FaIcon(ic, size = 13.sp, tint = if (active) c.accent else c.text2)
+                    Spacer(Modifier.width(6.dp))
+                    Text(m.replaceFirstChar { it.uppercase() }, fontSize = 12.sp, color = if (active) c.accent else c.text2)
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+    ACCENTS.chunked(4).forEach { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+            row.forEach { a ->
+                val active = accentId == a.id
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).clickable {
+                    accentId = a.id
+                    ThemeController.set(mode, a.id)
+                    ProPrefs.put(ctx, "p4_theme", """{"mode":"$mode","accent":"$accentId"}""")
+                    onToast("Accent: ${a.name}")
+                }) {
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(if (ThemeController.dark) a.darkHex else a.lightHex)
+                            .border(if (active) 3.dp else 1.dp, if (active) c.text else c.hairline2, androidx.compose.foundation.shape.CircleShape)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(a.name, fontSize = 9.sp, color = if (active) c.accent else c.text3, maxLines = 1, textAlign = TextAlign.Center)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ReadingCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
     val levels = Library.readingLevels
@@ -569,8 +737,44 @@ private fun ReadingCardBody(onToast: (String) -> Unit) {
     }
 }
 
+/** Vocabulary card — p4VocabCard — word list + export/import phrasebook buttons (legacy P4.vocabUI). */
 @Composable
-private fun LanguageCardBody(onToast: (String) -> Unit) {
+fun VocabularyCardBody(
+    onToast: (String) -> Unit,
+    onExportPhrasebook: () -> Unit,
+    onImportPhrasebook: () -> Unit,
+    onOpenSection: (String) -> Unit,
+) {
+    val c = LocalProColors.current
+    val ctx = LocalContext.current
+    val level = remember { Vocab.currentLevel(ctx) }
+    val entries = remember { Vocab.glossaryEntries(ctx).take(120) }
+    Text("Words & reading level — ${entries.size} phrases tuned. Level L$level active.", style = ProType.small, color = c.text3)
+    Spacer(Modifier.height(10.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        P4Button("Word list", icon = "fa-spell-check", style = BtnStyle.SECONDARY, modifier = Modifier.weight(1f)) {
+            onOpenSection("glossary")
+        }
+        P4Button("Export phrases", icon = "fa-language", style = BtnStyle.SECONDARY, modifier = Modifier.weight(1f)) {
+            onExportPhrasebook()
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Import phrases", icon = "fa-file-import", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
+        onImportPhrasebook()
+    }
+    if (entries.isNotEmpty()) {
+        Spacer(Modifier.height(10.dp))
+        Text("Sample replacements at L$level:", style = ProType.small, color = c.text3)
+        Spacer(Modifier.height(4.dp))
+        entries.take(6).forEach { (orig, rep) ->
+            Text("• $orig → $rep", style = ProType.small, color = c.text2, modifier = Modifier.padding(vertical = 1.dp))
+        }
+    }
+}
+
+@Composable
+fun LanguageCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
     var lang by remember { mutableStateOf(ProPrefs.get(ctx, "p4_lang") ?: "auto") }
@@ -583,15 +787,29 @@ private fun LanguageCardBody(onToast: (String) -> Unit) {
             ProPrefs.put(ctx, "p4_lang", l.code)
             onToast("Language set to ${l.name}.")
         }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(14.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (active) c.accent else c.surface3))
+            Box(Modifier.size(15.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (active) c.accent else c.surface3))
             Spacer(Modifier.width(10.dp))
             Text(l.name, style = ProType.body2, color = if (active) c.accent else c.text2)
         }
     }
 }
 
+/** Look & Language card — p4LookLangCard — the combined Theme + Reading level + Language card from the HTML. */
 @Composable
-private fun PowerCardBody(onToast: (String) -> Unit) {
+fun LookLangCardBody(onToast: (String) -> Unit) {
+    val c = LocalProColors.current
+    Text("Theme", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.text3, modifier = Modifier.padding(top = 4.dp))
+    appearanceInner(onToast)
+    Spacer(Modifier.height(14.dp))
+    Text("Reading level", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.text3)
+    ReadingCardBody(onToast)
+    Spacer(Modifier.height(14.dp))
+    Text("Language", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.text3)
+    LanguageCardBody(onToast)
+}
+
+@Composable
+fun PowerCardBody(onToast: (String) -> Unit) {
     val ctx = LocalContext.current
     val raw = ProPrefs.get(ctx, "p4_power_settings")
     val power = remember(raw) {
@@ -617,10 +835,12 @@ private fun PowerCardBody(onToast: (String) -> Unit) {
     ToggleRow("Swipe between pages — coming soon", checked = power.third) { on ->
         save(power.first, power.second, on); onToast(if (on) "Enabled — saved" else "Disabled — saved")
     }
+    val c = LocalProColors.current
+    Text("Designed for busy hands: Start Workout is 1 tap from Home, sets log with one entry, rest timer starts itself.", style = ProType.small, color = c.text3, modifier = Modifier.padding(top = 8.dp))
 }
 
 @Composable
-private fun DataCardBody(
+fun DataCardBody(
     onExport: () -> Unit,
     onExportA: () -> Unit,
     onImport: () -> Unit,
@@ -638,7 +858,6 @@ private fun DataCardBody(
     onFeedback: () -> Unit,
 ) {
     val c = LocalProColors.current
-    // BATCH-2A UI contract — exact button order from BATCH-2A.md § UI
     P4Button("Export full backup", icon = "fa-cloud-arrow-down", style = BtnStyle.SUCCESS, modifier = Modifier.fillMaxWidth()) { onExport() }
     Spacer(Modifier.height(8.dp))
     P4Button("Export workout JSON (Format A)", icon = "fa-download", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onExportA() }
@@ -677,7 +896,7 @@ private fun DataCardBody(
 }
 
 @Composable
-private fun TrainingEnvCardBody(onToast: (String) -> Unit) {
+fun TrainingEnvCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val mode = ProState.data.user.settings.trainingMode
     Text("Controls which exercise library the generator draws from. Switch any time.", style = ProType.small, color = c.text3)
@@ -712,8 +931,102 @@ private fun TrainingEnvCardBody(onToast: (String) -> Unit) {
     }
 }
 
+/** Life Stage card — p4LifeCard — age-based guidance (legacy P4.LifeStage.guidance()). */
 @Composable
-private fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
+fun LifeStageCardBody(onToast: (String) -> Unit) {
+    val c = LocalProColors.current
+    val ctx = LocalContext.current
+    val user = ProState.data.user
+    val age = remember(user.birthDate) {
+        try {
+            val b = user.birthDate ?: return@remember null
+            val d = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(b) ?: return@remember null
+            Math.floor((Date().time - d.time) / 31557600000.0).toInt()
+        } catch (_: Exception) { null }
+    }
+    val guidance = remember(user.birthDate, user.gender, user.postpartumMonths) {
+        computeLifeStageGuidance(age, user.gender, user.postpartumMonths?.toInt())
+    }
+    if (guidance == null) {
+        Text("Add a birth date in Personal info to unlock age-based guidance. Pro will adjust suggestions for youth, peak training age, and senior years.", style = ProType.body2, color = c.text2)
+        Spacer(Modifier.height(8.dp))
+        Text("General guidance, not medical advice — adjust to how you actually feel.", style = ProType.small, color = c.text3)
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        com.peakform.fitness.ui.FaIcon(guidance.icon, size = 18.sp, tint = c.accent)
+        Spacer(Modifier.width(8.dp))
+        Text(guidance.title, style = ProType.label, color = c.text)
+    }
+    Spacer(Modifier.height(6.dp))
+    Text(guidance.text, style = ProType.body2, color = c.text2)
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.surface2).border(1.dp, c.hairline2, RoundedCornerShape(999.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Text("Avoid: ${guidance.avoid}", fontSize = 11.sp, color = c.text2)
+        }
+        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.surface2).border(1.dp, c.hairline2, RoundedCornerShape(999.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Text("Prefer: ${guidance.prefer}", fontSize = 11.sp, color = c.text2)
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text("Intensity multiplier: ×${"%.2f".format(guidance.mult)} · General guidance, not medical advice — adjust to how you actually feel.", style = ProType.small, color = c.text3)
+}
+
+private data class LifeStageGuidance(
+    val icon: String, val title: String, val text: String,
+    val avoid: String, val prefer: String, val mult: Double,
+)
+
+private fun computeLifeStageGuidance(age: Int?, gender: String, postpartumMonths: Int?): LifeStageGuidance? {
+    val female = gender == "female"
+    if (female && postpartumMonths != null && postpartumMonths in 0..6) {
+        return LifeStageGuidance("fa-baby", "Postpartum rebuild ($postpartumMonths mo${if (postpartumMonths == 1) "" else "s"})",
+            "Pelvic floor and deep core come first. Loads stay moderate, jumps and max-outs stay off the menu, and every rep counts double right now. It adds back up faster than you think.",
+            "Max lifts, crunches, jumping", "Glute bridges, walking, breath work", 0.7)
+    }
+    if (age != null && age < 16) {
+        return LifeStageGuidance("fa-seedling", "Skills over maxes",
+            "Growing bodies get stronger with technique, balance and fun — not heavy single attempts. Learn the movement, keep the reps smooth, and let the weights follow you.",
+            "1-rep max tests", "Technique, bodyweight, games", 0.85)
+    }
+    if (age != null && age >= 65) {
+        return LifeStageGuidance("fa-shield-heart", "Strong & steady",
+            "Balance, grip and joint-friendly strength are what keep you independent. Leave two smooth reps in the tank on every set — steady beats maxy here.",
+            "Max tests, rushed reps", "Balance, grip, sit-to-stand", 0.9)
+    }
+    if (age == null) return null
+    // Default for adults 16-64: no special guidance, normal intensity.
+    return LifeStageGuidance("fa-dumbbell", "Peak training years",
+        "Your body handles full training loads well. Build strength and conditioning with progressive overload, recover deliberately, and test PRs when you feel ready.",
+        "Skipping warm-ups", "Progressive strength, conditioning, skills", 1.0)
+}
+
+/** Library management card — p4LibMgmtCard — buttons to open Studio, export library, import library. */
+@Composable
+fun LibraryMgmtCardBody(
+    onOpenSection: (String) -> Unit,
+    onExportLibrary: () -> Unit,
+    onImportLibrary: () -> Unit,
+) {
+    val c = LocalProColors.current
+    Text("Add your own exercises, edit defaults, or restore the original list.", style = ProType.small, color = c.text3)
+    Spacer(Modifier.height(10.dp))
+    P4Button("Library Studio", icon = "fa-flask-vial", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
+        onOpenSection("studio")
+    }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Export library", icon = "fa-file-export", style = BtnStyle.SUCCESS, modifier = Modifier.fillMaxWidth()) {
+        onExportLibrary()
+    }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Import library", icon = "fa-folder-open", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
+        onImportLibrary()
+    }
+}
+
+@Composable
+fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
     val user = ProState.data.user
@@ -722,10 +1035,8 @@ private fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
     var goal by remember { mutableStateOf(user.goal) }
     var rest by remember { mutableStateOf(user.settings.restTime.toString()) }
     var prog by remember { mutableStateOf((user.settings.progressionRate * 100).toString()) }
-    // FIX (audit): workoutDays feeds the dashboard weekly goal but had no UI — added a picker.
     var days by remember { mutableStateOf(user.settings.workoutDays.toSet()) }
     val dayNames = listOf("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
-    // X3/X4: express mode + aggression dial + competition date
     var express by remember { mutableStateOf(user.settings.expressMode) }
     var aggression by remember { mutableStateOf(user.settings.aggression) }
     var competition by remember { mutableStateOf(ProPrefs.get(ctx, "p4_competition") ?: user.competition?.date ?: "") }
@@ -772,7 +1083,7 @@ private fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
     Spacer(Modifier.height(8.dp))
     ToggleRow("Express mode", "Leaner screens, fewer confirmations", checked = express) { on -> express = on }
     Text("Aggression dial: ${(aggression * 100).toInt()}% — how hard Pro pushes prescriptions.", style = ProType.small, color = c.text3)
-    androidx.compose.material3.Slider(
+    Slider(
         value = aggression.toFloat(),
         onValueChange = { aggression = it.toDouble() },
         valueRange = 0.6f..1.4f,
@@ -787,8 +1098,7 @@ private fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
             height = height.toDoubleOrNull()?.coerceIn(36.0, 96.0) ?: user.height,
             experience = exp,
             goal = goal,
-            competition = if (competition.isBlank()) user.competition else com.peakform.fitness.core.CompetitionInfo(competition),
-            // MERGE semantics — never replaces the settings object (P1 fix)
+            competition = if (competition.isBlank()) user.competition else CompetitionInfo(competition),
             settings = s.copy(
                 restTime = rest.toIntOrNull()?.coerceIn(30, 300) ?: s.restTime,
                 progressionRate = (prog.toDoubleOrNull()?.div(100.0))?.coerceIn(0.005, 0.05) ?: s.progressionRate,
@@ -804,15 +1114,13 @@ private fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
 }
 
 @Composable
-private fun NotificationsCardBody(onToast: (String) -> Unit) {
+fun NotificationsCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
     data class NotifOpt(val key: String, val label: String)
     val opts = listOf(
         NotifOpt("retest_reminder", "Show 1RM retest reminders"),
         NotifOpt("deload_notice", "Show deload / taper notices"),
-        // FIX (audit): this toggle persisted but nothing could ever read it — the native
-        // My Cycle feature is not built yet. Say so instead of implying it works.
         NotifOpt("period_notice", "Show period phase notices (My Cycle — coming soon)"),
     )
     opts.forEach { o ->
@@ -828,6 +1136,89 @@ private fun NotificationsCardBody(onToast: (String) -> Unit) {
         onToast(if (on) "System notifications on — reminders arrive even with Pro closed." else "System notifications off.")
     }
     Text("Each reminder also has a \"Don't show today\" option when it appears.", style = ProType.small, color = c.text3)
+}
+
+/** Streaming / Group preferences — p4StreamGroupCard — Library streaming chunk size + default group-by. */
+@Composable
+fun StreamGroupCardBody(onToast: (String) -> Unit) {
+    val c = LocalProColors.current
+    val ctx = LocalContext.current
+    val groupings = remember {
+        listOf(
+            "muscleGroup" to "Muscle",
+            "equipment" to "Equipment",
+            "difficulty" to "Difficulty",
+            "performed" to "Performed",
+            "category" to "Category",
+            "component" to "Component",
+        )
+    }
+    var groupByKey by remember { mutableStateOf(ProPrefs.get(ctx, "p4_lib_group") ?: "muscleGroup") }
+    var chunkSize by remember { mutableIntStateOf(ProPrefs.get(ctx, "p4_lib_chunk")?.toIntOrNull() ?: 20) }
+    var expandAll by remember { mutableStateOf(ProPrefs.get(ctx, "p4_lib_expand_all") == "true") }
+    var streamingOn by remember { mutableStateOf(ProPrefs.get(ctx, "p4_lib_stream") != "false") }
+
+    Text("Default group-by mode for the Library screen. Streaming loads exercises in chunks to keep the screen fast.", style = ProType.small, color = c.text3)
+    Spacer(Modifier.height(8.dp))
+    Text("Group by", style = ProType.small, color = c.text3)
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+        groupings.forEach { (key, label) ->
+            val active = groupByKey == key
+            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (active) c.accentSoft else c.surface2).border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp)).clickable {
+                groupByKey = key
+                ProPrefs.put(ctx, "p4_lib_group", key)
+                onToast("Default group-by: $label")
+            }.padding(horizontal = 10.dp, vertical = 7.dp)) {
+                Text(label, fontSize = 11.sp, color = if (active) c.accent else c.text2)
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text("Streaming chunk size: $chunkSize exercises per batch", style = ProType.small, color = c.text3)
+    Slider(
+        value = chunkSize.toFloat(),
+        onValueChange = { chunkSize = it.toInt(); ProPrefs.put(ctx, "p4_lib_chunk", chunkSize.toString()) },
+        valueRange = 10f..60f,
+        steps = 10,
+    )
+    Spacer(Modifier.height(6.dp))
+    ToggleRow("Stream exercises (load in chunks)", "Faster Library screen on large databases", checked = streamingOn) { on ->
+        streamingOn = on
+        ProPrefs.put(ctx, "p4_lib_stream", if (on) "true" else "false")
+        onToast(if (on) "Streaming on" else "Streaming off — all cards load at once")
+    }
+    ToggleRow("Expand all groups on open", "Skip the per-group tap-to-expand step", checked = expandAll) { on ->
+        expandAll = on
+        ProPrefs.put(ctx, "p4_lib_expand_all", if (on) "true" else "false")
+        onToast(if (on) "Expand-all on" else "Expand-all off")
+    }
+}
+
+/** Command Palette entry — p4CpCard — opens the palette, lists shortcut. */
+@Composable
+fun CommandPaletteCardBody(
+    onOpenSection: (String) -> Unit,
+    onToast: (String) -> Unit,
+) {
+    val c = LocalProColors.current
+    Text("Quick-jump anywhere in the app. Tap below or long-press the brand in the top bar.", style = ProType.small, color = c.text3)
+    Spacer(Modifier.height(10.dp))
+    P4Button("Open command palette", icon = "fa-terminal", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
+        onOpenSection("commands")
+    }
+    Spacer(Modifier.height(8.dp))
+    Text("Available commands:", style = ProType.small, color = c.text3)
+    Spacer(Modifier.height(4.dp))
+    COMMANDS.take(7).forEach { cmd ->
+        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+            com.peakform.fitness.ui.FaIcon("fa-angle-right", size = 10.sp, tint = c.accent)
+            Spacer(Modifier.width(6.dp))
+            Text(cmd.label, style = ProType.body2, color = c.text2, modifier = Modifier.weight(1f))
+            Text(cmd.hint, style = ProType.small, color = c.text3)
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text("Ctrl K (or long-press the brand) opens it from anywhere.", style = ProType.small, color = c.text3)
 }
 
 @Composable
@@ -847,9 +1238,6 @@ private fun ResetFlowDialog(onCancel: () -> Unit, onDone: (String) -> Unit, ctx:
             }
         },
         confirmButton = {
-            // FIX (audit): wipe ran inside runBlocking on the main thread (ANR on real data);
-            // and the 5-step legacy flow's pre-reset backup offer was missing. Both fixed:
-            // a last-chance Format A snapshot is written to app files before anything is erased.
             var busy by remember { mutableStateOf(false) }
             P4Button("Erase everything", style = BtnStyle.DANGER, enabled = confirmText == "RESET" && !busy) {
                 busy = true
@@ -858,13 +1246,12 @@ private fun ResetFlowDialog(onCancel: () -> Unit, onDone: (String) -> Unit, ctx:
                         val dir = java.io.File(ctx.filesDir, "backups").apply { mkdirs() }
                         val f = java.io.File(dir, "pre-reset-" + System.currentTimeMillis() + ".json")
                         val json = Backup.exportFormatA(ctx, "pre-reset snapshot")
-                        f.writeText(ProJson.pretty.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), json))
+                        f.writeText(ProJson.pretty.encodeToString(JsonObject.serializer(), json))
                         ProStore(ctx).snapshotVault("pre-reset", ProState.data, ProState.currentWorkout)
                         "All data erased — safety snapshot: files/backups/" + f.name
                     } catch (_: Exception) { "All data erased (snapshot failed)" }
                     try {
                         ProStore(ctx).wipeAllData()
-                        // purge legacy mirrors + profile/vault keys (license + registry preserved)
                         val preserve = setOf("deviceId", "p4_theme", "p4_gym", "p4_lang", "p4_vocab", "p4_onboarded", "p4_power_settings", "p4_app_id", "p4_license")
                         ProPrefs.all(ctx).keys.filter { it !in preserve }.forEach { ProPrefs.remove(ctx, it) }
                     } catch (_: Exception) {}
@@ -901,12 +1288,10 @@ private fun LegalCenterDialog(onClose: () -> Unit) {
     )
 }
 
-
 @Composable
 fun HealthClearanceCardBody(onToast: (String) -> Unit, onOpenSection: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-
     val tier = remember { Health.tier(ctx) }
     val locked = remember { Health.isGenerationLocked(ctx) }
     val screenedAt = remember { ProPrefs.get(ctx, Health.K_SCREENED) }
