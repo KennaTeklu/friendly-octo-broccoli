@@ -14,7 +14,14 @@ Usage: verify_apk.py <apk> <sdk-build-tools-dir> <project-src-dir>
 """
 import subprocess, sys, zipfile, re, os
 
-apk, bt, src = sys.argv[1], sys.argv[2], sys.argv[3]
+apk = sys.argv[1]
+# Build-tools dir + project source dir are auto-detected so the script can run as
+# `python3 verify_apk.py <apk>` from the project root. Both can still be overridden
+# positionally (apk, build-tools, src) for the legacy 3-arg invocation.
+bt = sys.argv[2] if len(sys.argv) > 2 else (
+    os.environ.get("ANDROID_HOME", "/home/z/my-project/android-sdk") + "/build-tools/34.0.0"
+)
+src = sys.argv[3] if len(sys.argv) > 3 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "app", "src", "main")
 AAPT2 = os.path.join(bt, "aapt2")
 APKSIGNER = os.path.join(bt, "apksigner")
 ZIPALIGN = os.path.join(bt, "zipalign")
