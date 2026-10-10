@@ -57,19 +57,39 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     }
     val _verTick = ver.intValue
     var search by remember { mutableStateOf("") }
-    var groupBy by remember { mutableIntStateOf(0) }
+    // BATCH-4C Gap 1: read p4_lib_group pref (written by Settings → StreamGroup card)
+    // to seed the initial group-by mode. The on-screen toggle still wins for the
+    // current session; this only affects the FIRST render.
+    val groupings = listOf(
+        "muscleGroup" to "Muscle",
+        "equipment" to "Equipment",
+        "difficulty" to "Difficulty",
+        "performed" to "Performed",
+        "category" to "Category",
+        "component" to "Component",
+    )
+    val initialGroupBy = remember {
+        val prefKey = ProPrefs.get(ctx, "p4_lib_group") ?: "muscleGroup"
+        val idx = groupings.indexOfFirst { it.first == prefKey }
+        if (idx >= 0) idx else 0
+    }
+    var groupBy by remember { mutableIntStateOf(initialGroupBy) }
     var openDetail by remember { mutableStateOf<LibraryExercise?>(null) }
     var wikiFor by remember { mutableStateOf<String?>(null) }
     var componentFilter by remember { mutableStateOf<String?>(null) }
 
-    // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806)
+    // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806).
+    // BATCH-4C Gap 1: honor p4_lib_expand_all pref — when "true", start with all
+    // groups EXPANDED (empty collapsed set) instead of the default all-collapsed.
     var collapsedGroups by remember(Library.groups) {
+        val expandAllPref = ProPrefs.get(ctx, "p4_lib_expand_all") == "true"
+        val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
         mutableStateOf(
             try {
                 ProPrefs.get(ctx, "p4_library_collapsed")?.let {
                     ProJson.json.decodeFromString(ListSerializer(String.serializer()), it).toSet()
-                } ?: Library.groups.keys.toSet()
-            } catch (_: Exception) { Library.groups.keys.toSet() }
+                } ?: defaultSet
+            } catch (_: Exception) { defaultSet }
         )
     }
     fun persistCollapse() {
@@ -80,15 +100,7 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     val mode = ProState.data.user.settings.trainingMode
     val all = remember(ver.intValue, mode) { Library.allLibraryExercises(mode).map { Library.augmented(it) } }
 
-    // LB1: six group-by options (legacy select, PF L6699–6706)
-    val groupings = listOf(
-        "muscleGroup" to "Muscle",
-        "equipment" to "Equipment",
-        "difficulty" to "Difficulty",
-        "performed" to "Performed",
-        "category" to "Category",
-        "component" to "Component",
-    )
+    // (groupings moved to top — BATCH-4C Gap 1, needed for initialGroupBy)
     val filtered = remember(search, all, componentFilter) {
         var list = if (search.length < 2) all
         else {
@@ -149,7 +161,19 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         }
     }
 
-    val cap = if (search.isNotBlank()) 200 else 60
+    // BATCH-4C Gap 1: honor p4_lib_chunk + p4_lib_stream prefs.
+    // When streaming is ON (default), cap each group at the chunk size (default 20)
+    // so the Library loads fast on large databases. When streaming is OFF, show all
+    // (200 / 60 legacy caps). Search always bumps to 200 to avoid hiding matches.
+    val cap = run {
+        if (search.isNotBlank()) return@run 200
+        val streamingOn = ProPrefs.get(ctx, "p4_lib_stream") != "false"
+        if (streamingOn) {
+            ProPrefs.get(ctx, "p4_lib_chunk")?.toIntOrNull()?.coerceIn(10, 60) ?: 20
+        } else {
+            60
+        }
+    }
     // HOTFIX-1.1 Fix 1: hoist `components` OUT of the LazyColumn DSL — remember() is @Composable
     // and the LazyListScope is not a composable scope.
     val components = remember(all) { all.flatMap { it.fitnessComponents }.distinct().sorted() }

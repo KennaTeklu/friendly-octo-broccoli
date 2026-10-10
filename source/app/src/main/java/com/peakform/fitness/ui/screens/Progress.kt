@@ -37,7 +37,7 @@ import kotlin.random.Random
  */
 
 @Composable
-fun ProgressScreen(onOpenSection: (String) -> Unit) {
+fun ProgressScreen(onOpenSection: (String) -> Unit, onRequireGenerate: (String) -> Unit = {}) {
     val c = LocalProColors.current
     val ver = remember { mutableIntStateOf(0) }
     DisposableEffect(Unit) {
@@ -54,6 +54,9 @@ fun ProgressScreen(onOpenSection: (String) -> Unit) {
     val streak = remember(ver.intValue) { Stats.calculateStreak() }
     val forecast = remember(ver.intValue) { Stats.strengthForecast() }
     val composite = remember(ver.intValue) { Stats.dashboardComposite(null) }
+
+    // BATCH-4C Gap 2: Longevity Report dialog state
+    var showLongevityReport by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -82,13 +85,15 @@ fun ProgressScreen(onOpenSection: (String) -> Unit) {
                     }
                 }
                 Spacer(Modifier.width(16.dp))
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text("Longevity Score", style = ProType.cardTitle, color = c.text)
                     Text(longevity.status, style = ProType.body2, color = color)
                     Spacer(Modifier.height(6.dp))
                     Text("Overall strength progress ${String.format("%.1f", strengthProgress)}%", style = ProType.small, color = c.text3)
                     Text("$streak day streak", style = ProType.small, color = c.text3)
                 }
+                // BATCH-4C Gap 2: View Report button opens the full longevity report
+                P4Button("View Report", style = BtnStyle.SECONDARY, minHeight = 36, onClick = { showLongevityReport = true })
             }
         }
 
@@ -226,6 +231,14 @@ fun ProgressScreen(onOpenSection: (String) -> Unit) {
             onOpenSection("dashboard")
         }
         Spacer(Modifier.height(120.dp))
+    }
+
+    // BATCH-4C Gap 2: Longevity Report dialog
+    if (showLongevityReport) {
+        LongevityReportDialog(
+            onDismiss = { showLongevityReport = false },
+            onLongevityWorkout = { onRequireGenerate("longevity") },
+        )
     }
 }
 

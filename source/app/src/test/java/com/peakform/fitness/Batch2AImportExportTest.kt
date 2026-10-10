@@ -12,7 +12,7 @@ import java.io.File
 
 /**
  * BATCH-2A P0 verification — the client's HTML-exported file
- * export_Kenna_September_28_2026.json (replicated byte-shape-for-shape in
+ * export_Alex_September_28_2026.json (replicated byte-shape-for-shape in
  * docs/verify/client-file/) must import successfully.
  *
  * The HTML writer emits the STRING "NaN" as summary.averageRPE and (a few
@@ -24,7 +24,7 @@ import java.io.File
 class Batch2AImportExportTest {
 
     // BATCH-4B note: this suite exercises the real client export file
-    // (export_Kenna_September_28_2026.json, 30 workouts with quoted "NaN"
+    // (export_Alex_September_28_2026.json, 30 workouts with quoted "NaN"
     // averages). That fixture carries the client's personal workout data
     // and is intentionally not committed to the public repo. The tests are
     // gracefully skipped when the fixture is missing so `testReleaseUnitTest`
@@ -33,9 +33,9 @@ class Batch2AImportExportTest {
     // (docs/verify/artifacts/export_format_A.json).
     private fun clientFile(): File =
         sequenceOf(
-            "../docs/verify/client-file/export_Kenna_September_28_2026.json",
-            "docs/verify/client-file/export_Kenna_September_28_2026.json",
-            "/home/z/my-project/potential-dollop/docs/verify/client-file/export_Kenna_September_28_2026.json",
+            "../docs/verify/client-file/export_Alex_September_28_2026.json",
+            "docs/verify/client-file/export_Alex_September_28_2026.json",
+            "/home/z/my-project/potential-dollop/docs/verify/client-file/export_Alex_September_28_2026.json",
         ).map { File(it) }.firstOrNull { it.isFile }
             ?: error("client replica file not found")
 
@@ -51,7 +51,7 @@ class Batch2AImportExportTest {
 
     @org.junit.Before
     fun skipIfFixtureMissing() {
-        // BATCH-4B note: the real client export (export_Kenna_September_28_2026.json)
+        // BATCH-4B note: the real client export (export_Alex_September_28_2026.json)
         // carries the client's personal workout data and is intentionally not
         // committed to the public repo. These tests are gracefully skipped when
         // the raw fixture (with quoted NaN averages) is not present, so
@@ -74,7 +74,7 @@ class Batch2AImportExportTest {
         // decodes end-to-end with the lenient ProJson
         val data = ProJson.decode(WorkoutData.serializer(), (root["workoutData"] ?: root).toString())
         assertEquals(30, data.workouts.size)
-        assertEquals("Kenna", data.user.name)
+        assertEquals("Alex", data.user.name)
     }
 
     @Test
@@ -132,13 +132,13 @@ class Batch2AImportExportTest {
         else root["workoutData"] as JsonObject
         val incoming = ProJson.decode(WorkoutData.serializer(), source.toString())
         assertEquals(30, incoming.workouts.size)
-        assertEquals("Kenna", incoming.user.name)
+        assertEquals("Alex", incoming.user.name)
         assertTrue("exercise records imported", incoming.exercises.isNotEmpty())
         // merged into a fresh state without errors
         val merged = Backup.computeMerge(WorkoutData(), incoming)
         assertEquals(30, merged.workouts.size)
         assertEquals(incoming.exercises.size, merged.exercises.size)
-        assertEquals("Kenna", merged.user.name)
+        assertEquals("Alex", merged.user.name)
     }
 
     // ---------- part 2: exports never contain NaN/Infinity ----------

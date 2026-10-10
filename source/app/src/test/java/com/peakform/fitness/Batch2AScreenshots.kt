@@ -60,7 +60,7 @@ import java.io.File
  * cannot complete a TCG boot — a real-device/emulator screenshot battery is therefore
  * not possible here (documented attempt in worklog). The renderer exercises the same
  * composables, themes, engine paths and — for the P0 import — the REAL client file
- * export_Kenna_September_28_2026.json through the REAL Backup.import() pipeline.
+ * export_Alex_September_28_2026.json through the REAL Backup.import() pipeline.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -68,11 +68,16 @@ import java.io.File
 class Batch2AScreenshots {
 
     // Repo root discovered by walking up from the Gradle working dir (source/app).
-    private val repoRoot: File = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
+    // BATCH-4C: make nullable so the class can instantiate even when the client
+    // fixture dir is absent — the @Before skipIfFixtureMissing guard then skips
+    // each test gracefully via Assume.assumeTrue. Previously the field init threw
+    // IllegalStateException before the skip could run, failing 9 tests in clean
+    // checkouts (no client fixture committed per WORKING-STYLE.md).
+    private val repoRoot: File? = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
         .firstOrNull { File(it, "docs/verify/client-file").isDirectory }
-        ?: error("docs/verify/client-file not found above ${System.getProperty("user.dir")}")
 
-    private val out: String = File(repoRoot, "docs/verify").absolutePath
+    private val out: String = (repoRoot ?: File(System.getProperty("user.dir")).parentFile?.parentFile ?: File(System.getProperty("user.dir")))
+        .let { File(it, "docs/verify").absolutePath }
 
     @get:org.junit.Rule
     val compose = createAndroidComposeRule(EmptyTestActivity::class.java)
@@ -80,11 +85,16 @@ class Batch2AScreenshots {
     private lateinit var ctx: Context
 
     private fun clientRaw(): String = File(
-        repoRoot, "docs/verify/client-file/export_Kenna_September_28_2026.json",
+        repoRoot!!, "docs/verify/client-file/export_Alex_September_28_2026.json",
     ).readText()
 
     @Before
     fun setup() {
+        // BATCH-4C: skip the entire suite when the client fixture is absent.
+        // The fixture carries the client's personal workout data and is intentionally
+        // not committed per WORKING-STYLE.md. On the client's build machine where
+        // the fixture is present, all tests run.
+        org.junit.Assume.assumeTrue("client fixture not committed — skipping Batch2AScreenshots", repoRoot != null)
         System.setProperty("roborazzi.enabled", "true")
         ctx = RuntimeEnvironment.getApplication()
         com.peakform.fitness.ui.Fa.appContext = ctx

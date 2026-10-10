@@ -400,13 +400,21 @@ fun AppShell(
                             },
                             onResumeWorkout = { section = "workout" },
                             onOpenSection = { go(it) },
+                            onRequireGenerate = { kind ->
+                                if (kind == "longevity") genLongevity = true else generateAndGo(null)
+                            },
                         )
                         "workout" -> WorkoutScreen(
                             onRequireGenerate = { generateAndGo(null) },
                             onOpenSection = { go(it) },
                         )
                         "history" -> HistoryScreen(onOpenSection = { go(it) })
-                        "progress" -> ProgressScreen(onOpenSection = { go(it) })
+                        "progress" -> ProgressScreen(
+                            onOpenSection = { go(it) },
+                            onRequireGenerate = { kind ->
+                                if (kind == "longevity") genLongevity = true else generateAndGo(null)
+                            },
+                        )
                         "recovery" -> RecoveryScreen(
                             onOpenSection = { go(it) },
                             onRequireGenerate = { kind ->

@@ -1158,6 +1158,20 @@ fun NotificationsCardBody(onToast: (String) -> Unit) {
         onToast(if (on) "System notifications on — reminders arrive even with Pro closed." else "System notifications off.")
     }
     Text("Each reminder also has a \"Don't show today\" option when it appears.", style = ProType.small, color = c.text3)
+    Spacer(Modifier.height(10.dp))
+    // BATCH-4C Gap 6: "Send test notification" button — lets the user verify
+    // their system-notif permission + channel setup actually works without
+    // waiting up to 6h for the WorkManager scan. Mirrors reference p4TestNotif
+    // (p4-core.js L24565, L24653–24680).
+    P4Button(
+        "Send test notification",
+        style = BtnStyle.SECONDARY,
+        icon = "fa-bell",
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Notify.notify(ctx, "test_notif", "Test notification", "Tap me! — if you see this, system notifications work.")
+        onToast("Test notification sent")
+    }
 }
 
 /** Streaming / Group preferences — p4StreamGroupCard — Library streaming chunk size + default group-by. */

@@ -38,6 +38,7 @@ fun DashboardScreen(
     onStartWorkout: () -> Unit,
     onResumeWorkout: () -> Unit,
     onOpenSection: (String) -> Unit,
+    onRequireGenerate: (String) -> Unit = {},
 ) {
     val c = LocalProColors.current
     val scope = rememberCoroutineScope()
@@ -81,6 +82,9 @@ fun DashboardScreen(
         recovery.overall >= 40 -> "Fatigued"
         else -> "Very Fatigued"
     }
+
+    // BATCH-4C Gap 2: Longevity Report dialog state
+    var showLongevityReport by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -253,7 +257,10 @@ fun DashboardScreen(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatCard("${strengthProgress.round1()}%", "Progress", modifier = Modifier.weight(1f))
-            StatCard("${longevity.total}", "Longevity", modifier = Modifier.weight(1f))
+            // BATCH-4C Gap 2: tap the longevity stat to open the full report
+            // (aging risks + breakdown + recommendations). Mirrors reference
+            // showLongevityReport() (app.js L45036).
+            StatCard("${longevity.total}", "Longevity", onClick = { showLongevityReport = true }, modifier = Modifier.weight(1f))
             StatCard(eliteDate.ifEmpty { "--" }, "Peak Est.", modifier = Modifier.weight(1f))
         }
 
@@ -301,6 +308,66 @@ fun DashboardScreen(
             Text(rec, style = ProType.body2, color = c.text2)
         }
 
+        // ---- BATCH-4C Gap 3: Daily Quote / Win of the Day / Coach Tips ----
+        // Mirrors reference P4.Motivation dashboard cards (p4-core.js L56330–56380).
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        val quote = remember(ver) { com.peakform.fitness.core.Motivation.dailyQuote(ctx) }
+        val win = remember(ver) { com.peakform.fitness.core.Motivation.winOfTheDay() }
+        val tips = remember(ver) { com.peakform.fitness.core.Motivation.tips(ctx, 2) }
+
+        // Daily Quote card
+        quote?.let { q ->
+            GlassCard(padding = PaddingValues(15.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    com.peakform.fitness.ui.FaIcon("fa-quote-left", size = 14.sp, tint = c.accent)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(q.t, style = ProType.body2, color = c.text, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                        if (q.a.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("— ${q.a}", style = ProType.small, color = c.text3)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Win of the Day card
+        GlassCard(padding = PaddingValues(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                com.peakform.fitness.ui.FaIcon(win.icon, size = 18.sp, tint = c.accent)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(win.big, style = ProType.label, color = c.text)
+                    Spacer(Modifier.height(2.dp))
+                    Text(win.small, style = ProType.small, color = c.text2)
+                }
+            }
+        }
+
+        // Coach Tips card (2 tips)
+        if (tips.isNotEmpty()) {
+            GlassCard(padding = PaddingValues(15.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    com.peakform.fitness.ui.FaIcon("fa-lightbulb", size = 14.sp, tint = c.accent)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Coach Tips", style = ProType.label, color = c.text)
+                }
+                Spacer(Modifier.height(8.dp))
+                tips.forEach { tip ->
+                    val domain = com.peakform.fitness.core.Motivation.domainOf(ctx, tip.d)
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                        com.peakform.fitness.ui.FaIcon(domain.icon, size = 12.sp, tint = c.text3)
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(tip.t, style = ProType.small, color = c.text2)
+                            Text(domain.name, style = ProType.small, color = c.text3, fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+        }
+
         // ---- progress overview chart ----
         GlassCard(padding = PaddingValues(16.dp)) {
             SectionTitle("fa-chart-line", "Progress Overview")
@@ -336,6 +403,14 @@ fun DashboardScreen(
         )
 
         Spacer(Modifier.height(16.dp)) // dock clearance
+    }
+
+    // BATCH-4C Gap 2: Longevity Report dialog
+    if (showLongevityReport) {
+        LongevityReportDialog(
+            onDismiss = { showLongevityReport = false },
+            onLongevityWorkout = { onRequireGenerate("longevity") },
+        )
     }
 }
 
