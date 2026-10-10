@@ -1,0 +1,180 @@
+﻿  10-08 15:27:42.948 E/AndroidRuntime( 6247): FATAL EXCEPTION: DefaultDispatcher-worker-3
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): Process: com.peakform.fitness, PID: 6247
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): java.lang.IllegalStateException: Cannot perform this operation because the connection pool has been closed.
+> 10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at android.database.sqlite.SQLiteConnectionPool.throwIfClosedLocked(SQLiteConnectionPool.java:1454)
+> 10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at android.database.sqlite.SQLiteConnectionPool.waitForConnection(SQLiteConnectionPool.java:973)
+> 10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at android.database.sqlite.SQLiteConnectionPool.acquireConnection(SQLiteConnectionPool.java:619)
+> 10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at android.database.sqlite.SQLiteSession.acquireConnection(SQLiteSession.java:916)
+> 10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at android.database.sqlite.SQLiteSession.executeForLastInsertedRowId(SQLiteSession.java:788)
+> 10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at android.database.sqlite.SQLiteStatement.executeInsert(SQLiteStatement.java:89)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at androidx.sqlite.db.framework.FrameworkSQLiteStatement.executeInsert(FrameworkSQLiteStatement.kt:42)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at androidx.room.EntityInsertionAdapter.insert(EntityInsertionAdapter.kt:84)
+> 10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:207)
+> 10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:201)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at androidx.room.CoroutinesRoom$Companion$execute$2.invokeSuspend(CoroutinesRoom.kt:64)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at androidx.room.TransactionExecutor.execute$lambda$1$lambda$0(TransactionExecutor.kt:36)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at androidx.room.TransactionExecutor.$r8$lambda$FZWr2PGmP3sgXLCiri-DCcePXSs(TransactionExecutor.kt:0)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at androidx.room.TransactionExecutor$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+  10-08 15:27:42.948 E/AndroidRuntime( 6247): 	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [StandaloneCoroutine{Cancelling}@23466a7, Dispatchers.IO]
+  10-08 15:28:11.775 E/AndroidRuntime(13148): FATAL EXCEPTION: DefaultDispatcher-worker-1
+  10-08 15:28:11.775 E/AndroidRuntime(13148): Process: com.peakform.fitness, PID: 13148
+> 10-08 15:28:11.775 E/AndroidRuntime(13148): java.lang.IllegalStateException: The database '/data/user/0/com.peakform.fitness/databases/pro_p_34c7f8c2.db' is not open.
+> 10-08 15:28:11.775 E/AndroidRuntime(13148): 	at android.database.sqlite.SQLiteDatabase.throwIfNotOpenLocked(SQLiteDatabase.java:3629)
+> 10-08 15:28:11.775 E/AndroidRuntime(13148): 	at android.database.sqlite.SQLiteDatabase.isWriteAheadLoggingEnabled(SQLiteDatabase.java:3019)
+  10-08 15:28:11.775 E/AndroidRuntime(13148): 	at androidx.sqlite.db.SupportSQLiteCompat$Api16Impl.isWriteAheadLoggingEnabled(SupportSQLiteCompat.kt:159)
+> 10-08 15:28:11.775 E/AndroidRuntime(13148): 	at androidx.sqlite.db.framework.FrameworkSQLiteDatabase.isWriteAheadLoggingEnabled(FrameworkSQLiteDatabase.kt:291)
+> 10-08 15:28:11.775 E/AndroidRuntime(13148): 	at androidx.room.RoomDatabase.internalBeginTransaction(RoomDatabase.kt:525)
+> 10-08 15:28:11.775 E/AndroidRuntime(13148): 	at androidx.room.RoomDatabase.beginTransaction(RoomDatabase.kt:511)
+> 10-08 15:28:11.775 E/AndroidRuntime(13148): 	at com.peakform.fitness.core.ProDao_Impl$14.call(ProDao_Impl.java:224)
+> 10-08 15:28:11.775 E/AndroidRuntime(13148): 	at com.peakform.fitness.core.ProDao_Impl$14.call(ProDao_Impl.java:220)
+  10-08 15:28:11.775 E/AndroidRuntime(13148): 	at androidx.room.CoroutinesRoom$Companion$execute$2.invokeSuspend(CoroutinesRoom.kt:64)
+  10-08 15:28:11.775 E/AndroidRuntime(13148): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+  10-08 15:28:11.775 E/AndroidRuntime(13148): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+  10-08 15:28:11.775 E/AndroidRuntime(13148): 	at androidx.room.TransactionExecutor.execute$lambda$1$lambda$0(TransactionExecutor.kt:36)
+  10-08 15:28:11.775 E/AndroidRuntime(13148): 	at androidx.room.TransactionExecutor.$r8$lambda$FZWr2PGmP3sgXLCiri-DCcePXSs(TransactionExecutor.kt:0)
+  10-08 15:28:11.775 E/AndroidRuntime(13148): 	at androidx.room.TransactionExecutor$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+  10-08 15:28:11.775 E/AndroidRuntime(13148): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+  10-08 15:28:11.775 E/AndroidRuntime(13148): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): FATAL EXCEPTION: DefaultDispatcher-worker-2
+  10-08 20:23:15.560 E/AndroidRuntime(19123): Process: com.peakform.fitness, PID: 19123
+  10-08 20:23:15.560 E/AndroidRuntime(19123): java.lang.IllegalStateException: Cannot perform this operation because the connection pool has been closed.
+> 10-08 20:23:15.560 E/AndroidRuntime(19123): 	at android.database.sqlite.SQLiteConnectionPool.throwIfClosedLocked(SQLiteConnectionPool.java:1454)
+> 10-08 20:23:15.560 E/AndroidRuntime(19123): 	at android.database.sqlite.SQLiteConnectionPool.waitForConnection(SQLiteConnectionPool.java:973)
+> 10-08 20:23:15.560 E/AndroidRuntime(19123): 	at android.database.sqlite.SQLiteConnectionPool.acquireConnection(SQLiteConnectionPool.java:619)
+> 10-08 20:23:15.560 E/AndroidRuntime(19123): 	at android.database.sqlite.SQLiteSession.acquireConnection(SQLiteSession.java:916)
+> 10-08 20:23:15.560 E/AndroidRuntime(19123): 	at android.database.sqlite.SQLiteSession.executeForLastInsertedRowId(SQLiteSession.java:788)
+> 10-08 20:23:15.560 E/AndroidRuntime(19123): 	at android.database.sqlite.SQLiteStatement.executeInsert(SQLiteStatement.java:89)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at androidx.sqlite.db.framework.FrameworkSQLiteStatement.executeInsert(FrameworkSQLiteStatement.kt:42)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at androidx.room.EntityInsertionAdapter.insert(EntityInsertionAdapter.kt:84)
+> 10-08 20:23:15.560 E/AndroidRuntime(19123): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:207)
+> 10-08 20:23:15.560 E/AndroidRuntime(19123): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:201)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at androidx.room.CoroutinesRoom$Companion$execute$2.invokeSuspend(CoroutinesRoom.kt:64)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at androidx.room.TransactionExecutor.execute$lambda$1$lambda$0(TransactionExecutor.kt:36)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at androidx.room.TransactionExecutor.$r8$lambda$FZWr2PGmP3sgXLCiri-DCcePXSs(TransactionExecutor.kt:0)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at androidx.room.TransactionExecutor$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+  10-08 20:23:15.560 E/AndroidRuntime(19123): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): FATAL EXCEPTION: DefaultDispatcher-worker-1
+  10-08 20:23:28.625 E/AndroidRuntime(28421): Process: com.peakform.fitness, PID: 28421
+  10-08 20:23:28.625 E/AndroidRuntime(28421): java.lang.IllegalStateException: Cannot perform this operation because there is no current transaction.
+> 10-08 20:23:28.625 E/AndroidRuntime(28421): 	at android.database.sqlite.SQLiteSession.throwIfNoTransaction(SQLiteSession.java:937)
+> 10-08 20:23:28.625 E/AndroidRuntime(28421): 	at android.database.sqlite.SQLiteSession.endTransaction(SQLiteSession.java:400)
+> 10-08 20:23:28.625 E/AndroidRuntime(28421): 	at android.database.sqlite.SQLiteDatabase.endTransaction(SQLiteDatabase.java:990)
+> 10-08 20:23:28.625 E/AndroidRuntime(28421): 	at androidx.sqlite.db.framework.FrameworkSQLiteDatabase.endTransaction(FrameworkSQLiteDatabase.kt:75)
+> 10-08 20:23:28.625 E/AndroidRuntime(28421): 	at androidx.room.RoomDatabase.internalEndTransaction(RoomDatabase.kt:553)
+> 10-08 20:23:28.625 E/AndroidRuntime(28421): 	at androidx.room.RoomDatabase.endTransaction(RoomDatabase.kt:543)
+> 10-08 20:23:28.625 E/AndroidRuntime(28421): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:211)
+> 10-08 20:23:28.625 E/AndroidRuntime(28421): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:201)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	at androidx.room.CoroutinesRoom$Companion$execute$2.invokeSuspend(CoroutinesRoom.kt:64)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	at androidx.room.TransactionExecutor.execute$lambda$1$lambda$0(TransactionExecutor.kt:36)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	at androidx.room.TransactionExecutor.$r8$lambda$FZWr2PGmP3sgXLCiri-DCcePXSs(TransactionExecutor.kt:0)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	at androidx.room.TransactionExecutor$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	at java.lang.Thread.run(Thread.java:1571)
+  10-08 20:23:28.625 E/AndroidRuntime(28421): 	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [StandaloneCoroutine{Cancelling}@f35b86b, Dispatchers.IO]
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): FATAL EXCEPTION: DefaultDispatcher-worker-2
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): Process: com.peakform.fitness, PID: 11476
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): java.lang.IllegalStateException: Cannot perform this operation because the connection pool has been closed.
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at android.database.sqlite.SQLiteConnectionPool.throwIfClosedLocked(SQLiteConnectionPool.java:1454)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at android.database.sqlite.SQLiteConnectionPool.waitForConnection(SQLiteConnectionPool.java:973)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at android.database.sqlite.SQLiteConnectionPool.acquireConnection(SQLiteConnectionPool.java:619)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at android.database.sqlite.SQLiteSession.acquireConnection(SQLiteSession.java:916)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at android.database.sqlite.SQLiteSession.executeForLastInsertedRowId(SQLiteSession.java:788)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at android.database.sqlite.SQLiteStatement.executeInsert(SQLiteStatement.java:89)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at androidx.sqlite.db.framework.FrameworkSQLiteStatement.executeInsert(FrameworkSQLiteStatement.kt:42)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at androidx.room.EntityInsertionAdapter.insert(EntityInsertionAdapter.kt:84)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:207)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:201)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at androidx.room.CoroutinesRoom$Companion$execute$2.invokeSuspend(CoroutinesRoom.kt:64)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at androidx.room.TransactionExecutor.execute$lambda$1$lambda$0(TransactionExecutor.kt:36)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at androidx.room.TransactionExecutor.$r8$lambda$FZWr2PGmP3sgXLCiri-DCcePXSs(TransactionExecutor.kt:0)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at androidx.room.TransactionExecutor$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	at java.lang.Thread.run(Thread.java:1571)
+> 10-09 10:09:56.504 E/AndroidRuntime(11476): 	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [StandaloneCoroutine{Cancelling}@1fb9201, Dispatchers.IO]
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): FATAL EXCEPTION: DefaultDispatcher-worker-1
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): Process: com.peakform.fitness, PID: 12930
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): java.lang.IllegalStateException: Cannot perform this operation because there is no current transaction.
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at android.database.sqlite.SQLiteSession.throwIfNoTransaction(SQLiteSession.java:937)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at android.database.sqlite.SQLiteSession.endTransaction(SQLiteSession.java:400)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at android.database.sqlite.SQLiteDatabase.endTransaction(SQLiteDatabase.java:990)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at androidx.sqlite.db.framework.FrameworkSQLiteDatabase.endTransaction(FrameworkSQLiteDatabase.kt:75)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at androidx.room.RoomDatabase.internalEndTransaction(RoomDatabase.kt:553)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at androidx.room.RoomDatabase.endTransaction(RoomDatabase.kt:543)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at com.peakform.fitness.core.ProDao_Impl$15.call(ProDao_Impl.java:248)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at com.peakform.fitness.core.ProDao_Impl$15.call(ProDao_Impl.java:238)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at androidx.room.CoroutinesRoom$Companion$execute$2.invokeSuspend(CoroutinesRoom.kt:64)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at androidx.room.TransactionExecutor.execute$lambda$1$lambda$0(TransactionExecutor.kt:36)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at androidx.room.TransactionExecutor.$r8$lambda$FZWr2PGmP3sgXLCiri-DCcePXSs(TransactionExecutor.kt:0)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at androidx.room.TransactionExecutor$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	at java.lang.Thread.run(Thread.java:1571)
+> 10-09 10:10:47.837 E/AndroidRuntime(12930): 	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [StandaloneCoroutine{Cancelling}@b23314a, Dispatchers.IO]
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): FATAL EXCEPTION: DefaultDispatcher-worker-3
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): Process: com.peakform.fitness, PID: 13247
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): java.lang.IllegalStateException: Cannot perform this operation because the connection pool has been closed.
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at android.database.sqlite.SQLiteConnectionPool.throwIfClosedLocked(SQLiteConnectionPool.java:1454)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at android.database.sqlite.SQLiteConnectionPool.waitForConnection(SQLiteConnectionPool.java:973)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at android.database.sqlite.SQLiteConnectionPool.acquireConnection(SQLiteConnectionPool.java:619)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at android.database.sqlite.SQLiteSession.acquireConnection(SQLiteSession.java:916)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at android.database.sqlite.SQLiteSession.executeForLastInsertedRowId(SQLiteSession.java:788)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at android.database.sqlite.SQLiteStatement.executeInsert(SQLiteStatement.java:89)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at androidx.sqlite.db.framework.FrameworkSQLiteStatement.executeInsert(FrameworkSQLiteStatement.kt:42)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at androidx.room.EntityInsertionAdapter.insert(EntityInsertionAdapter.kt:84)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:207)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at com.peakform.fitness.core.ProDao_Impl$13.call(ProDao_Impl.java:201)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at androidx.room.CoroutinesRoom$Companion$execute$2.invokeSuspend(CoroutinesRoom.kt:64)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at androidx.room.TransactionExecutor.execute$lambda$1$lambda$0(TransactionExecutor.kt:36)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at androidx.room.TransactionExecutor.$r8$lambda$FZWr2PGmP3sgXLCiri-DCcePXSs(TransactionExecutor.kt:0)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at androidx.room.TransactionExecutor$$ExternalSyntheticLambda0.run(D8$$SyntheticClass:0)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	at java.lang.Thread.run(Thread.java:1571)
+> 10-09 10:12:28.300 E/AndroidRuntime(13247): 	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [StandaloneCoroutine{Cancelling}@ac7c090, Dispatchers.IO]
+  --------- beginning of system
+  10-09 17:57:01.839 D/ActivityManager( 1021): Received SERVICE intent 0xe5b10c1 Key{startService pkg=com.google.android.gms/fused_location_provider intent=act=com.google.android.gms.location.util.nlp.RESULT cat=[targeted_intent_op_prefix:.location.util.nlp.NlpInternalApi$NlpReceiverIntentOperation] cmp=com.google.android.gms/.chimera.PersistentIntentOperationService flags=0x2000000 u=0} requestCode=282266115 from uid 10173
+  10-09 17:57:01.842 W/ActivityManager( 1021): Rescheduling restart of crashed service com.samsung.android.app.routines/.preloadproviders.service.condition.PreloadConditionService in 0ms for other
+  10-09 17:57:01.842 W/ActivityManager( 1021): Rescheduling restart of crashed service com.samsung.android.oneconnect/.controlsprovider.service.ServiceImpl in 0ms for other
+  10-09 17:57:01.842 D/CompatibilityChangeReporter( 1021): Compat change id reported: 265195908; UID 10260; state: ENABLED
+  10-09 17:57:01.842 W/ActivityManager( 1021): Rescheduling restart of crashed service com.samsung.android.mdx.kit/.discovery.impl.viewImpl.DeviceConnectionService in 0ms for other
+  10-09 17:57:01.842 W/ActivityManager( 1021): Rescheduling restart of crashed service com.xingin.xhs/.push.simple.component.service.SimplePushService in 0ms for other
+  10-09 17:57:01.842 W/ActivityManager( 1021): Rescheduling restart of crashed service com.whatsapp/.messageservice.messaging.MessageService in 23948857ms for other
+  10-09 17:57:02.319 D/CompatibilityChangeReporter( 1021): Compat change id reported: 218533173; UID 10218; state: ENABLED
+  10-09 17:57:02.319 D/CompatibilityChangeReporter( 1021): Compat change id reported: 262645982; UID 10218; state: ENABLED
+  10-09 17:57:02.323 D/CompatibilityChangeReporter( 1021): Compat change id reported: 265195908; UID 10218; state: ENABLED
+> 10-09 17:57:02.330 I/keystore2(  407): system/security/keystore2/src/database.rs:2339 - In store_new_key "biometric_unlock_key_0", uid=1017, cert=false, cert_chain=false rebound=true
+  10-09 17:57:02.334 D/CompatibilityChangeReporter( 1021): Compat change id reported: 168419799; UID 5025; state: DISABLED
+  10-09 17:57:02.335 D/CompatibilityChangeReporter( 1021): Compat change id reported: 273564678; UID 5025; state: DISABLED
+  10-09 17:57:02.363 W/Looper  ( 1021): Slow dispatch took 255ms main h=com.android.server.trust.TrustManagerService$2 c=null m=6
+  10-09 17:57:02.392 W/Looper  ( 1021): Slow dispatch took 193ms android.fg h=com.android.server.usb.UsbDeviceManager$UsbHandlerLegacy c=null m=13
+  10-09 17:57:02.428 D/CompatibilityChangeReporter( 1021): Compat change id reported: 170503758; UID 10218; state: ENABLED
+  10-09 17:57:02.484 D/io_stats(  393): !@ 179,0 r 40565814 833227230 w 6376647 66536396 d 621475 63547864 f 894608 834057 iot 20498460 0 th 0 0 0 pt 0 inp 0 0 105109.571
+  10-09 17:57:02.485 D/io_stats(  393): !@ Read_top(KB): com.tencent.mm(32235) 42604 system_server(1021) 38204 com.ringapp(31997) 22796
+  10-09 17:57:02.486 D/io_stats(  393): !@ Write_top(KB): system_server(1021) 584 f2fs_ckpt-254:5(426) 512 kworker/u16:2(11018) 508
+  10-09 17:57:18.884 I/keystore2(  407): system/security/keystore2/src/security_level.rs:696 - In generate_key. 10173, Some("unstable.c7202ece89390c490b1b94d5b71225e1.A-1847380258215561201")
+  10-09 17:57:18.884 D/SmartAlertController( 1021): ACTION_SCREEN_OFF
+  10-09 17:57:18.898 D/android.hardware.security.keymint-service(  408): update: ret 0
+> 10-09 17:57:18.903 I/keystore2(  407): system/security/keystore2/src/database.rs:2339 - In store_new_key "unstable.c7202ece89390c490b1b94d5b71225e1.A-1847380258215561201", uid=10173, cert=true, cert_chain=true rebound=false
+  10-09 17:57:18.926 D/android.hardware.security.keymint-service(  408): finish: ret 0
+  10-09 17:57:18.941 I/keystore2(  407): system/security/keystore2/src/service.rs:353 - In delete_key. 10173, Some("unstable.c7202ece89390c490b1b94d5b71225e1.A-1847380258215561201")
+  10-09 17:57:18.943 D/io_stats(  393): !@ 179,0 r 40629342 834769354 w 6381116 66564972 d 621699 63565964 f 895494 834490 iot 20514824 0 th 0 0 0 pt 0 inp 0 4 105126.031
+  10-09 17:57:18.945 E/keystore2(  407): system/security/keystore2/src/error.rs:182 - Rc(r#KEY_NOT_FOUND), "system/security/keystore2/src/service.rs:352: In delete_key: Trying to unbind the key. 10173, Some(\"unstable.c7202ece89390c490b1b94d5b71225e1.B-1847380258215561201\")"
+  10-09 17:57:18.945 D/io_stats(  393): !@ Read_top(KB): stagram.android(1950) 48332 oneconnect:Core(2986) 39736 system_server(1021) 23492
+  10-09 17:57:18.945 D/io_stats(  393): !@ Write_top(KB): m.apkpure.aegon(31105) 2108 system_server(1021) 796 f2fs_ckpt-254:5(426) 676
