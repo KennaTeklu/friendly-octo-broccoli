@@ -1,0 +1,29 @@
+<!-- ============================================================     EXTRACTED FROM: index (24).html (cautious-enigma repo)     library.html — exercise database section     Source line ranges (1-indexed, inclusive):       L6692-6719  (library-section (exercise database))     Total source lines: 28     ============================================================ --><!-- ---- BEGIN extracted from index (24).html L6692-6719 (library-section (exercise database)) ---- --><div id="library-section" class="section">
+    <div class="library-header-bar">
+        <div class="library-title-group">
+            <h2>Exercise Library</h2>
+            <p><span id="library-count">0</span> Movements Available</p>
+        </div>
+        <div class="library-controls">
+            <select id="groupBySelect" onchange="changeGrouping()">
+                <option value="muscleGroup">Group by Muscle Group</option>
+                <option value="equipment">Group by Equipment</option>
+                <option value="difficulty">Group by Difficulty</option>
+                <option value="performed">Group by Performed Status</option>
+                <option value="muscleCategory">Group by Muscle Category (Major/Longevity/Hands/Feet)</option>
+                <option value="component">Group by Fitness Component (the 11)</option>
+            </select>
+            <div class="library-expand-buttons">
+                <button class="btn btn-sm btn-outline" id="expandAllBtn" onclick="expandAllGroups()">Expand All</button>
+                <button class="btn btn-sm btn-outline" id="collapseAllBtn" onclick="collapseAllGroups()">Collapse All</button>
+            </div>
+        </div>
+        <div class="library-search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" id="librarySearch" placeholder="Search exercises or muscles..." onkeyup="debouncedLibrarySearch()">
+        </div>
+        <div id="mpComponentChips" class="mp-chips"></div>
+    </div>
+    <div id="libraryGrid" class="exercise-library-grid-container"></div>
+</div>
+<!-- ---- END extracted from index (24).html L6692-6719 (library-section (exercise database)) ---- -->

@@ -1,0 +1,37 @@
+<!-- ============================================================     EXTRACTED FROM: index (24).html (cautious-enigma repo)     history.html — workout history section     Source line ranges (1-indexed, inclusive):       L6424-6459  (history-section (workout history))     Total source lines: 36     ============================================================ --><!-- ---- BEGIN extracted from index (24).html L6424-6459 (history-section (workout history)) ---- -->        <div id="history-section" class="section">
+            <div class="workout-history-section">
+                <h2 class="section-title"><i class="fas fa-history"></i> Workout History</h2>
+                <div class="tabs">
+                    <button class="tab active" onclick="filterHistory('all')">All</button>
+                    <button class="tab" onclick="filterHistory('week')">This Week</button>
+                    <button class="tab" onclick="filterHistory('month')">This Month</button>
+                    <button class="tab" onclick="filterHistory('year')">This Year</button>
+                    <button class="tab" onclick="filterHistory('longevity')">Longevity</button>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="history-table" id="workoutHistoryTable">
+                          <thead>
+                              <tr>
+                                  <th class="toggle-col" style="width: 40px;"></th>
+                                  <th class="date-col">Date</th>
+                                  <th class="workout-col">Workout</th>
+                                  <th class="action-col" style="width: 140px;">Actions</th>
+                              </tr>
+                          </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="export-options" style="margin-top: 30px;">
+                    <div class="export-btn" onclick="exportHistoryCSV()">
+                        <i class="fas fa-file-csv"></i> Export as CSV
+                    </div>
+                    <div class="export-btn" onclick="printHistory()">
+                        <i class="fas fa-print"></i> Print History
+                    </div>
+                    <div class="export-btn" onclick="showSection('dashboard')">
+                        <i class="fas fa-arrow-left"></i> Back to Dashboard
+                    </div>
+                </div>
+            </div>
+        </div>
+<!-- ---- END extracted from index (24).html L6424-6459 (history-section (workout history)) ---- -->

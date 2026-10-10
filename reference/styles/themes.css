@@ -1,0 +1,335 @@
+/* ============================================================
+   EXTRACTED FROM: index (24).html (cautious-enigma repo)
+   themes.css — dark mode fixes (accent + day/night scoping)
+   Source line ranges (1-indexed, inclusive):
+     L5502-5665  (p4-dark-mode-fixes (dark mode overrides))
+   Total source lines: 164
+   ============================================================ */
+
+/* ---- BEGIN extracted from index (24).html L5502-5665 (p4-dark-mode-fixes (dark mode overrides)) ---- */
+/* ============================================================
+
+   P4 DARK MODE FIXES — hardcoded light surfaces resolved
+
+   Every rule is scoped to [data-mode="dark"] so light is untouched.
+
+   ============================================================ */
+
+
+
+/* ---- Top navbar ---- */
+
+:root[data-mode="dark"] .navbar {
+
+  background: rgba(16, 20, 28, 0.85) !important;
+
+  border-bottom: 1px solid var(--p4-hairline) !important;
+
+  box-shadow: none !important;
+
+}
+
+:root[data-mode="dark"] .nav-brand,
+
+:root[data-mode="dark"] .nav-brand:hover {
+
+  color: var(--p4-text) !important;
+
+}
+
+:root[data-mode="dark"] .nav-item {
+
+  color: var(--p4-text-2) !important;
+
+}
+
+:root[data-mode="dark"] .nav-item:hover {
+
+  background: rgba(255, 255, 255, 0.05) !important;
+
+  color: var(--p4-text) !important;
+
+}
+
+:root[data-mode="dark"] .nav-item.active {
+
+  color: var(--p4-accent) !important;
+
+  background: var(--p4-accent-soft) !important;
+
+}
+
+:root[data-mode="dark"] .mobile-menu-btn {
+
+  color: var(--p4-text) !important;
+
+}
+
+:root[data-mode="dark"] .mobile-menu-btn:hover {
+
+  background: rgba(255, 255, 255, 0.06) !important;
+
+}
+
+:root[data-mode="dark"] .user-avatar {
+
+  color: var(--p4-on-accent) !important;
+
+}
+
+
+
+/* Mobile nav dropdown — was hardcoded rgba(255,255,255,0.98) */
+
+@media (max-width: 1100px) {
+
+  :root[data-mode="dark"] .nav-menu {
+
+    background: rgba(16, 20, 28, 0.98) !important;
+
+    border-top-color: var(--p4-hairline) !important;
+
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45) !important;
+
+  }
+
+  :root[data-mode="dark"] .nav-menu .nav-item {
+
+    color: var(--p4-text-2) !important;
+
+  }
+
+  :root[data-mode="dark"] .nav-menu .nav-item.active {
+
+    color: var(--p4-accent) !important;
+
+  }
+
+  :root[data-mode="dark"] .nav-user {
+
+    border-top-color: var(--p4-hairline) !important;
+
+  }
+
+}
+
+
+
+/* ---- Dashboard: readiness gauge ---- */
+
+/* (outer .readiness-circle override removed — it killed the conic-gradient glow. Span override below handles legibility.) */
+
+:root[data-mode="dark"] .readiness-circle span {
+
+  background: var(--p4-surface) !important;
+
+  color: var(--p4-text) !important;
+
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35) !important;
+
+}
+
+:root[data-mode="dark"] .readiness-label {
+
+  color: var(--p4-text-3) !important;
+
+}
+
+
+
+/* ---- Dashboard: next-workout date pill ---- */
+
+:root[data-mode="dark"] .next-workout-date {
+
+  background: var(--p4-surface-2) !important;
+
+  color: var(--p4-text) !important;
+
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35) !important;
+
+}
+
+:root[data-mode="dark"] .next-workout h3 {
+
+  color: var(--p4-text) !important;
+
+}
+
+:root[data-mode="dark"] .next-workout p {
+
+  color: var(--p4-text-3) !important;
+
+}
+
+
+
+/* ---- Longevity / progress score circles ---- */
+
+:root[data-mode="dark"] .score-circle-inner {
+
+  background: var(--p4-surface) !important;
+
+  color: var(--p4-text) !important;
+
+}
+
+:root[data-mode="dark"] .longevity-info h4 {
+
+  color: var(--p4-text-3) !important;
+
+}
+
+:root[data-mode="dark"] .longevity-info p {
+
+  color: var(--p4-text) !important;
+
+}
+
+
+
+/* ---- Modals — every modal was white ---- */
+
+:root[data-mode="dark"] .modal-content {
+
+  background: var(--p4-surface) !important;
+
+  color: var(--p4-text) !important;
+
+  border: 1px solid var(--p4-hairline-2) !important;
+
+}
+
+:root[data-mode="dark"] .modal-content h1,
+
+:root[data-mode="dark"] .modal-content h2,
+
+:root[data-mode="dark"] .modal-content h3,
+
+:root[data-mode="dark"] .modal-content h4 {
+
+  color: var(--p4-text) !important;
+
+}
+
+:root[data-mode="dark"] .modal-content p,
+
+:root[data-mode="dark"] .modal-content label {
+
+  color: var(--p4-text-2) !important;
+
+}
+
+
+
+/* ---- Loading overlay — was rgba(255,255,255,0.95) ---- */
+
+:root[data-mode="dark"] .loading {
+
+  background: rgba(7, 9, 13, 0.95) !important;
+
+  color: var(--p4-text) !important;
+
+}
+
+:root[data-mode="dark"] .loading > div[style*="color"] {
+
+  color: var(--p4-accent) !important;
+
+}
+
+
+
+/* ---- Export buttons — light gradient with white text ---- */
+
+:root[data-mode="dark"] .export-btn {
+
+  background: linear-gradient(135deg, var(--p4-surface-3), var(--p4-surface-2)) !important;
+
+  color: var(--p4-text) !important;
+
+  border: 1px solid var(--p4-hairline-2) !important;
+
+}
+
+:root[data-mode="dark"] .export-btn:hover {
+
+  background: linear-gradient(135deg, var(--p4-surface-2), var(--p4-surface-3)) !important;
+
+  color: var(--p4-text) !important;
+
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4) !important;
+
+}
+
+
+
+/* ---- Info tooltips — var(--dark) background + white text = invisible ---- */
+
+:root[data-mode="dark"] .info-tooltip .tooltip-text {
+
+  background: var(--p4-surface-2) !important;
+
+  color: var(--p4-text) !important;
+
+  border: 1px solid var(--p4-hairline-2) !important;
+
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.55) !important;
+
+}
+
+:root[data-mode="dark"] .info-tooltip .tooltip-text::after {
+
+  border-color: var(--p4-surface-2) transparent transparent transparent !important;
+
+}
+
+
+
+/* ---- Slider knob contrast on dark switches ---- */
+
+:root[data-mode="dark"] .slider:before {
+
+  background-color: var(--p4-text-3) !important;
+
+}
+
+:root[data-mode="dark"] input:checked + .slider:before {
+
+  background-color: var(--p4-text) !important;
+
+}
+
+
+
+/* ---- Nav user meta text ---- */
+
+:root[data-mode="dark"] #navUserName {
+
+  color: var(--p4-text) !important;
+
+}
+
+:root[data-mode="dark"] #navUserStats {
+
+  color: var(--p4-text-3) !important;
+
+}
+
+
+
+/* ---- Streak fire + username keep legible ---- */
+
+:root[data-mode="dark"] .streak-fire {
+
+  color: #ff8a4c !important;
+
+}
+
+:root[data-mode="dark"] .streak-fire span {
+
+  color: #ff8a4c !important;
+
+}
+
+/* ---- END extracted from index (24).html L5502-5665 (p4-dark-mode-fixes (dark mode overrides)) ---- */
+

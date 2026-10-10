@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Fitness</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+        <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    
+
+    <!-- ========== NEW CDNs (paste exactly as shown) ========== -->
+
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.10.5/dist/sweetalert2.all.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.js"></script>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css">
+
+    <script src="https://unpkg.com/@popperjs/core@2"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/tippy.js@6.3.7/dist/tippy-bundle.umd.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/smooth-scroll@16.1.3/dist/smooth-scroll.polyfills.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/rellax@1.12.1/rellax.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+        <script src="https://cdn.jsdelivr.net/npm/ua-parser-js@2.0.4/dist/ua-parser.min.js"></script>
+
+    <!--P4:HEAD:BEG-->
+<!-- P4 head: fonts + theme flash prevention (applied before first paint) -->
+    <!--P4:HEAD:BEG-->
+
+<!-- P4 head: fonts + theme flash prevention (applied before first paint) -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+<script>
+
+/* P4 theme boot — runs before paint to prevent flash of wrong theme */
+
+(function(){
+
+  try {
+
+    var raw = localStorage.getItem('p4_theme');
+
+    var t = raw ? JSON.parse(raw) : null;
+
+    var mode = (t && t.mode) ? t.mode : 'dark';
+
+    var accent = (t && t.accent) ? t.accent : 'blue';
+
+    if (mode === 'auto') {
+
+      mode = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+
+    }
+
+    var root = document.documentElement;
+
+    root.setAttribute('data-mode', mode);
+
+    root.setAttribute('data-accent', accent);
+
+    if (mode === 'dark') { root.setAttribute('data-theme', 'dark'); }
+
+    else if (['blue','green','purple','orange'].indexOf(accent) !== -1) { root.setAttribute('data-theme', accent); }
+
+    var gym = localStorage.getItem('p4_gym');
+
+    if (gym === 'on') { root.setAttribute('data-gym', 'on'); }
+
+  } catch(e){}
+
+})();
+
+</script>
+
+<!--P4:HEAD:END-->
+
+<!-- ===== MODULAR CSS (extracted from index (24).html) ===== -->
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/sections.css">
+<link rel="stylesheet" href="styles/themes.css">
+
+<!-- ===== Storage probe + loader (inline, runs before body renders) ===== -->
+    <script>
+
+window.STORAGE_ENABLED = false;
+
+try {
+
+    localStorage.setItem('probe', '1');
+
+    localStorage.removeItem('probe');
+
+    // Also check IndexedDB
+
+    window.indexedDB.open('probe_db', 1).onsuccess = (e) => {
+
+        e.target.result.close();
+
+        window.STORAGE_ENABLED = true;
+
+    };
+
+} catch (e) {
+
+    console.warn("Storage is blocked in this environment.");
+
+}
+
+    (function() {
+
+        // Show loader immediately
+
+        const loader = document.getElementById('loading');
+
+        if (loader) loader.classList.add('active');
+
+        document.body.classList.add('loading');
+
+
+
+        // Hide loader function
+
+        const hideLoader = () => {
+
+            if (!loader) return;
+
+            loader.style.transition = 'opacity 0.3s';
+
+            loader.style.opacity = '0';
+
+            setTimeout(() => {
+
+                loader.classList.remove('active');
+
+                loader.style.opacity = '';
+
+                loader.style.display = 'none';
+
+                document.body.classList.remove('loading');
+
+            }, 300);
+
+        };
+
+
+
+        // Deadman's switch – 10 seconds (generous for slow iframes)
+
+        const deadmanTimeout = setTimeout(() => {
+
+            hideLoader();
+
+            const banner = document.createElement('div');
+
+            banner.style.cssText = 'position:fixed; bottom:20px; left:20px; right:20px; background:#ff4444; color:white; padding:12px; border-radius:12px; text-align:center; z-index:10001; font-weight:bold;';
+
+            banner.innerHTML = '⚠️ App took too long to load. Some features may be unavailable. <button onclick="location.reload()" style="background:white; color:#ff4444; border:none; border-radius:20px; padding:4px 12px; margin-left:10px;">Reload</button>';
+
+            document.body.appendChild(banner);
+
+            setTimeout(() => banner.remove(), 8000);
+
+        }, 10000);
+
+
+
+        // Success trigger – call this when data is loaded
+
+        window.appReady = function() {
+
+            clearTimeout(deadmanTimeout);
+
+            hideLoader();
+
+        };
+
+
+
+        // Redirect to dashboard if no hash
+
+        if (!window.location.hash || window.location.hash === '#') {
+
+            try {
+
+                window.location.replace(window.location.href.split('#')[0] + '#dashboard');
+
+            } catch(e) {
+
+                try { window.location.hash = 'dashboard'; } catch(e2) {}
+
+            }
+
+        }
+
+    })();
+
+    </script>
+
+</head>
+<body class="loading">
+    <!-- NAVIGATION BAR (extracted from index (24).html L6190-6265) -->
+    <!-- NAVIGATION BAR -->
+
+    <nav class="navbar">
+
+        <a href="#" class="nav-brand" id="navBrand" onclick="showSection('dashboard'); return false;">
+
+            <div id="headerNameStreak" style="display: flex; align-items: baseline; gap: 8px;">
+
+                <span class="streak-fire">🔥 <span id="streakCount">0</span></span>
+
+                <span id="userNameDisplay" class="user-name">loading...</span>
+
+            </div>
+
+        </a>
+
+
+
+        <!-- Resume button (hidden by default) -->
+
+        <div style="flex:1; display: flex; justify-content: center;">
+
+            <button id="resumeWorkoutBtn" class="btn btn-info" style="display: none;" onclick="resumeSavedWorkout()">
+
+                <i class="fas fa-redo-alt"></i> Resume Workout
+
+            </button>
+
+        </div>
+
+
+
+        <!-- P4 STEP 7: hamburger replaced with avatar+name+stats user chip (top-right) -->
+
+        <button class="mobile-menu-btn nav-user-trigger" onclick="showSection('settings'); return false;" aria-label="Open settings" title="Open settings">
+
+            <div class="user-avatar" id="navUserAvatar">U</div>
+
+            <div class="nav-user-text">
+
+                <div id="navUserName">User</div>
+
+                <div id="navUserStats">Beginner • Day 0 Streak</div>
+
+            </div>
+
+        </button>
+
+        
+
+        <div class="nav-menu" id="navMenu">
+
+            <a href="#" class="nav-item active" data-nav="dashboard" onclick="showSection('dashboard'); return false;">
+
+                <i class="fas fa-home"></i>
+
+                <span>Dashboard</span>
+
+            </a>
+
+            <a href="#" class="nav-item" data-nav="workout" onclick="showSection('workout'); return false;">
+
+                <i class="fas fa-dumbbell"></i>
+
+                <span>Today's Workout</span>
+
+            </a>
+
+            <a href="#" class="nav-item" data-nav="history" onclick="showSection('history'); return false;">
+
+                <i class="fas fa-history"></i>
+
+                <span>History</span>
+
+            </a>
+
+            <a href="#" class="nav-item" data-nav="library" onclick="showSection('library'); return false;">
+
+                <i class="fas fa-book"></i>
+
+                <span>Library</span>
+
+            </a>
+
+            <a href="#" class="nav-item" data-nav="progress" onclick="showSection('progress'); return false;">
+
+                <i class="fas fa-chart-line"></i>
+
+                <span>Progress</span>
+
+            </a>
+
+            <a href="#" class="nav-item" data-nav="recovery" onclick="showSection('recovery'); return false;">
+
+                <i class="fas fa-heartbeat"></i>
+
+                <span>Recovery</span>
+
+            </a>
+
+            <a href="#" class="nav-item" data-nav="settings" onclick="showSection('settings'); return false;">
+
+                <i class="fas fa-cog"></i>
+
+                <span>Settings</span>
+
+            </a>
+
+            
+
+            <!-- ============ P4-APK-LATER:BEGIN ==============================
+
+                 nav-user block inside nav-menu is HIDDEN on purpose.
+
+                 Reason: emoji avatar + name now live in the top-right
+
+                 trigger (they replaced the hamburger). Duplicate IDs
+
+                 would otherwise break layout and JS listeners.
+
+                 To re-enable for a future APK build:
+
+                   remove the line containing only   LT-BANG-DASH-DASH
+
+                   remove the line containing only   DASH-DASH-GT
+
+                 ============================================================== -->
+
+            <!--
+
+            <div class="nav-user">
+
+                <div class="user-avatar" id="navUserAvatar" onclick="showSection('settings')">U</div>
+
+                <div>
+
+                    <div style="font-weight: 700; color: var(--dark);" id="navUserName">User</div>
+
+                    <div style="font-size: 0.85rem; color: var(--gray-500);" id="navUserStats">Beginner • Day 0 Streak</div>
+
+                </div>
+
+            </div>
+
+            -->
+
+            <!-- ============ P4-APK-LATER:END ================================ -->
+
+        </div>
+
+    </nav>
+
+
+    <!-- MAIN APPLICATION -->
+    <div class="container main-app" id="mainApp">
+        <!-- The 7 sections are loaded via fetch() from sections/*.html -->
+        <!-- If opened via file:// (no static server), the loader falls back to an inline note. -->
+        <include src="sections/dashboard.html"></include>
+        <include src="sections/workout.html"></include>
+        <include src="sections/history.html"></include>
+        <include src="sections/progress.html"></include>
+        <include src="sections/recovery.html"></include>
+        <include src="sections/settings.html"></include>
+        <include src="sections/library.html"></include>
+    </div>
+
+    <!-- MODALS + LOADING + BOTTOM NAV + P4 OVERLAYS + PAYWALL (from sections/modals.html) -->
+    <include src="sections/modals.html"></include>
+
+    <!-- ===== Section loader (fetches sections/*.html and replaces <include>) ===== -->
+    <script>
+(function () {
+  var includes = document.querySelectorAll('include');
+  var remaining = includes.length;
+  if (remaining === 0) return;
+  includes.forEach(function (el) {
+    var url = el.getAttribute('src');
+    fetch(url)
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (html) {
+        el.outerHTML = html;  // replace the <include> element entirely
+        remaining--;
+      })
+      .catch(function (err) {
+        el.outerHTML = '<div style="padding:20px;background:#fff3cd;color:#856404;border:1px solid #ffeeba;border-radius:8px;margin:10px;">' +
+          '<b>Could not load ' + url + '</b><br>' +
+          'Open this page via a static server (e.g. <code>python3 -m http.server</code> from the reference/ folder) ' +
+          'so the browser allows fetch() of section files.<br>' +
+          'Error: ' + (err.message || err) + '</div>';
+      });
+  });
+})();
+    </script>
+
+    <!-- ===== MODULAR JS (extracted from index (24).html) ===== -->
+    <!-- Load order preserves original execution order. -->
+    <!-- 1. Main app script (defines all globals + functions) -->
+    <script src="scripts/app.js"></script>
+    <!-- 2. P4 core (P4 namespace, store, shared helpers, P4 layer, cross-cutting fixes — patches app.js) -->
+    <script src="scripts/p4-core.js"></script>
+    <!-- 3. P4 subsystem placeholders (P4.store/Profiles/Vault live inside p4-core.js IIFE) -->
+    <script src="scripts/p4-store.js"></script>
+    <script src="scripts/p4-profiles.js"></script>
+    <script src="scripts/p4-vault.js"></script>
+    <!-- 4. Library (bodyweight library + infra) -->
+    <script src="scripts/library.js"></script>
+    <!-- 5. Workout (card collapse, time wizard, 1RM auto-open, continue badge) -->
+    <script src="scripts/workout.js"></script>
+    <!-- 6. Progress (masterpiece engine: 11-component radar, goal cycles, projections) -->
+    <script src="scripts/progress.js"></script>
+    <!-- 7. Recovery (placeholder — recovery functions are in app.js) -->
+    <script src="scripts/recovery.js"></script>
+    <!-- 8. History (placeholder — history functions are in app.js) -->
+    <script src="scripts/history.js"></script>
+    <!-- 9. Dashboard (placeholder — dashboard functions are in app.js + progress.js) -->
+    <script src="scripts/dashboard.js"></script>
+    <!-- 10. Settings (sheet cleanup, dock, avatar picker, settings search, training env) -->
+    <script src="scripts/settings.js"></script>
+</body>
+</html>

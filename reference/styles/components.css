@@ -1,0 +1,165 @@
+/* ============================================================
+   EXTRACTED FROM: index (24).html (cautious-enigma repo)
+   components.css — reusable component styles (cards, wizard, workout card wrappers)
+   Source line ranges (1-indexed, inclusive):
+     L5801-5834  (p4-card-state-css)
+     L63509-63529  (p4-time-wiz-css (gym-time wizard component))
+     L63767-63773  (p4-wc-css (workout card wrapper component))
+     L64388-64404  (p4-fix15-css (time wizard confirmation glow))
+   Total source lines: 79
+   ============================================================ */
+
+/* ---- BEGIN extracted from index (24).html L5801-5834 (p4-card-state-css) ---- */
+/* P4: state-colored cards — Ready (1RM tested) & Started (draft exists) */
+
+.exercise-item.p4-state-ready {
+
+  border: 2px solid #fbbf24 !important;
+
+  background: linear-gradient(180deg, rgba(251,191,36,0.06) 0%, rgba(251,191,36,0.02) 45%, var(--p4-surface, #fff) 100%) !important;
+
+  box-shadow: 0 6px 18px -8px rgba(251,191,36,0.35) !important;
+
+}
+
+.exercise-item.p4-state-started {
+
+  border: 2px solid #f59e0b !important;
+
+  background: linear-gradient(180deg, rgba(245,158,11,0.08) 0%, rgba(245,158,11,0.02) 45%, var(--p4-surface, #fff) 100%) !important;
+
+  box-shadow: 0 6px 18px -8px rgba(245,158,11,0.45) !important;
+
+}
+
+.exercise-item.p4-state-ready::before,
+
+.exercise-item.p4-state-started::before {
+
+  background: linear-gradient(to bottom, #fbbf24, #f59e0b) !important;
+
+  opacity: 1 !important;
+
+}
+
+.exercise-item.p4-state-ready .exercise-title,
+
+.exercise-item.p4-state-started .exercise-title {
+
+  color: #92400e !important;
+
+}
+
+:root[data-mode="dark"] .exercise-item.p4-state-ready {
+
+  border-color: #fbbf24 !important;
+
+  background: linear-gradient(180deg, rgba(251,191,36,0.10) 0%, rgba(251,191,36,0.03) 45%, var(--p4-surface, #10141C) 100%) !important;
+
+}
+
+:root[data-mode="dark"] .exercise-item.p4-state-started {
+
+  border-color: #f59e0b !important;
+
+  background: linear-gradient(180deg, rgba(245,158,11,0.14) 0%, rgba(245,158,11,0.04) 45%, var(--p4-surface, #10141C) 100%) !important;
+
+}
+
+:root[data-mode="dark"] .exercise-item.p4-state-ready .exercise-title,
+
+:root[data-mode="dark"] .exercise-item.p4-state-started .exercise-title {
+
+  color: #fbbf24 !important;
+
+}
+
+/* ---- END extracted from index (24).html L5801-5834 (p4-card-state-css) ---- */
+
+/* ---- BEGIN extracted from index (24).html L63509-63529 (p4-time-wiz-css (gym-time wizard component)) ---- */
+.p4-time-wiz-backdrop{position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;animation:p4twIn .22s ease;}
+
+@keyframes p4twIn{from{opacity:0}to{opacity:1}}
+
+.p4-time-wiz{background:var(--light,#fff);border-radius:20px;padding:26px 22px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 72px rgba(0,0,0,.45);box-sizing:border-box;font-family:inherit;}
+
+.p4-time-wiz *{box-sizing:border-box;}
+
+.p4-time-wiz h3{margin:0 0 8px;font-size:22px;font-weight:800;color:var(--p4-text,#1e293b);letter-spacing:-.3px;font-family:var(--p4-font-display,inherit);}
+
+.p4-time-wiz p{margin:0 0 18px;font-size:14px;color:var(--p4-text-2,#475569);line-height:1.5;}
+
+.p4-time-wiz-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px;}
+
+.p4-time-wiz-grid button{padding:14px 10px;border-radius:14px;border:2px solid var(--gray-200,#e2e8f0);background:var(--light,#fff);cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;transition:transform .15s,border-color .15s,background .15s,box-shadow .15s;font-family:inherit;min-height:78px;justify-content:center;}
+
+.p4-time-wiz-grid button:hover{border-color:var(--p4-accent,#2563eb);background:var(--p4-accent-soft,#eef);transform:translateY(-2px);box-shadow:0 6px 18px rgba(37,99,235,.12);}
+
+.p4-time-wiz-grid button:active{transform:translateY(0) scale(.98);}
+
+.p4-twm-num{font-size:28px;font-weight:800;color:var(--p4-text,#1e293b);line-height:1;font-variant-numeric:tabular-nums;}
+
+.p4-twm-unit{font-size:11px;color:var(--p4-text-3,#94a3b8);font-weight:700;letter-spacing:.05em;text-transform:uppercase;}
+
+.p4-twm-sub{font-size:11px;color:var(--p4-text-3,#94a3b8);margin-top:4px;}
+
+
+
+.p4-time-wiz-note i{color:var(--success,#10b981);font-size:14px;margin-top:2px;flex-shrink:0;}
+
+.p4-time-wiz-note strong{color:var(--p4-text,#1e293b);}
+
+.p4-time-wiz-cancel{display:block;width:100%;padding:11px;background:transparent;border:1px solid var(--gray-300,#cbd5e1);border-radius:12px;color:var(--p4-text-3,#94a3b8);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;}
+
+.p4-time-wiz-cancel:hover{border-color:var(--p4-text-3,#94a3b8);color:var(--p4-text,#1e293b);}
+
+@media (max-width:420px){.p4-time-wiz-grid{grid-template-columns:1fr;}.p4-twm-num{font-size:24px;}}
+
+/* ---- END extracted from index (24).html L63509-63529 (p4-time-wiz-css (gym-time wizard component)) ---- */
+
+/* ---- BEGIN extracted from index (24).html L63767-63773 (p4-wc-css (workout card wrapper component)) ---- */
+.p4-wc-collapsed > .p4-wc-body { display: none !important; }
+
+.p4-wc-wrapped > .p4-wc-header { transition: background .15s ease; }
+
+.p4-wc-wrapped > .p4-wc-header:hover { background: var(--gray-100, #f1f5f9); }
+
+.p4-wc-wrapped.p4-wc-collapsed { padding: 12px 16px !important; }
+
+.p4-wc-chevron { transition: transform .2s ease; }
+
+/* ---- END extracted from index (24).html L63767-63773 (p4-wc-css (workout card wrapper component)) ---- */
+
+/* ---- BEGIN extracted from index (24).html L64388-64404 (p4-fix15-css (time wizard confirmation glow)) ---- */
+.p4-replace-backdrop{position:fixed;inset:0;z-index:100010;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;animation:p4rcIn .22s ease;font-family:inherit;}
+
+@keyframes p4rcIn{from{opacity:0}to{opacity:1}}
+
+.p4-replace-card{background:var(--light,#fff);border-radius:20px;padding:26px 24px 22px;max-width:460px;width:100%;box-shadow:0 24px 72px rgba(0,0,0,.5);box-sizing:border-box;}
+
+.p4-replace-card h3{margin:0 0 8px;font-size:19px;font-weight:800;color:var(--p4-text,#1e293b);letter-spacing:-.2px;}
+
+.p4-replace-card p{margin:0 0 20px;font-size:13.5px;color:var(--p4-text-2,#475569);line-height:1.55;}
+
+.p4-replace-actions{display:flex;gap:10px;align-items:stretch;}
+
+.p4-replace-continue{flex:1.5;padding:15px 18px;border-radius:14px;border:none;background:linear-gradient(135deg,var(--p4-accent,#2563eb),color-mix(in srgb,var(--p4-accent,#2563eb) 55%,#7c3aed));color:#fff;font-size:14.5px;font-weight:700;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;position:relative;transition:transform .15s;animation:p4ContGlow 2.4s ease-in-out infinite;}
+
+.p4-replace-continue:hover{transform:translateY(-1px);}
+
+.p4-replace-continue:active{transform:translateY(0) scale(.98);}
+
+@keyframes p4ContGlow{0%,100%{box-shadow:0 0 0 0 rgba(37,99,235,.45),0 6px 20px rgba(37,99,235,.35);}50%{box-shadow:0 0 0 14px rgba(37,99,235,0),0 10px 32px rgba(37,99,235,.6);}}
+
+.p4-replace-generate{flex:1;padding:15px 12px;border-radius:12px;background:transparent;color:var(--p4-text-3,#94a3b8);border:1px solid var(--gray-300,#cbd5e1);font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;}
+
+.p4-replace-generate:hover{border-color:var(--p4-text-3,#94a3b8);color:var(--p4-text-2,#475569);background:var(--gray-50,#f8fafc);}
+
+.p4-replace-generate:active{transform:scale(.98);}
+
+@media (max-width:420px){.p4-replace-actions{flex-direction:column-reverse;}.p4-replace-continue,.p4-replace-generate{flex:1;width:100%;}}
+
+@media (prefers-reduced-motion:reduce){.p4-replace-continue{animation:none;}}
+
+/* ---- END extracted from index (24).html L64388-64404 (p4-fix15-css (time wizard confirmation glow)) ---- */
+

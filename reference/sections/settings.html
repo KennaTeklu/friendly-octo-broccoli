@@ -1,0 +1,101 @@
+<!-- ============================================================     EXTRACTED FROM: index (24).html (cautious-enigma repo)     settings.html — settings hub section     Source line ranges (1-indexed, inclusive):       L6589-6688  (settings-section (settings hub))     Total source lines: 100     ============================================================ --><!-- ---- BEGIN extracted from index (24).html L6589-6688 (settings-section (settings hub)) ---- -->        <div id="settings-section" class="section">
+            <div class="settings-section">
+                <h2 class="section-title"><i class="fas fa-cog"></i> Settings</h2>
+                <div class="settings-grid">
+                    <div>
+                        <h3 style="margin-bottom: 20px; color: var(--dark);">Personal Information</h3>
+                        <div class="form-group">
+                            <label>Name:</label>
+                            <input type="text" id="settingsName" placeholder="Your name">
+                        </div>
+                        <div class="form-group">
+                            <label>Birth Date <span class="info-tooltip">ℹ️<span class="tooltip-text">Used to calculate age and adjust recommendations</span></span>:</label>
+                            <input type="date" id="settingsBirthDate">
+                        </div>
+                        <div class="form-group">
+                            <label>Gender:</label>
+                            <select id="settingsGender">
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                                <option value="other">Other / Prefer not to say</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Current Body Weight (lbs):</label>
+                            <input type="number" id="settingsWeight" placeholder="e.g., 180">
+                        </div>
+                        <div class="form-group">
+                            <label>Height (inches):</label>
+                            <input type="number" id="settingsHeight" placeholder="e.g., 70">
+                        </div>
+                        <div class="form-group" id="postpartumGroup" style="display:none;">
+                            <label>Months since childbirth <span class="info-tooltip">ℹ️<span class="tooltip-text">If you recently gave birth, training stays gentle: pelvic floor and core come first. Leave empty if this doesn't apply to you.</span></span>:</label>
+                            <input type="number" id="settingsPostpartum" placeholder="e.g., 3" min="0" max="24">
+                        </div>
+                    </div>
+                    <div>
+                        <h3 style="margin-bottom: 20px; color: var(--dark);">Training Preferences</h3>
+                        <div class="form-group">
+                            <label>Training Experience:</label>
+                            <select id="settingsExperience">
+                                <option value="beginner">Beginner (0-6 months)</option>
+                                <option value="intermediate">Intermediate (6-24 months)</option>
+                                <option value="advanced">Advanced (2+ years)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Primary Goal:</label>
+                            <select id="settingsGoal">
+                                <option value="strength">Strength</option>
+                                <option value="hypertrophy">Muscle Building</option>
+                                <option value="endurance">Endurance</option>
+                                <option value="longevity">Longevity & Joint Health</option>
+                                <option value="balanced">Balanced</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Preferred Workout Days:</label>
+                            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
+                                <label style="display: flex; align-items: center; gap: 5px;"><input type="checkbox" class="workout-day" value="monday"> Mon</label>
+                                <label style="display: flex; align-items: center; gap: 5px;"><input type="checkbox" class="workout-day" value="tuesday"> Tue</label>
+                                <label style="display: flex; align-items: center; gap: 5px;"><input type="checkbox" class="workout-day" value="wednesday"> Wed</label>
+                                <label style="display: flex; align-items: center; gap: 5px;"><input type="checkbox" class="workout-day" value="thursday"> Thu</label>
+                                <label style="display: flex; align-items: center; gap: 5px;"><input type="checkbox" class="workout-day" value="friday"> Fri</label>
+                                <label style="display: flex; align-items: center; gap: 5px;"><input type="checkbox" class="workout-day" value="saturday"> Sat</label>
+                                <label style="display: flex; align-items: center; gap: 5px;"><input type="checkbox" class="workout-day" value="sunday"> Sun</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Default Rest Between Sets (seconds):</label>
+                            <input type="number" id="settingsRestTime" value="90" min="30" max="300">
+                        </div>
+                        <div class="form-group">
+                            <label>Progression Rate (% per week):</label>
+                            <input type="number" id="settingsProgression" value="2" min="0.5" max="5" step="0.5">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="exercise-import-export">
+                    <h3 style="margin-bottom: 20px; color: var(--dark);">Exercise Library Management</h3>
+                    <p style="color: var(--gray-600); margin-bottom: 15px;">Import or export custom exercises in JSON format. This allows you to share exercises or create your own library.</p>
+                    <div class="exercise-io-buttons">
+                        <button class="btn btn-info" onclick="importExerciseData()"><i class="fas fa-file-import"></i> Import Exercises</button>
+                        <button class="btn" onclick="exportExerciseData()"><i class="fas fa-file-export"></i> Export Exercises</button>
+                        <button class="btn btn-success" onclick="resetExerciseLibrary()"><i class="fas fa-sync-alt"></i> Reset to Default</button>
+                    </div>
+                </div>
+                
+                <div class="btn-group" style="margin-top: 30px;">
+                    <button class="btn btn-success" onclick="saveSettings()"><i class="fas fa-save"></i> Save Settings</button>
+                    <button class="btn" onclick="showSection('dashboard')"><i class="fas fa-arrow-left"></i> Back to Dashboard</button>
+                    <button class="btn btn-danger" onclick="resetAllData()"><i class="fas fa-trash"></i> Reset All Data</button>
+                </div>
+                
+                <div class="export-options" style="margin-top: 30px;">
+                    <div class="export-btn" onclick="exportWorkoutData()"><i class="fas fa-file-export"></i> Export JSON</div>
+                    <div class="export-btn" onclick="importWorkoutData()"><i class="fas fa-file-import"></i> Import JSON</div>
+                </div>
+            </div>
+        </div>
+<!-- ---- END extracted from index (24).html L6589-6688 (settings-section (settings hub)) ---- -->

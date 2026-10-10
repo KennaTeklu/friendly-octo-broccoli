@@ -1,0 +1,96 @@
+<!-- ============================================================     EXTRACTED FROM: index (24).html (cautious-enigma repo)     dashboard.html — main home screen section     Source line ranges (1-indexed, inclusive):       L6270-6364  (dashboard-section (main home))     Total source lines: 95     ============================================================ --><!-- ---- BEGIN extracted from index (24).html L6270-6364 (dashboard-section (main home)) ---- -->        <div id="dashboard-section" class="section active">
+          <div class="todays-workout hover-lift">
+          <div class="readiness-gauge" id="readinessGaugeContainer">
+                <div class="readiness-circle" id="readinessGauge">
+                    <span>--</span>
+                </div>
+                <div class="readiness-label">Readiness</div>
+            </div>
+            <div class="workout-info" id="dashboardWorkoutInfo">
+            </div>
+                <div class="badge badge-primary" id="welcomeLevel">Beginner</div>
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+              <div style="display: flex; justify-content: center; margin: 20px 0 30px 0;">
+                  <button class="btn-luxury-start" onclick="startOrGenerateWorkout()">
+                      <i class="fas fa-play"></i>
+                      <span>Start Workout</span>
+                  </button>
+              </div>
+            </div>
+<!-- Readiness Gauge -->
+          </div>
+            
+<div class="stats-grid">
+    <div class="stat-card hover-lift">
+        <div class="stat-value" id="statWorkouts">-</div>
+        <div class="stat-label">Workouts</div>
+    </div>
+    <div class="stat-card hover-lift">
+        <div class="stat-value" id="statStreak">-</div>
+        <div class="stat-label">Streak</div>
+    </div>
+    <div class="stat-card hover-lift">
+        <div class="stat-value" id="statVolume">-</div>
+        <div class="stat-label">Volume (lbs)</div>
+    </div>
+    <div class="stat-card hover-lift">
+        <div class="stat-value" id="statProgress">-</div>
+        <div class="stat-label">Progress</div>
+    </div>
+    <div class="stat-card hover-lift" onclick="showLongevityReport()" style="cursor: pointer;">
+        <div class="stat-value" id="longevityScore">-</div>
+        <div class="stat-label">Longevity</div>
+        <i class="fas fa-heartbeat" style="color: var(--gray-500); font-size: 1rem;"></i>
+    </div>
+    <div class="stat-card hover-lift" id="eliteDateCard" style="cursor: help;">
+      <div class="stat-value" id="eliteDate">--</div>
+      <div class="stat-label" style="font-size:0.7rem;">
+        <i class="fas fa-calendar-alt"></i> Your projected peak strength date<br>
+        <span style="font-size:0.6rem;">(if you stay consistent – just for fun!)</span>
+      </div>
+      <div style="margin-top: 8px; border-top: 1px solid var(--gray-200); padding-top: 8px;">
+        <div style="display: flex; justify-content: space-around; font-size: 0.7rem;">
+          <div><i class="fas fa-dumbbell"></i> Squat<br><strong id="forecastSquat">--</strong></div>
+          <div><i class="fas fa-dumbbell"></i> Bench<br><strong id="forecastBench">--</strong></div>
+          <div><i class="fas fa-dumbbell"></i> Deadlift<br><strong id="forecastDeadlift">--</strong></div>
+        </div>
+        <div style="font-size:0.6rem; color:var(--gray-500); margin-top: 4px;">
+          <i class="fas fa-chart-line"></i> Total: <strong id="forecastTotal">--</strong> lbs · Strength score: <strong id="forecastWilks">--</strong>
+        </div>
+        <div style="font-size:0.55rem; color:var(--gray-400); margin-top: 4px;">
+          ⚡ These are long‑term goals, not guarantees. Keep showing up!
+        </div>
+      </div>
+    </div>
+</div>
+          
+<!-- P5P7: stat rings -->
+<div class="p4-ringrow" id="p4RingRow" aria-label="Weekly progress rings"></div>
+
+<!-- Recommendation Card -->
+<div class="recommendation-card p4-rec-card" style="border-radius: var(--border-radius); padding: 15px; margin-top: 15px; display: flex; align-items: center; justify-content: space-between;">
+    <div style="flex: 1;">
+        <p id="dashboardRecommendationText" style="margin: 0; font-size: 0.95rem; color: var(--gray-700);">Loading...</p>
+    </div>
+    <button class="btn btn-sm btn-outline" onclick="showSection('recovery')" style="margin-left: 15px; white-space: nowrap;">See all</button>
+</div>
+
+<!-- P5P8: life-stage guidance card -->
+<div id="p4LifeCard" class="recommendation-card p4-rec-card p4-life" style="display:none;"></div>
+                
+                <div class="sidebar">
+                    <div class="progress-chart-container">
+                        <h3 class="section-title"><i class="fas fa-chart-line"></i> Progress Overview</h3>
+                        <div class="chart-container">
+                            <canvas id="dashboardChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="next-workout hover-lift">
+                        <h3><i class="fas fa-calendar-check"></i> Next Workout</h3>
+                        <div class="next-workout-date" id="dashboardNextWorkout">Calculating...</div>
+                        <p style="color: var(--gray-600); text-align: center;">Based on your recovery status and workout rotation</p>
+                    </div>
+                </div>
+            </div>
+<!-- ---- END extracted from index (24).html L6270-6364 (dashboard-section (main home)) ---- -->

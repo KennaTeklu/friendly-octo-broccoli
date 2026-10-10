@@ -1,0 +1,55 @@
+<!-- ============================================================     EXTRACTED FROM: index (24).html (cautious-enigma repo)     workout.html — training session section     Source line ranges (1-indexed, inclusive):       L6368-6421  (workout-section (training session))     Total source lines: 54     ============================================================ --><!-- ---- BEGIN extracted from index (24).html L6368-6421 (workout-section (training session)) ---- -->        <div id="workout-section" class="section">
+            <div class="todays-workout">
+                <!-- Header with toggle button -->
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <h2 class="section-title" style="margin-bottom:0;"><i class="fas fa-dumbbell"></i> Today's Workout   </h2>
+                    <button class="btn btn-sm btn-success" onclick="openAddExerciseModal()">
+                        <i class="fas fa-plus"></i> Add new from library
+                    </button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button class="btn btn-sm btn-outline" onclick="toggleWorkoutDetails()" id="toggleDetailsBtn">View details</button>
+                    <button class="btn btn-sm btn-info" onclick="showWorkoutQR()" title="Share this workout">
+                        <i class="fas fa-qrcode"></i> Share
+                    </button>
+                    <!-- Tiny "." dropdown trigger + hidden replace button -->
+                    <div class="replace-workout-container" id="replaceWorkoutContainer">
+                        <span id="replaceTrigger" class="replace-trigger">.</span>
+                        <button id="replaceButton" class="replace-workout-btn" style="display: none;">REPLACE my workout</button>
+                    </div>
+                </div>
+            </div>
+
+                <!-- P5P5: always-visible workout chips (type / focus / time / intensity) -->
+                <div class="p4-chiprow" id="workoutChips"></div>
+
+                <!-- Collapsible workout info (hidden by default) -->
+                <div class="workout-info-collapsible collapsed" id="workoutDetails">
+                    <div class="workout-info" id="workoutMetaContainer">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Exercise list – populated by JS -->
+                <div class="exercise-list" id="exerciseList"></div>
+
+                <!-- No workout message (hidden when workout exists) -->
+                <div id="noWorkoutMessage" class="empty-state" style="display: none;">
+                    <i class="fas fa-dumbbell" style="font-size: 3rem; color: var(--gray-400);"></i>
+                    <h3 style="color: var(--gray-600); margin: 10px 0;">No Workout Scheduled</h3>
+                    <p style="color: var(--gray-500); margin-bottom: 20px;">Generate a workout to get started.</p>
+                    <button class="btn btn-primary" onclick="generateNextWorkout()">
+                        <i class="fas fa-dumbbell"></i> Generate Workout
+                    </button>
+                </div>
+
+                <!-- Buttons (visible only when workout exists) -->
+                <div class="btn-group" id="workoutButtons" style="display: none;">
+                    <button class="btn btn-success btn-block" onclick="completeWorkout()">
+                        <i class="fas fa-check-circle"></i> Complete & Log Today's Workout
+                    </button>
+                </div>
+            </div>
+        </div>
+<!-- ---- END extracted from index (24).html L6368-6421 (workout-section (training session)) ---- -->
