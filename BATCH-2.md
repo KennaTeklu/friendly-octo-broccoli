@@ -1,4 +1,4 @@
-ï»¿# BATCH-2.md â€” Workout + Progress
+# BATCH-2.md — Workout + Progress
 
 Predecessor: Batch 1 (vCode 11) + Hotfix 1.1 (vCode 12) both accepted. Baseline on client phone is vCode 12, versionName 1.4.2.
 
@@ -8,9 +8,9 @@ Ship as versionCode 13, versionName 1.4.3.
 
 ## Scope
 
-Two screens: Workout and Progress. Both must match the HTML source of truth in layout, behavior, and data. Both must be fast â€” no ANRs, no dropped frames.
+Two screens: Workout and Progress. Both must match the HTML source of truth in layout, behavior, and data. Both must be fast — no ANRs, no dropped frames.
 
-Read index (24).html from https://github.com/KennaTeklu/cautious-enigma in full for these two screens before writing code. Specific line anchors:
+Read index (24).html from https://github.com/example-user/cautious-enigma in full for these two screens before writing code. Specific line anchors:
 
 Workout anchors:
 - Workout activation: line 37186 (case 'workout':) and 37274
@@ -29,43 +29,43 @@ Progress anchors:
 
 ---
 
-## Fix 1 â€” Workout screen
+## Fix 1 — Workout screen
 
-Must include â€” port every item from the HTML:
+Must include — port every item from the HTML:
 
-1. Today's workout header â€” exercise count, estimated time, muscle tags, regenerate button (updateWorkoutHeader, line 38178).
-2. Exercise cards â€” one per prescribed exercise. Each card shows: name, prescription (sets x reps x weight), clickable muscle tags, RPE selector, weight field, reps field, Log set button, 'How to do' button (opens https://www.google.com/search?q=<exercise> how to do), 'Images' button (opens https://www.google.com/search?tbm=isch&q=<exercise>), and a 'Show Instructions' toggle that expands a numbered step list.
-3. Rest timer â€” starts on Log set. MM:SS countdown. Pause / resume / skip. Honors autoRest setting. Persists across tab switches (app-scope state, not screen-local).
-4. Superset / drop set / warmup â€” three toggles per card. Match HTML behavior.
-5. Plate math â€” displayed on each working set (e.g. 45 + 45 + 25 for 205).
-6. Resume / replace / skip â€” three actions. Replace and skip show confirmation dialogs.
-7. Regenerate workout â€” top button (regenerateWorkoutBtn) and bottom button (bottomRegenerateWorkoutBtn). Both call the same flow.
-8. Complete workout â€” button at the bottom. On tap: save session, show momentum modal (BIGGER / STRONGER / STEADY), fire confetti (session cap 3), haptic buzz, return to Dashboard.
-9. Share workout â€” share sheet with QR code, share text in legacy format, clipboard copy.
+1. Today's workout header — exercise count, estimated time, muscle tags, regenerate button (updateWorkoutHeader, line 38178).
+2. Exercise cards — one per prescribed exercise. Each card shows: name, prescription (sets x reps x weight), clickable muscle tags, RPE selector, weight field, reps field, Log set button, 'How to do' button (opens https://www.google.com/search?q=<exercise> how to do), 'Images' button (opens https://www.google.com/search?tbm=isch&q=<exercise>), and a 'Show Instructions' toggle that expands a numbered step list.
+3. Rest timer — starts on Log set. MM:SS countdown. Pause / resume / skip. Honors autoRest setting. Persists across tab switches (app-scope state, not screen-local).
+4. Superset / drop set / warmup — three toggles per card. Match HTML behavior.
+5. Plate math — displayed on each working set (e.g. 45 + 45 + 25 for 205).
+6. Resume / replace / skip — three actions. Replace and skip show confirmation dialogs.
+7. Regenerate workout — top button (regenerateWorkoutBtn) and bottom button (bottomRegenerateWorkoutBtn). Both call the same flow.
+8. Complete workout — button at the bottom. On tap: save session, show momentum modal (BIGGER / STRONGER / STEADY), fire confetti (session cap 3), haptic buzz, return to Dashboard.
+9. Share workout — share sheet with QR code, share text in legacy format, clipboard copy.
 
-Performance rules (same as Library fix): LazyColumn with key and contentType on every item. No animated Canvas inside list items. Rest timer updates must not recompose the whole list â€” isolate timer state to a single composable.
+Performance rules (same as Library fix): LazyColumn with key and contentType on every item. No animated Canvas inside list items. Rest timer updates must not recompose the whole list — isolate timer state to a single composable.
 
 Workout verification: screen opens under 1 second with all exercises visible; log set starts timer; rotate device survives; switching screens keeps timer running; complete shows momentum modal + confetti; no ANR after 60 seconds.
 
 ---
 
-## Fix 2 â€” Progress screen
+## Fix 2 — Progress screen
 
-Must include â€” port every chart and card from the HTML:
+Must include — port every chart and card from the HTML:
 
 1. Longevity score circle with full breakdown.
-2. Strength forecast â€” projected S/B/D total + Wilks (forecastTotal, forecastWilks, line 6327).
+2. Strength forecast — projected S/B/D total + Wilks (forecastTotal, forecastWilks, line 6327).
 3. Volume bars by muscle (last 7 days).
-4. 11-component radar â€” canvas mpComponentRadar (line 6473).
-5. 8-week workout frequency chart â€” canvas frequencyChart (line 6485).
+4. 11-component radar — canvas mpComponentRadar (line 6473).
+5. 8-week workout frequency chart — canvas frequencyChart (line 6485).
 6. RPE histogram.
-7. Volume chart â€” canvas volumeChart (line 6505).
-8. Strength trend chart â€” canvas strengthChart (line 6511).
-9. Records board â€” cards listing personal records by lift.
-10. Goal-cycle status â€” current mesocycle / block progress.
+7. Volume chart — canvas volumeChart (line 6505).
+8. Strength trend chart — canvas strengthChart (line 6511).
+9. Records board — cards listing personal records by lift.
+10. Goal-cycle status — current mesocycle / block progress.
 11. 3-month projection.
 12. 5-year forecast (Monte Carlo or equivalent engine call).
-13. Per-muscle sparklines â€” inline trend per muscle (last 4 weeks).
+13. Per-muscle sparklines — inline trend per muscle (last 4 weeks).
 
 Performance rules: use Compose charts, not WebView, not embedded Chart.js. Each chart is its own composable. Render charts after first frame (LaunchedEffect + withFrameNanos or deferred state). Expensive computations on Dispatchers.Default, observed with collectAsStateWithLifecycle.
 
@@ -84,23 +84,23 @@ Progress verification: screen opens under 1 second; all 13 items render with rea
 Contents (same structure as Batch 1):
 
     pro-batch-2.zip
-    â”œâ”€â”€ pro.apk
-    â”œâ”€â”€ SHA256SUMS.txt
-    â”œâ”€â”€ README.md
-    â”œâ”€â”€ CHANGES.md
-    â”œâ”€â”€ PARITY.md
-    â”œâ”€â”€ docs/
-    â”‚   â”œâ”€â”€ BUILD.md
-    â”‚   â”œâ”€â”€ FONT-FIX.md
-    â”‚   â””â”€â”€ verify/
-    â””â”€â”€ source/
+    +-- pro.apk
+    +-- SHA256SUMS.txt
+    +-- README.md
+    +-- CHANGES.md
+    +-- PARITY.md
+    +-- docs/
+    ¦   +-- BUILD.md
+    ¦   +-- FONT-FIX.md
+    ¦   +-- verify/
+    +-- source/
 
 Required in delivery: screenshots of Workout screen (exercises loaded), rest timer running, momentum modal, and each Progress chart (13 screenshots minimum for Progress). adb shell dumpsys gfxinfo output showing no dropped frames. Five verification commands raw output in README.md. CHANGES.md as three-column table (Item | Status | Evidence).
 
 ## Acceptance
 
-Install with adb install -r. Open Workout â€” loads fast. Log a set â€” timer starts. Complete workout â€” momentum modal appears. Open Progress â€” all 13 items render. No ANR, no crash.
+Install with adb install -r. Open Workout — loads fast. Log a set — timer starts. Complete workout — momentum modal appears. Open Progress — all 13 items render. No ANR, no crash.
 
 ## Then
 
-After Batch 2 is accepted, proceed to BATCHES.md Batch 3 â€” Recovery + History.
+After Batch 2 is accepted, proceed to BATCHES.md Batch 3 — Recovery + History.

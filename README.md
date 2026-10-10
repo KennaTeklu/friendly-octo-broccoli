@@ -15,7 +15,7 @@ Native Kotlin / Jetpack Compose rebuild of the legacy single-file HTML app.
 
 ## The other repo — the spec
 
-The legacy HTML app lives at https://github.com/KennaTeklu/cautious-enigma. This is the spec. Every screen, modal, button, animation, and piece of JS logic in that file must eventually exist in this native app. Clone its behavior and its look — do not clone its WebView, its anti-debug code, or its monetization (see LANDMINES.md).
+The legacy HTML app lives at https://github.com/example-user/cautious-enigma. This is the spec. Every screen, modal, button, animation, and piece of JS logic in that file must eventually exist in this native app. Clone its behavior and its look — do not clone its WebView, its anti-debug code, or its monetization (see LANDMINES.md).
 
 ## Read order
 

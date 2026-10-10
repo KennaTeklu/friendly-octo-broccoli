@@ -1,10 +1,10 @@
-ï»¿# BATCH-2A.md â€” Import/Export fixes + full parity
+# BATCH-2A.md — Import/Export fixes + full parity
 
 Predecessor: Batch 1 (vCode 11), Hotfix 1.1 (vCode 12), Batch 2 (vCode 13). Ship as versionCode 14, versionName 1.4.4.
 
 ---
 
-## P0 â€” CRITICAL FIX: HTML export cannot be imported
+## P0 — CRITICAL FIX: HTML export cannot be imported
 
 ### Symptom (confirmed by client log on Samsung SM-A145M, Android 14)
 
@@ -21,13 +21,13 @@ The HTML export writes the string "NaN" as the value of averageRPE. ProJson in t
 
 To confirm on the client file, run:
 
-    grep -c "averageRPE\": \"NaN\"" export_Kenna_September_28_2026.json
+    grep -c "averageRPE\": \"NaN\"" export_Alex_September_28_2026.json
 
 It appears many times in the real client export.
 
-### Fix â€” three parts, all required
+### Fix — three parts, all required
 
-**Part 1 â€” accept special floats on import.** Edit app/src/main/java/com/peakform/fitness/core/Model.kt, in object ProJson, in the val json: Json = Json { ... } block. Add exactly one line: allowSpecialFloatingPointValues = true. Keep every existing line. The full block becomes:
+**Part 1 — accept special floats on import.** Edit app/src/main/java/com/peakform/fitness/core/Model.kt, in object ProJson, in the val json: Json = Json { ... } block. Add exactly one line: allowSpecialFloatingPointValues = true. Keep every existing line. The full block becomes:
 
     val json: Json = Json {
         ignoreUnknownKeys = true
@@ -39,7 +39,7 @@ It appears many times in the real client export.
         allowSpecialFloatingPointValues = true
     }
 
-**Part 2 â€” normalize before export.** Every export path (Backup.exportFormatA, Backup.exportCompleteV1, and any new exporter added in this batch) must run the resulting JsonObject through a sanitizer that walks the tree and replaces any JsonPrimitive whose string form is NaN, -NaN, Infinity, or -Infinity with JsonNull. Add this function to Backup.kt:
+**Part 2 — normalize before export.** Every export path (Backup.exportFormatA, Backup.exportCompleteV1, and any new exporter added in this batch) must run the resulting JsonObject through a sanitizer that walks the tree and replaces any JsonPrimitive whose string form is NaN, -NaN, Infinity, or -Infinity with JsonNull. Add this function to Backup.kt:
 
     private fun sanitize(el: JsonElement): JsonElement = when (el) {
         is JsonObject -> JsonObject(el.mapValues { sanitize(it.value) })
@@ -53,19 +53,19 @@ It appears many times in the real client export.
 
 Call it in exportFormatA and exportCompleteV1 before returning. Result: the native export never writes NaN as a value again, and round-trips cleanly into both the HTML app and the native app.
 
-**Part 3 â€” heal on paste.** Extend core/JsonHeal.kt heal() to replace string-form special values before parsing. Add regex replacements for both quoted and unquoted forms: replace the value NaN, -NaN, Infinity, and -Infinity with null. This makes any pasted or file-imported JSON tolerant of the HTML writer's bug, regardless of whether Part 1 is applied.
+**Part 3 — heal on paste.** Extend core/JsonHeal.kt heal() to replace string-form special values before parsing. Add regex replacements for both quoted and unquoted forms: replace the value NaN, -NaN, Infinity, and -Infinity with null. This makes any pasted or file-imported JSON tolerant of the HTML writer's bug, regardless of whether Part 1 is applied.
 
 ### Verification (must be in the delivery)
 
-1. Import export_Kenna_September_28_2026.json (the exact client file) â€” succeeds. Screenshot of the success toast.
+1. Import export_Alex_September_28_2026.json (the exact client file) — succeeds. Screenshot of the success toast.
 2. The imported data appears in Dashboard, History, Library. Screenshot of each.
-3. Export from the native app â€” grep the output for NaN â€” zero matches.
-4. Re-import that native export â€” succeeds.
-5. Paste a JSON containing the string NaN as averageRPE into the Paste-JSON screen â€” succeeds.
+3. Export from the native app — grep the output for NaN — zero matches.
+4. Re-import that native export — succeeds.
+5. Paste a JSON containing the string NaN as averageRPE into the Paste-JSON screen — succeeds.
 
 ---
 
-## Then â€” 12 import/export parity features
+## Then — 12 import/export parity features
 
 After Parts 1 to 3 are working, add the following so the native app has the same import/export surface as the HTML app. HTML line anchors are for reference only. Read the code, do not copy it.
 
@@ -116,7 +116,7 @@ All new buttons go in Settings, Data and Backup card. Order:
 
 ## Verification required
 
-- Client's exact file export_Kenna_September_28_2026.json imports successfully. Screenshot.
+- Client's exact file export_Alex_September_28_2026.json imports successfully. Screenshot.
 - Native export contains zero occurrences of NaN. Grep output in CHANGES.md.
 - Each new export produces a valid file. Screenshot of file picker and saved file.
 - CSV opens correctly in a text editor or spreadsheet. Screenshot.
