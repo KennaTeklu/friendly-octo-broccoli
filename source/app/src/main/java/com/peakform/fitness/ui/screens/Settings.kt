@@ -22,6 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -66,8 +68,7 @@ private data class SettingsCardEntry(
 private val SETTINGS_CARDS = listOf(
     SettingsCardEntry("p4PersonalCard", "Personal info", "fa-user", "form"),
     SettingsCardEntry("p4HealthCard", "Health & clearance", "fa-notes-medical", "info"),
-    SettingsCardEntry("p4AppearanceCard", "Appearance", "fa-palette", "form"),
-    SettingsCardEntry("p4ThemeCard", "Theme picker", "fa-palette", "picker"),
+    SettingsCardEntry("p4AppearanceCard", "Change theme", "fa-palette", "form"),
     SettingsCardEntry("p4ReadingCard", "Reading level", "fa-language", "picker"),
     SettingsCardEntry("p4VocabCard", "Vocabulary", "fa-book-open", "picker"),
     SettingsCardEntry("p4LanguageCard", "Language", "fa-earth-americas", "picker"),
@@ -443,7 +444,6 @@ private fun ColumnScope.SettingsCardBody(
         "p4PrivacyCard" -> PrivacyCardBody(onToast)
         "p4AboutCard" -> AboutCardBody(onToast)
         "p4AppearanceCard" -> AppearanceCardBody(onToast)
-        "p4ThemeCard" -> ThemePickerCardBody(onToast)
         "p4ReadingCard" -> ReadingCardBody(onToast)
         "p4VocabCard" -> VocabularyCardBody(onToast, onExportPhrasebook, onImportPhrasebook, onOpenSection)
         "p4LanguageCard" -> LanguageCardBody(onToast)
@@ -608,9 +608,11 @@ fun AppearanceCardBody(onToast: (String) -> Unit) {
 private fun appearanceInner(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    // BATCH-4B item 1: no local `remember` shadow copy of accentId/mode — read
-    // straight from ThemeController so the picker can never lag behind the
-    // source of truth, and so a swatch tap re-colors the whole app instantly.
+    // P4E-UI-02: renamed from "Appearance" to "Change theme".
+    // P4E-UI-05: read straight from ThemeController so the picker can never
+    // lag behind the source of truth, and so a swatch tap re-colors the whole
+    // app instantly. The tap writes accent + p4_dynamic atomically (see
+    // ThemeController.setAccentAndDynamic).
     val mode = if (ThemeController.dark) "dark" else "light"
     val accentId = ThemeController.accentId
     val dynamic = ThemeController.dynamic
@@ -631,111 +633,84 @@ private fun appearanceInner(onToast: (String) -> Unit) {
         }
     }
     Spacer(Modifier.height(12.dp))
-    // BATCH-4B item 1: when Material You is on, dim the palette and surface a hint —
-    // the user needs to understand why their chosen color isn't applying.
-    val paletteAlpha = if (dynamic) 0.4f else 1f
+    // P4E-UI-04 + P4E-UI-05: the colour grid now includes a 17th tile for
+    // Material You. Tapping any non-Material-You swatch writes accent AND
+    // p4_dynamic=off in one atomic commit (setAccentAndDynamic). Tapping the
+    // Material You tile writes p4_dynamic=on in the same atomic write.
+    // P4E-UI-06: the 4D banner is removed — the user never sees text telling
+    // them their choice is being ignored, because their choice is applied the
+    // moment they tap.
     ACCENTS.chunked(8).forEach { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
             row.forEach { a ->
-                val active = accentId == a.id
+                val active = !dynamic && accentId == a.id
                 Box(
                     Modifier
-                        .alpha(paletteAlpha)
                         .size(32.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
                         .background(if (ThemeController.dark) a.darkHex else a.lightHex)
                         .border(if (active) 3.dp else 1.dp, if (active) c.text else c.hairline2, androidx.compose.foundation.shape.CircleShape)
-                        .clickable(enabled = !dynamic) {
-                            ThemeController.set(mode, a.id, ctx)
+                        .clickable {
+                            // P4E-UI-05: atomic write — accent + p4_dynamic=off
+                            // in a single SharedPreferences commit().
+                            ThemeController.setAccentAndDynamic(mode, a.id, dynamic = false, ctx = ctx)
                             onToast("Theme updated — $mode · ${a.name}")
                         }
                 )
             }
         }
     }
-    val accentName = ACCENTS.firstOrNull { it.id == accentId }?.name ?: ""
-    Text(accentName, fontSize = 12.sp, color = c.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-    if (dynamic) {
-        Text(
-            "Material You is active — turn it off below to apply your selected color.",
-            style = ProType.small, color = c.warn, textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        )
-    } else {
-        Text("All 16 colors available", style = ProType.small, color = c.text3, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+    // P4E-UI-04: Material You tile — gradient circle representing the wallpaper
+    // palette. Selectable like any other swatch. Only shown on Android 12+.
+    if (android.os.Build.VERSION.SDK_INT >= 31) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+            val active = dynamic
+            val gradient = if (dynamic) {
+                val dy = if (ThemeController.dark) androidx.compose.material3.dynamicDarkColorScheme(ctx).primary
+                else androidx.compose.material3.dynamicLightColorScheme(ctx).primary
+                Brush.linearGradient(listOf(dy, androidx.compose.material3.dynamicLightColorScheme(ctx).primary))
+            } else {
+                Brush.linearGradient(listOf(Color(0xFF6750A4), Color(0xFF7D5260), Color(0xFF625B71)))
+            }
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(gradient)
+                    .border(if (active) 3.dp else 1.dp, if (active) c.text else c.hairline2, androidx.compose.foundation.shape.CircleShape)
+                    .clickable {
+                        // P4E-UI-05: atomic write — p4_dynamic=on, accent unchanged
+                        ThemeController.setAccentAndDynamic(mode, accentId, dynamic = true, ctx = ctx)
+                        onToast("Material You color on — wallpaper palette applied.")
+                    }
+            )
+            Spacer(Modifier.width(6.dp))
+            Text("Material You", fontSize = 9.sp, color = if (active) c.accent else c.text3, maxLines = 1, textAlign = TextAlign.Center)
+        }
     }
+    val accentName = if (dynamic) "Material You" else (ACCENTS.firstOrNull { it.id == accentId }?.name ?: "")
+    Text(accentName, fontSize = 12.sp, color = c.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
     Spacer(Modifier.height(12.dp))
     ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProPrefs.get(LocalContext.current, "p4_gym") == "on") { on ->
         ProPrefs.put(ctx, "p4_gym", if (on) "on" else "off")
         onToast(if (on) "Gym Mode ON — huge buttons, no waiting on animations." else "Gym Mode off.")
     }
+    // P4E-UI-07: the Material You toggle stays alongside the tile. The tile
+    // is a visual preview + one-tap enable; the toggle is an explicit on/off
+    // for users who prefer a standard control. Both read from the same
+    // ThemeController.dynamic state, so they are always in sync.
     ToggleRow("Material You color", "Tint Pro with your wallpaper palette (Android 12+). When on, your selected accent is ignored.", checked = dynamic) { on ->
         ThemeController.setDynamic(on, ctx)
         onToast(if (on) "Material You color on — wallpaper palette applied." else "Material You color off — your selected accent applies now.")
     }
 }
 
-/** Theme picker card — p4ThemeCard — quick accent + mode switcher (legacy "openThemes" target). */
-@Composable
-fun ThemePickerCardBody(onToast: (String) -> Unit) {
-    val c = LocalProColors.current
-    val ctx = LocalContext.current
-    // BATCH-4B item 1: read straight from ThemeController (no local shadow copies),
-    // so the picker is always in sync with the source of truth and the whole app
-    // re-colors the instant a swatch is tapped.
-    val accentId = ThemeController.accentId
-    val mode = if (ThemeController.dark) "dark" else "light"
-    val dynamic = ThemeController.dynamic
-    Text("Pick a color theme — applies instantly and persists across restarts.", style = ProType.small, color = c.text3)
-    Spacer(Modifier.height(10.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("dark" to "fa-moon", "light" to "fa-sun").forEach { (m, ic) ->
-            val active = mode == m
-            Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(1.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
-                ThemeController.set(m, accentId, ctx)
-                onToast("Theme: $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name ?: ""}")
-            }.padding(vertical = 11.dp), contentAlignment = Alignment.Center) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    com.peakform.fitness.ui.FaIcon(ic, size = 13.sp, tint = if (active) c.accent else c.text2)
-                    Spacer(Modifier.width(6.dp))
-                    Text(m.replaceFirstChar { it.uppercase() }, fontSize = 12.sp, color = if (active) c.accent else c.text2)
-                }
-            }
-        }
-    }
-    Spacer(Modifier.height(10.dp))
-    val paletteAlpha = if (dynamic) 0.4f else 1f
-    ACCENTS.chunked(4).forEach { row ->
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-            row.forEach { a ->
-                val active = accentId == a.id
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).clickable(enabled = !dynamic) {
-                    ThemeController.set(mode, a.id, ctx)
-                    onToast("Accent: ${a.name}")
-                }) {
-                    Box(
-                        Modifier
-                            .alpha(paletteAlpha)
-                            .size(34.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(if (ThemeController.dark) a.darkHex else a.lightHex)
-                            .border(if (active) 3.dp else 1.dp, if (active) c.text else c.hairline2, androidx.compose.foundation.shape.CircleShape)
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(a.name, fontSize = 9.sp, color = if (active) c.accent else c.text3, maxLines = 1, textAlign = TextAlign.Center)
-                }
-            }
-        }
-    }
-    if (dynamic) {
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Material You is active — your selected accent is ignored. Turn Material You off in Appearance to apply this color.",
-            style = ProType.small, color = c.warn, textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
+/**
+ * P4E-UI-01: the ThemePickerCardBody has been deleted. The "Theme picker" card
+ * was a duplicate of the Appearance card (same palette, same dark/light toggle).
+ * It has been merged into the renamed "Change theme" card (AppearanceCardBody).
+ * If you need the old screenshot evidence, see prior-batch zips (Batch 4B/4C).
+ */
 
 @Composable
 fun ReadingCardBody(onToast: (String) -> Unit) {

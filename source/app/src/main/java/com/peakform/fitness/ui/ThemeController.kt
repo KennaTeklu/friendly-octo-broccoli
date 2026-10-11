@@ -63,6 +63,35 @@ object ThemeController {
         ctx?.let { ProPrefs.put(it, "p4_theme", currentJson()) }
     }
 
+    /**
+     * P4E-UI-05: atomic write of accent + p4_dynamic in a single
+     * SharedPreferences commit(). This is the fix for the race where tapping
+     * a swatch wrote accent and read p4_dynamic separately — Material You
+     * would win for one frame because the two writes were not atomic.
+     *
+     * Code path: ThemeController.setAccentAndDynamic() at ThemeController.kt:80-90
+     *   1. Updates runtime state (dark, accentId, dynamic) — Compose observes these
+     *      via mutableStateOf, so recomposition fires synchronously.
+     *   2. ProPrefs.get(ctx).edit()
+     *        .putString("p4_theme", currentJson())
+     *        .putString("p4_dynamic", if (dynamic) "on" else "off")
+     *        .commit()  // synchronous, atomic
+     *   Both keys land in the same SharedPreferences transaction. No frame can
+     *   observe accent=X with dynamic=on (which would show Material You instead
+     *   of the user's chosen accent).
+     */
+    fun setAccentAndDynamic(mode: String, accent: String, dynamic: Boolean, ctx: Context? = null) {
+        dark = mode != "light"
+        if (ACCENTS.any { it.id == accent }) accentId = accent
+        this.dynamic = dynamic
+        ctx?.let { c ->
+            ProPrefs.get(c).edit()
+                .putString("p4_theme", currentJson())
+                .putString("p4_dynamic", if (dynamic) "on" else "off")
+                .commit()
+        }
+    }
+
     /** Toggle Material You; persists to `p4_dynamic` and refreshes the runtime flag. */
     fun setDynamic(on: Boolean, ctx: Context? = null) {
         dynamic = on

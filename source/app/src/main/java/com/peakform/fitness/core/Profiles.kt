@@ -87,13 +87,14 @@ object Profiles {
      * not just the active one.
      */
     fun liveNameFor(ctx: Context, profileId: String): String = try {
-        val db = ProDb.get(ctx, dbNameFor(ctx, profileId))
-        kotlinx.coroutines.runBlocking {
-            val raw = db.dao().userJson() ?: return@runBlocking ""
-            try {
-                val u = ProJson.decode(UserProfile.serializer(), raw)
-                u.name
-            } catch (_: Exception) { "" }
+        ProDb.withDb(ctx, dbNameFor(ctx, profileId)) { dao ->
+            kotlinx.coroutines.runBlocking {
+                val raw = dao.userJson() ?: return@runBlocking ""
+                try {
+                    val u = ProJson.decode(UserProfile.serializer(), raw)
+                    u.name
+                } catch (_: Exception) { "" }
+            }
         }
     } catch (_: Exception) { "" }
 
@@ -111,18 +112,21 @@ object Profiles {
         return ProfileMeta(id, name, emojiFinal)
     }
 
-    /** BATCH-4B item 5: seed the new profile's user.name = <profile name>. */
+    /** BATCH-4B item 5: seed the new profile's user.name = <profile name>.
+     *  P4D-CRASH-02 (W3): uses ProDb.withDb() so the handle survives concurrent
+     *  close(). */
     private fun seedNewProfileUser(ctx: Context, profileId: String, name: String) {
         try {
-            val db = ProDb.get(ctx, dbNameFor(ctx, profileId))
             val defaultUser = UserProfile(
                 created = ProState.nowIso(),
                 name = name,
                 experience = "intermediate",
                 settings = Settings(darkMode = false),
             )
-            kotlinx.coroutines.runBlocking {
-                db.dao().putUser(UserRow("main", ProJson.encode(UserProfile.serializer(), defaultUser)))
+            ProDb.withDb(ctx, dbNameFor(ctx, profileId)) { dao ->
+                kotlinx.coroutines.runBlocking {
+                    dao.putUser(UserRow("main", ProJson.encode(UserProfile.serializer(), defaultUser)))
+                }
             }
         } catch (e: Exception) {
             ProLog.w("PROFILE", "seed user failed for $profileId: ${e.message}")
@@ -130,10 +134,7 @@ object Profiles {
     }
 
     fun delete(ctx: Context, profileId: String) {
-        if (profileId == DEFAULT) return // the default namespace is never deletable
-        // BATCH-4B item 4: the currently-configured default profile is also
-        // delete-protected — the user must promote another profile to default
-        // before this one can be removed.
+        if (profileId == DEFAULT) return
         if (profileId == defaultId(ctx)) {
             ProLog.w("PROFILE", "delete blocked — $profileId is the default; reassign default first")
             return
@@ -144,13 +145,14 @@ object Profiles {
         val newActive = if (wasActive) (remaining.firstOrNull()?.id ?: DEFAULT) else activeId(ctx)
         ProfileRegistry.write(ctx, remaining, newActive, ask)
         if (wasActive) ProPrefs.put(ctx, ACTIVE_KEY, newActive)
-        // delete the profile's database file
+        // P4D-CRASH-04: close the DB handle BEFORE unlinking the file.
         try {
-            val dbFile = ctx.getDatabasePath(dbNameFor(ctx, profileId))
+            val dbName = dbNameFor(ctx, profileId)
+            ProDb.close(dbName)
+            val dbFile = ctx.getDatabasePath(dbName)
             dbFile.delete()
             File(dbFile.path + "-wal").delete()
             File(dbFile.path + "-shm").delete()
-            ProDb.close(dbNameFor(ctx, profileId))
         } catch (_: Exception) {}
         ProLog.i("PROFILE", "deleted $profileId")
     }

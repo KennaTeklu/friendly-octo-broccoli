@@ -94,6 +94,17 @@ interface ProDao {
     @Query("DELETE FROM exercises") fun c2()
     @Query("DELETE FROM user") fun c3()
     @Query("DELETE FROM savedWorkout") fun c4()
+
+    // P4D-CRASH-04: atomic wipe — all five clears in one transaction so a
+    // crash or race between clearUser/clearSaved cannot leave a half-wiped DB.
+    @androidx.room.Transaction
+    suspend fun wipeAll() {
+        clearWorkouts()
+        clearExercises()
+        clearUser()
+        clearSaved()
+        clearVault()
+    }
 }
 
 @Database(
@@ -112,7 +123,19 @@ abstract class ProDb : RoomDatabase() {
                 .build().also { instances[dbName] = it }
         }
 
-        /** Close a namespace (profile switch / delete). */
+        /** P4D-CRASH-02 (W3): execute a block against the DB handle while holding
+         *  the instances lock, so close() cannot race the block. The handle
+         *  returned by get() can no longer be closed by another thread between
+         *  the get and the first DAO call — close() blocks on this same lock
+         *  until the block returns. */
+        fun <T> withDb(ctx: Context, dbName: String, block: (ProDao) -> T): T = synchronized(instances) {
+            val db = get(ctx, dbName)
+            block(db.dao())
+        }
+
+        /** Close a namespace (profile switch / delete).
+         *  P4D-CRASH-02: blocks on the instances lock so in-flight withDb()
+         *  calls complete before the handle is closed. */
         fun close(dbName: String) {
             synchronized(instances) {
                 instances.remove(dbName)?.close()
@@ -195,7 +218,10 @@ class ProStore(private val ctx: Context) {
 
     suspend fun wipeAllData() = mutex.withLock {
         withContext(Dispatchers.IO) {
-            db.dao().clearWorkouts(); db.dao().clearExercises(); db.dao().clearUser(); db.dao().clearSaved(); db.dao().clearVault()
+            // P4D-CRASH-04: atomic wipe via @Transaction-wrapped wipeAll().
+            // Previously four independent clears with no transaction — a crash
+            // or race between clearUser/clearSaved could leave a half-wiped DB.
+            db.dao().wipeAll()
         }
     }
 }

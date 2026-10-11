@@ -43,9 +43,23 @@ object ProState {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val saveMutex = Mutex()
     private var draftDebounceJob: kotlinx.coroutines.Job? = null
-    /** BATCH-4B item 2 race fix: track the saveWorkoutData coroutine so flush()
-     *  can join it before reopenStore() closes the old store's DB. */
+    /** BATCH-4B item 2 race fix (original): track the saveWorkoutData coroutine so flush()
+     *  can join it before reopenStore() closes the old store's DB.
+     *  P4D-CRASH-01/03 (W1+WW2): a single `saveJob` was insufficient —
+     *  saveCurrentWorkoutToStorage() launched on `scope` without assigning to
+     *  saveJob (W1), and saveWorkoutData() reassigned saveJob on every call,
+     *  orphaning the earlier job (W2). The fix is to track ALL in-flight save
+     *  coroutines in a synchronized list; flush() joins every one. */
     @Volatile private var saveJob: kotlinx.coroutines.Job? = null
+    private val saveJobs = java.util.Collections.synchronizedList(mutableListOf<kotlinx.coroutines.Job>())
+
+    /** P4D-CRASH-01/03: register a save coroutine so flush() can join it.
+     *  Used by both saveWorkoutData() and saveCurrentWorkoutToStorage(). */
+    private fun trackSave(job: kotlinx.coroutines.Job): kotlinx.coroutines.Job {
+        saveJobs.add(job)
+        job.invokeOnCompletion { saveJobs.remove(job) }
+        return job
+    }
 
     val listeners = mutableListOf<() -> Unit>()
 
@@ -56,8 +70,18 @@ object ProState {
         store = ProStore(context)
     }
 
-    /** Profile switch: drop the old store handle so the next access opens the new namespace. */
+    /** Profile switch: drop the old store handle so the next access opens the new namespace.
+     *  P4D-CRASH-03: enforce that flush() has completed before closing the old
+     *  store's DB. If there are still in-flight save coroutines, flush now —
+     *  do NOT silently close a handle a save is still writing to.
+     *  The caller (Profiles.switchTo) already calls flush() before this, but
+     *  other callers might not — this is the safety net. */
     fun reopenStore(context: Context) {
+        val pending = saveJobs.toList()
+        if (pending.isNotEmpty()) {
+            ProLog.w("STORE", "reopenStore() called with ${pending.size} in-flight save(s) — flushing now")
+            flush()
+        }
         val old = store
         ctx = context.applicationContext
         activeProfileId = Profiles.activeId(context)
@@ -185,20 +209,27 @@ object ProState {
     }
 
     // ---------- saves (translation of saveWorkoutData / performSave) ----------
+    // P4D-CRASH-01 (W2): do NOT reassign saveJob on every call — that orphans
+    // the earlier job from flush()'s join. Track every save in saveJobs.
     fun saveWorkoutData() {
-        saveJob = scope.launch {
+        val job = scope.launch {
             val s = store ?: return@launch
             val d = data
             s.saveAggregate(d, null)
             ProPrefs.put(ctx!!, "workoutData", ProJson.encode(WorkoutData.serializer(), d)) // legacy mirror key
         }
+        saveJob = trackSave(job)
     }
 
+    // P4D-CRASH-01 (W1): assign to a tracked job so flush() can join it.
+    // Previously this launched on `scope` without any tracking — the save was
+    // invisible to flush(), and reopenStore() would close the DB mid-write.
     fun saveCurrentWorkoutToStorage() {
         val cw = currentWorkout ?: return
-        scope.launch {
+        val job = scope.launch {
             store?.saveCurrentWorkout(cw)
         }
+        trackSave(job)
     }
 
     fun saveWorkoutDraftImmediately() {
@@ -238,15 +269,22 @@ object ProState {
     }
 
     /** Flush pending saves (called on onStop / before profile switch).
-     *  BATCH-4B item 2 race fix: blocks until the in-flight saveWorkoutData
-     *  coroutine finishes, so the next reopenStore() can safely close the old
-     *  store's DB without a "connection pool has been closed" race. */
+     *  BATCH-4B item 2 race fix (original): blocks until the in-flight
+     *  saveWorkoutData coroutine finishes, so the next reopenStore() can
+     *  safely close the old store's DB.
+     *  P4D-CRASH-03 (W1+WW2): now joins ALL tracked save coroutines — both
+     *  saveWorkoutData() and saveCurrentWorkoutToStorage() — not just the
+     *  single `saveJob`. This closes both race windows. */
     fun flush() {
         draftDebounceJob?.cancel()
         draftDebounceJob = null
         if (currentWorkout != null) performSave()
         saveWorkoutData()
-        kotlinx.coroutines.runBlocking { saveJob?.join() }
+        kotlinx.coroutines.runBlocking {
+            // P4D-CRASH-03: join every tracked save, not just saveJob.
+            val snapshot = saveJobs.toList()
+            snapshot.forEach { it.join() }
+        }
     }
 
     private fun readEmergencyBackup(): WorkoutRecord? {
