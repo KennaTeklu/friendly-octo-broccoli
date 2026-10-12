@@ -470,18 +470,36 @@ fun ExerciseCard(
             com.peakform.fitness.ui.FaIcon(if (expanded) "fa-chevron-up" else "fa-chevron-down", size = 14.sp, tint = c.accent)
         }
 
-        // prescription summary (always visible) — also a toggle target
+        // BATCH-16/v33 recovery: Coach-led workout flow.
+        // 1. Compound lift without 1RM → no prescription.
+        // 2. Banded exercises: show band, not weight.
+        // 3. Show % of 1RM when available.
         Spacer(Modifier.height(12.dp))
         val rx = exercise.prescribed
+        val rec = ProState.data.exercises[exercise.id]
+        val has1RM = (rec?.tested1RM ?: 0.0) > 0
+        val isCompound = listOf("squat", "deadlift", "bench", "press", "row").any { exercise.id.contains(it) }
+        val isBanded = exercise.equipment.equals("bands", ignoreCase = true) || exercise.equipment.equals("band", ignoreCase = true)
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onToggle() }) {
-            if (exercise.prescriptionType == "time" || exercise.defaultDuration != null) {
-                RxLine(label = "HOLD", value = "${rx.duration?.toInt() ?: 45}s × ${rx.sets} sets")
-            } else {
-                val w = rx.weight
-                RxLine(
-                    label = "PRESCRIPTION",
-                    value = (if (w != null && w > 0) "${OneRm.roundToNearest(w).toInt()} lbs · " else "") + "${rx.sets} × ${rx.reps}",
-                )
+            when {
+                isCompound && !has1RM -> {
+                    RxLine(label = "1RM REQUIRED", value = "Test your 1RM to unlock prescription")
+                }
+                isBanded -> {
+                    RxLine(label = "BAND", value = "${rx.sets} × ${rx.reps} · band resistance")
+                }
+                exercise.prescriptionType == "time" || exercise.defaultDuration != null -> {
+                    RxLine(label = "HOLD", value = "${rx.duration?.toInt() ?: 45}s × ${rx.sets} sets")
+                }
+                else -> {
+                    val w = rx.weight
+                    val orm = rec?.tested1RM
+                    val pctStr = if (orm != null && orm > 0 && w != null && w > 0) " (${(w / orm * 100).toInt()}% 1RM)" else ""
+                    RxLine(
+                        label = "PRESCRIPTION",
+                        value = (if (w != null && w > 0) "${OneRm.roundToNearest(w).toInt()} lbs$pctStr · " else "") + "${rx.sets} × ${rx.reps}",
+                    )
+                }
             }
         }
 

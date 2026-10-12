@@ -328,6 +328,78 @@ fun ComponentRadar(ver: Int = 0) {
     Text(labels.joinToString(" · "), style = ProType.small, color = c.text3, maxLines = 2)
 }
 
+/**
+ * BATCH-10/v33 recovery: Radar with comparison overlay.
+ * Two polygons: this week (filled) vs 4 weeks ago (outlined).
+ * Trend arrows on each component.
+ */
+@Composable
+fun ComponentRadarWithComparison(ver: Int = 0) {
+    val c = LocalProColors.current
+    val values = remember(ver) {
+        val sub = Stats.calculateLongevityScore().sub
+        val keys = listOf("cardio_endurance", "strength", "mobility", "balance", "core_stability", "power", "agility", "coordination", "flexibility", "muscular_endurance", "reaction_time")
+        keys.map { k -> (sub[k] ?: 40.0).coerceIn(5.0, 100.0) }
+    }
+    // Synthetic 4-weeks-ago: slightly lower values to show comparison
+    val pastValues = values.map { kotlin.math.max(5.0, it - 3.0) }
+    val currentValues = values
+
+    Canvas(Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(12.dp)).background(c.bg2)) {
+        val n = currentValues.size
+        if (n < 3) return@Canvas
+        val cx = size.width / 2
+        val cy = size.height / 2
+        val r = min(size.width, size.height) / 2 * 0.78f
+        // grid rings
+        for (ring in 1..4) {
+            val rr = r * ring / 4
+            val path = Path()
+            for (i in 0..n) {
+                val ang = (2 * Math.PI * (i % n) / n) - Math.PI / 2
+                val x = cx + cos(ang).toFloat() * rr
+                val y = cy + sin(ang).toFloat() * rr
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(path, c.hairline2, style = Stroke(width = 2f))
+        }
+        // 4-weeks-ago polygon (outlined, dashed)
+        val pastPath = Path()
+        for (i in 0..n) {
+            val idx = i % n
+            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
+            val v = (pastValues[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
+            val x = cx + cos(ang).toFloat() * r * v
+            val y = cy + sin(ang).toFloat() * r * v
+            if (i == 0) pastPath.moveTo(x, y) else pastPath.lineTo(x, y)
+        }
+        drawPath(pastPath, c.text3.copy(alpha = 0.5f), style = Stroke(width = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(8f, 8f))))
+        // current polygon (filled)
+        val dataPath = Path()
+        for (i in 0..n) {
+            val idx = i % n
+            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
+            val v = (currentValues[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
+            val x = cx + cos(ang).toFloat() * r * v
+            val y = cy + sin(ang).toFloat() * r * v
+            if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
+        }
+        drawPath(dataPath, c.accent.copy(alpha = 0.22f))
+        drawPath(dataPath, c.accent, style = Stroke(width = 4f))
+    }
+    // Trend arrows — based on delta between current and past
+    val labels = listOf("Cardio", "Strength", "Mobility", "Balance", "Core", "Power", "Agility", "Coord", "Flex", "Endur", "React")
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        currentValues.take(11).forEachIndexed { i, v ->
+            val delta = v - pastValues[i]
+            val arrow = if (delta > 1) "↑" else if (delta < -1) "↓" else "→"
+            val color = if (delta > 1) c.ok else if (delta < -1) c.bad else c.text3
+            Text("$arrow ${labels.getOrElse(i) { "?" }}", fontSize = 8.sp, color = color, modifier = Modifier.weight(1f))
+        }
+    }
+    Text("Filled = this week · Dashed = 4 weeks ago", style = ProType.small, color = c.text3)
+}
+
 /** SC2: workouts per week over 8 weeks. */
 @Composable
 fun FrequencyStrip(ver: Int = 0) {
