@@ -62,7 +62,7 @@
 
 <script>
 
-/* P4 theme boot — runs before paint to prevent flash of wrong theme */
+/* P4 theme boot â€” runs before paint to prevent flash of wrong theme */
 
 (function(){
 
@@ -175,7 +175,7 @@ try {
 
 
 
-        // Deadman's switch – 10 seconds (generous for slow iframes)
+        // Deadman's switch â€“ 10 seconds (generous for slow iframes)
 
         const deadmanTimeout = setTimeout(() => {
 
@@ -185,7 +185,7 @@ try {
 
             banner.style.cssText = 'position:fixed; bottom:20px; left:20px; right:20px; background:#ff4444; color:white; padding:12px; border-radius:12px; text-align:center; z-index:10001; font-weight:bold;';
 
-            banner.innerHTML = '⚠️ App took too long to load. Some features may be unavailable. <button onclick="location.reload()" style="background:white; color:#ff4444; border:none; border-radius:20px; padding:4px 12px; margin-left:10px;">Reload</button>';
+            banner.innerHTML = 'âš ï¸ App took too long to load. Some features may be unavailable. <button onclick="location.reload()" style="background:white; color:#ff4444; border:none; border-radius:20px; padding:4px 12px; margin-left:10px;">Reload</button>';
 
             document.body.appendChild(banner);
 
@@ -195,7 +195,7 @@ try {
 
 
 
-        // Success trigger – call this when data is loaded
+        // Success trigger â€“ call this when data is loaded
 
         window.appReady = function() {
 
@@ -238,7 +238,7 @@ try {
 
             <div id="headerNameStreak" style="display: flex; align-items: baseline; gap: 8px;">
 
-                <span class="streak-fire">🔥 <span id="streakCount">0</span></span>
+                <span class="streak-fire">ðŸ”¥ <span id="streakCount">0</span></span>
 
                 <span id="userNameDisplay" class="user-name">loading...</span>
 
@@ -272,7 +272,7 @@ try {
 
                 <div id="navUserName">User</div>
 
-                <div id="navUserStats">Beginner • Day 0 Streak</div>
+                <div id="navUserStats">Beginner â€¢ Day 0 Streak</div>
 
             </div>
 
@@ -368,7 +368,7 @@ try {
 
                     <div style="font-weight: 700; color: var(--dark);" id="navUserName">User</div>
 
-                    <div style="font-size: 0.85rem; color: var(--gray-500);" id="navUserStats">Beginner • Day 0 Streak</div>
+                    <div style="font-size: 0.85rem; color: var(--gray-500);" id="navUserStats">Beginner â€¢ Day 0 Streak</div>
 
                 </div>
 
@@ -427,8 +427,26 @@ try {
     <!-- ===== MODULAR JS (extracted from index (24).html) ===== -->
     <!-- Load order preserves original execution order. -->
     <!-- 1. Main app script (defines all globals + functions) -->
-    <script src="scripts/app.js"></script>
-    <!-- 2. P4 core (P4 namespace, store, shared helpers, P4 layer, cross-cutting fixes — patches app.js) -->
+    <!-- 1. Main app script — split into 18 modules. Load order = original execution order. -->
+    <script src="scripts/app/01-config-data.js"></script>
+    <script src="scripts/app/02-erf-kalman.js"></script>
+    <script src="scripts/app/03-device-momentum-zones.js"></script>
+    <script src="scripts/app/04-strength-tests.js"></script>
+    <script src="scripts/app/05-exercise-library.js"></script>
+    <script src="scripts/app/06-library-curves.js"></script>
+    <script src="scripts/app/07-exercise-generation.js"></script>
+    <script src="scripts/app/08-workout-generation.js"></script>
+    <script src="scripts/app/09-period-dashboard.js"></script>
+    <script src="scripts/app/10-init-nav.js"></script>
+    <script src="scripts/app/11-exercise-card.js"></script>
+    <script src="scripts/app/12-logging-inputs.js"></script>
+    <script src="scripts/app/13-persistence-coach.js"></script>
+    <script src="scripts/app/14-notes-wakelock.js"></script>
+    <script src="scripts/app/15-fatigue-recovery.js"></script>
+    <script src="scripts/app/16-personal-reset.js"></script>
+    <script src="scripts/app/17-longevity.js"></script>
+    <script src="scripts/app/18-recommendations.js"></script>
+    <!-- 2. P4 core (P4 namespace, store, shared helpers, P4 layer, cross-cutting fixes â€” patches app.js) -->
     <script src="scripts/p4-core.js"></script>
     <!-- 3. P4 subsystem placeholders (P4.store/Profiles/Vault live inside p4-core.js IIFE) -->
     <script src="scripts/p4-store.js"></script>
@@ -440,11 +458,11 @@ try {
     <script src="scripts/workout.js"></script>
     <!-- 6. Progress (masterpiece engine: 11-component radar, goal cycles, projections) -->
     <script src="scripts/progress.js"></script>
-    <!-- 7. Recovery (placeholder — recovery functions are in app.js) -->
+    <!-- 7. Recovery (placeholder â€” recovery functions are in app.js) -->
     <script src="scripts/recovery.js"></script>
-    <!-- 8. History (placeholder — history functions are in app.js) -->
+    <!-- 8. History (placeholder â€” history functions are in app.js) -->
     <script src="scripts/history.js"></script>
-    <!-- 9. Dashboard (placeholder — dashboard functions are in app.js + progress.js) -->
+    <!-- 9. Dashboard (placeholder â€” dashboard functions are in app.js + progress.js) -->
     <script src="scripts/dashboard.js"></script>
     <!-- 10. Settings (sheet cleanup, dock, avatar picker, settings search, training env) -->
     <script src="scripts/settings.js"></script>
