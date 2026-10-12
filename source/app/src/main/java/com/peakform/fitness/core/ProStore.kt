@@ -120,6 +120,10 @@ abstract class ProDb : RoomDatabase() {
         fun get(ctx: Context, dbName: String = "pro.db"): ProDb = synchronized(instances) {
             instances[dbName] ?: Room.databaseBuilder(ctx.applicationContext, ProDb::class.java, dbName)
                 .fallbackToDestructiveMigrationOnDowngrade()
+                // BATCH-5: allow main-thread queries because ProfileState.metaSync /
+                // putMetaSync are synchronous calls used at boot time (before a
+                // coroutine scope is available) and from the test thread.
+                .allowMainThreadQueries()
                 .build().also { instances[dbName] = it }
         }
 

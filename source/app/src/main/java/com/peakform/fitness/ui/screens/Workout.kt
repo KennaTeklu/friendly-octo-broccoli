@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.ProState
+import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.WorkoutExercise
 import com.peakform.fitness.core.WorkoutRecord
 import com.peakform.fitness.engine.Generator
@@ -607,7 +608,7 @@ fun ExerciseCard(
 internal fun powerFlag(key: String, default: Boolean): Boolean {
     val ctx = com.peakform.fitness.ui.Fa.appContext ?: return default
     return try {
-        val raw = com.peakform.fitness.core.ProPrefs.get(ctx, "p4_power_settings") ?: return default
+        val raw = com.peakform.fitness.core.ProfileSettings.get(ctx, ProfileSettings.K_POWER_SETTINGS) ?: return default
         val o = com.peakform.fitness.core.ProJson.json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonObject
         val p = (o[key] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: return default
         p != "false"
@@ -621,7 +622,7 @@ internal fun powerFlag(key: String, default: Boolean): Boolean {
  * the Deload chip are now wired to their switches. */
 internal fun notifFlag(key: String, default: Boolean = true): Boolean {
     val ctx = com.peakform.fitness.ui.Fa.appContext ?: return default
-    return com.peakform.fitness.core.ProPrefs.get(ctx, "p4_notif_$key") != "false"
+    return !com.peakform.fitness.core.ProfileSettings.getNotif(ctx, key).let { it == "false" }
 }
 
 @Composable

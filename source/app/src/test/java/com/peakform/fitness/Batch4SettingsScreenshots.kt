@@ -21,7 +21,6 @@ import com.peakform.fitness.ui.screens.SettingsScreen
 import com.peakform.fitness.ui.screens.PersonalCardBody
 import com.peakform.fitness.ui.screens.HealthClearanceCardBody
 import com.peakform.fitness.ui.screens.AppearanceCardBody
-import com.peakform.fitness.ui.screens.ThemePickerCardBody
 import com.peakform.fitness.ui.screens.ReadingCardBody
 import com.peakform.fitness.ui.screens.VocabularyCardBody
 import com.peakform.fitness.ui.screens.LanguageCardBody
@@ -166,8 +165,7 @@ class Batch4SettingsScreenshots {
         com.peakform.fitness.core.ProfileState.remove(ctx, Health.K_SCREENED)
     }
 
-    @Test fun appearance() { snap("batch4-03-appearance") { CardHost("Appearance", "fa-palette") { AppearanceCardBody(noop) } } }
-    @Test fun themePicker() { snap("batch4-04-theme-picker") { CardHost("Theme picker", "fa-palette") { ThemePickerCardBody(noop) } } }
+    @Test fun appearance() { snap("batch4-03-appearance") { CardHost("Change theme", "fa-palette") { AppearanceCardBody(noop) } } }
     @Test fun readingLevel() { snap("batch4-05-reading-level") { CardHost("Reading level", "fa-language") { ReadingCardBody(noop) } } }
     @Test fun vocabulary() { snap("batch4-06-vocabulary") { CardHost("Vocabulary", "fa-book-open") { VocabularyCardBody(noop, noopAction, noopAction, noopSection) } } }
     @Test fun language() { snap("batch4-07-language") { CardHost("Language", "fa-earth-americas") { LanguageCardBody(noop) } } }

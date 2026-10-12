@@ -85,9 +85,6 @@ object Profiles {
      * table. Returns "" if the profile has no user row or the name is blank.
      * Opens the profile's Room DB directly so the call works for any profile,
      * not just the active one.
-     *
-     * P4D-CRASH-02 (W3): uses ProDb.withDb() so the DB handle cannot be closed
-     * by a concurrent close() between the get and the first DAO call.
      */
     fun liveNameFor(ctx: Context, profileId: String): String = try {
         ProDb.withDb(ctx, dbNameFor(ctx, profileId)) { dao ->
@@ -137,10 +134,7 @@ object Profiles {
     }
 
     fun delete(ctx: Context, profileId: String) {
-        if (profileId == DEFAULT) return // the default namespace is never deletable
-        // BATCH-4B item 4: the currently-configured default profile is also
-        // delete-protected — the user must promote another profile to default
-        // before this one can be removed.
+        if (profileId == DEFAULT) return
         if (profileId == defaultId(ctx)) {
             ProLog.w("PROFILE", "delete blocked — $profileId is the default; reassign default first")
             return
@@ -152,10 +146,6 @@ object Profiles {
         ProfileRegistry.write(ctx, remaining, newActive, ask)
         if (wasActive) ProPrefs.put(ctx, ACTIVE_KEY, newActive)
         // P4D-CRASH-04: close the DB handle BEFORE unlinking the file.
-        // Previously the file was deleted while SQLite still had it open —
-        // on some kernels this leaves a stale WAL/journal that corrupts the
-        // next open of a DB at the same path, and on all kernels it races
-        // any in-flight write that holds the file handle.
         try {
             val dbName = dbNameFor(ctx, profileId)
             ProDb.close(dbName)

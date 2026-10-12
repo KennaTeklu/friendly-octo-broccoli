@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.LibraryExercise
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProPrefs
+import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.ProJson
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -69,7 +70,7 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         "component" to "Component",
     )
     val initialGroupBy = remember {
-        val prefKey = ProPrefs.get(ctx, "p4_lib_group") ?: "muscleGroup"
+        val prefKey = ProfileSettings.get(ctx, "p4_lib_group") ?: "muscleGroup"
         val idx = groupings.indexOfFirst { it.first == prefKey }
         if (idx >= 0) idx else 0
     }
@@ -77,23 +78,14 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     var openDetail by remember { mutableStateOf<LibraryExercise?>(null) }
     var wikiFor by remember { mutableStateOf<String?>(null) }
     var componentFilter by remember { mutableStateOf<String?>(null) }
-
-    // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806).
-    // BATCH-4C Gap 1: honor p4_lib_expand_all pref — when "true", start with all
-    // groups EXPANDED (empty collapsed set) instead of the default all-collapsed.
-    var collapsedGroups by remember(Library.groups) {
-        val expandAllPref = ProPrefs.get(ctx, "p4_lib_expand_all") == "true"
-        val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
-        mutableStateOf(
-            try {
-                ProPrefs.get(ctx, "p4_library_collapsed")?.let {
-                    ProJson.json.decodeFromString(ListSerializer(String.serializer()), it).toSet()
-                } ?: defaultSet
-            } catch (_: Exception) { defaultSet }
-        )
-    }
+    // BATCH-5 Item 4: Library opens all-collapsed every time. Changing group-by
+    // mode resets to collapsed. The persisted p4_library_collapsed pref is no
+    // longer read on entry — every open starts fresh with all groups collapsed.
+    // The Expand/Collapse buttons show smartly: only "Expand all" when all
+    // collapsed, only "Collapse all" when all expanded, both when mixed.
+    var collapsedGroups by remember(Library.groups) { mutableStateOf(Library.groups.keys.toSet()) }
     fun persistCollapse() {
-        ProPrefs.put(ctx, "p4_library_collapsed",
+        ProfileSettings.put(ctx, "p4_library_collapsed",
             ProJson.json.encodeToString(ListSerializer(String.serializer()), collapsedGroups.toList()))
     }
 
@@ -161,15 +153,24 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         }
     }
 
+    // BATCH-5 Item 4: helper to change group-by mode AND reset to all-collapsed.
+    // Changing group-by mode resets to collapsed — the user re-explores from
+    // the top every time they switch grouping.
+    fun changeGroupBy(idx: Int) {
+        groupBy = idx
+        collapsedGroups = grouped.map { it.first }.toSet()
+        persistCollapse()
+    }
+
     // BATCH-4C Gap 1: honor p4_lib_chunk + p4_lib_stream prefs.
     // When streaming is ON (default), cap each group at the chunk size (default 20)
     // so the Library loads fast on large databases. When streaming is OFF, show all
     // (200 / 60 legacy caps). Search always bumps to 200 to avoid hiding matches.
     val cap = run {
         if (search.isNotBlank()) return@run 200
-        val streamingOn = ProPrefs.get(ctx, "p4_lib_stream") != "false"
+        val streamingOn = ProfileSettings.get(ctx, "p4_lib_stream") != "false"
         if (streamingOn) {
-            ProPrefs.get(ctx, "p4_lib_chunk")?.toIntOrNull()?.coerceIn(10, 60) ?: 20
+            ProfileSettings.get(ctx, "p4_lib_chunk")?.toIntOrNull()?.coerceIn(10, 60) ?: 20
         } else {
             60
         }
@@ -206,7 +207,7 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(if (active) c.accentSoft else c.surface2)
                                     .border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
-                                    .clickable { groupBy = idx }
+                                    .clickable { changeGroupBy(idx) }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -218,12 +219,20 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
             }
         }
         item(key = "hdr_expand_collapse", contentType = "header") {
+            // BATCH-5 Item 4: smart button visibility — only "Expand all" when all
+            // collapsed, only "Collapse all" when all expanded, both when mixed.
+            val allCollapsed = collapsedGroups.containsAll(grouped.map { it.first })
+            val allExpanded = grouped.all { it.first !in collapsedGroups }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                P4Button("Expand All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
-                    collapsedGroups = emptySet(); persistCollapse()
+                if (!allCollapsed) {
+                    P4Button("Expand All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
+                        collapsedGroups = emptySet(); persistCollapse()
+                    }
                 }
-                P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
-                    collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
+                if (!allExpanded) {
+                    P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(if (allCollapsed) 1f else 1f)) {
+                        collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
+                    }
                 }
             }
         }

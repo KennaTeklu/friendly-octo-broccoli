@@ -30,6 +30,7 @@ import com.peakform.fitness.core.MigrationBridge
 import com.peakform.fitness.ProLog
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProPrefs
+import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.ui.components.BtnStyle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -83,8 +84,17 @@ class MainActivity : ComponentActivity() {
             com.peakform.fitness.engine.Fatigue.calculateMuscleLastTrained()
             com.peakform.fitness.engine.Sessions.recomputeAggregates()
         }
-        ThemeController.load(ProPrefs.get(this, "p4_theme"))
-        ThemeController.loadDynamic(ProPrefs.get(this, "p4_dynamic"))
+        // BATCH-5 Item 1: one-shot v22 migration — copies every per-profile
+        // setting from global ProPrefs into each profile's Room meta table.
+        // Idempotent, gated on p4_v22_migrated.
+        com.peakform.fitness.core.ProfileSettings.migrateFromPrefs(this)
+        // BATCH-5 Item 1: theme now lives in per-profile storage.
+        ThemeController.load(com.peakform.fitness.core.ProfileSettings.get(this, com.peakform.fitness.core.ProfileSettings.K_THEME))
+        ThemeController.loadDynamic(com.peakform.fitness.core.ProfileSettings.get(this, com.peakform.fitness.core.ProfileSettings.K_DYNAMIC))
+        // BATCH-5 Item 2: resolve the effective dark/light from the current mode.
+        // "system" follows the OS; "dark"/"light" override.
+        val systemDark = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        ThemeController.resolveDark(systemDark)
         Vocab.init(this)
         Badges.init(this)
         applyScreenshotSafeMode()
@@ -92,6 +102,7 @@ class MainActivity : ComponentActivity() {
         if (intent?.getStringExtra("section") != null) {
             ProPrefs.put(this, "p4_pending_section", intent.getStringExtra("section")!!)
         }
+
         // share-to-app (NA6): stash the payload for the import dialog
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             intent.getStringExtra(Intent.EXTRA_TEXT)?.let {
@@ -135,6 +146,12 @@ class MainActivity : ComponentActivity() {
                     ProState.notifyChanged()
                 }
             }
+
+            // BATCH-5 Item 2: when mode is "system", observe the OS dark/light
+            // setting and resolve the effective dark value. isSystemInDarkTheme()
+            // is a Compose state that recomposes when the OS theme changes.
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            ThemeController.setSystemDark(systemDark)
 
             ProTheme(dark = ThemeController.dark, accent = ThemeController.accent(), dynamic = ThemeController.dynamic) {
                 Box(
@@ -180,7 +197,7 @@ class MainActivity : ComponentActivity() {
 
     /** NA7: screenshot-safe mode hides content in the recents strip and screenshots. */
     private fun applyScreenshotSafeMode() {
-        if (ProPrefs.get(this, "p4_secure") == "on") {
+        if (ProfileSettings.get(this, ProfileSettings.K_SECURE) == "on") {
             window.setFlags(
                 android.view.WindowManager.LayoutParams.FLAG_SECURE,
                 android.view.WindowManager.LayoutParams.FLAG_SECURE,
@@ -274,8 +291,8 @@ fun AppShell(
     }
     LaunchedEffect(onboardingActive) {
         if (!onboardingActive && !Notify.hasPermission(ctx) && android.os.Build.VERSION.SDK_INT >= 33 &&
-            ProPrefs.get(ctx, "p4_notif_asked") == null) {
-            ProPrefs.put(ctx, "p4_notif_asked", "1")
+            ProfileSettings.get(ctx, ProfileSettings.K_NOTIF_ASKED) == null) {
+            ProfileSettings.put(ctx, ProfileSettings.K_NOTIF_ASKED, "1")
             notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
     }

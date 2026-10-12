@@ -61,7 +61,7 @@ object StreakFire {
         )
         ProState.data = ProState.data.copy(workouts = (ProState.data.workouts + rec).sortedBy { it.date })
         ProState.saveWorkoutData()
-        ProPrefs.put(com.peakform.fitness.ui.Fa.appContext!!, "lastStreakRecoverAt", ProState.nowIso())
+        ProfileSettings.put(com.peakform.fitness.ui.Fa.appContext!!, ProfileSettings.K_LAST_STREAK_RECOVER, ProState.nowIso())
         ProState.notifyChanged()
         return rec
     }
@@ -69,7 +69,7 @@ object StreakFire {
     /** One honor recovery per calendar day (legacy guard). */
     fun recoveryUsedToday(): Boolean {
         val ctx = com.peakform.fitness.ui.Fa.appContext ?: return false
-        val last = ProPrefs.get(ctx, "lastStreakRecoverAt") ?: return false
+        val last = ProfileSettings.get(ctx, ProfileSettings.K_LAST_STREAK_RECOVER) ?: return false
         return last.take(10) == ProState.todayLocal()
     }
 }
