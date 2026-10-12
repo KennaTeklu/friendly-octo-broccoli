@@ -15,10 +15,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Slider
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import com.peakform.fitness.core.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,7 +33,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.*
-import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.engine.Library
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
@@ -611,33 +611,32 @@ fun AppearanceCardBody(onToast: (String) -> Unit) {
 private fun appearanceInner(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    // P4E-UI-02: renamed from "Appearance" to "Change theme".
-    // P4E-UI-05: read straight from ThemeController so the picker can never
-    // lag behind the source of truth, and so a swatch tap re-colors the whole
-    // app instantly. The tap writes accent + p4_dynamic atomically (see
-    // ThemeController.setAccentAndDynamic).
-    // BATCH-5B: 3-mode toggle (system/dark/light) — mode is read directly
-    // from ThemeController.mode. Tapping a tile calls ThemeController.set
-    // which updates in-memory state AND writes K_THEME in the same call.
+    // 5A+5B+6+7: 3-mode theme toggle (system / dark / light).
+    // ThemeController is the source of truth — read straight from it so taps
+    // re-color the whole app instantly, and every write updates both in-memory
+    // state AND storage in the same call.
     val mode = ThemeController.mode
     val accentId = ThemeController.accentId
     val dynamic = ThemeController.dynamic
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
-            "system" to "fa-circle-half-stroke",
-            "dark" to "fa-moon",
-            "light" to "fa-sun",
-        ).forEach { (m, ic) ->
+            Triple("system", "System", "fa-circle-half-stroke"),
+            Triple("dark", "Dark", "fa-moon"),
+            Triple("light", "Light", "fa-sun"),
+        ).forEach { (m, label, ic) ->
             val active = mode == m
             Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(2.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
                 ThemeController.set(m, accentId, ctx)
-                onToast("Theme updated — $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name ?: "Material You"}")
+                // Resolve dark against the system flag for immediate visual feedback.
+                val systemDark = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                ThemeController.resolveDark(systemDark)
+                onToast("Theme updated — $label · ${ACCENTS.firstOrNull { it.id == accentId }?.name}")
             }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     com.peakform.fitness.ui.FaIcon(ic, size = 13.sp, tint = if (active) c.accent else c.text2)
                     Spacer(Modifier.width(6.dp))
-                    Text(m.replaceFirstChar { it.uppercase() }, fontSize = 13.sp, color = if (active) c.accent else c.text2)
+                    Text(label, fontSize = 13.sp, color = if (active) c.accent else c.text2)
                 }
             }
         }
@@ -647,9 +646,6 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     // Material You. Tapping any non-Material-You swatch writes accent AND
     // p4_dynamic=off in one atomic commit (setAccentAndDynamic). Tapping the
     // Material You tile writes p4_dynamic=on in the same atomic write.
-    // P4E-UI-06: the 4D banner is removed — the user never sees text telling
-    // them their choice is being ignored, because their choice is applied the
-    // moment they tap.
     ACCENTS.chunked(8).forEach { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
             row.forEach { a ->
@@ -661,8 +657,6 @@ private fun appearanceInner(onToast: (String) -> Unit) {
                         .background(if (ThemeController.dark) a.darkHex else a.lightHex)
                         .border(if (active) 3.dp else 1.dp, if (active) c.text else c.hairline2, androidx.compose.foundation.shape.CircleShape)
                         .clickable {
-                            // P4E-UI-05: atomic write — accent + p4_dynamic=off
-                            // in a single SharedPreferences commit().
                             ThemeController.setAccentAndDynamic(mode, a.id, dynamic = false, ctx = ctx)
                             onToast("Theme updated — $mode · ${a.name}")
                         }
@@ -670,8 +664,6 @@ private fun appearanceInner(onToast: (String) -> Unit) {
             }
         }
     }
-    // P4E-UI-04: Material You tile — gradient circle representing the wallpaper
-    // palette. Selectable like any other swatch. Only shown on Android 12+.
     if (android.os.Build.VERSION.SDK_INT >= 31) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
             val active = dynamic
@@ -689,7 +681,6 @@ private fun appearanceInner(onToast: (String) -> Unit) {
                     .background(gradient)
                     .border(if (active) 3.dp else 1.dp, if (active) c.text else c.hairline2, androidx.compose.foundation.shape.CircleShape)
                     .clickable {
-                        // P4E-UI-05: atomic write — p4_dynamic=on, accent unchanged
                         ThemeController.setAccentAndDynamic(mode, accentId, dynamic = true, ctx = ctx)
                         onToast("Material You color on — wallpaper palette applied.")
                     }
@@ -701,14 +692,10 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     val accentName = if (dynamic) "Material You" else (ACCENTS.firstOrNull { it.id == accentId }?.name ?: "")
     Text(accentName, fontSize = 12.sp, color = c.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
     Spacer(Modifier.height(12.dp))
-    ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProfileSettings.get(LocalContext.current, ProfileSettings.K_GYM) == "on") { on ->
+    ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProfileSettings.get(ctx, ProfileSettings.K_GYM) == "on") { on ->
         ProfileSettings.put(ctx, ProfileSettings.K_GYM, if (on) "on" else "off")
         onToast(if (on) "Gym Mode ON — huge buttons, no waiting on animations." else "Gym Mode off.")
     }
-    // P4E-UI-07: the Material You toggle stays alongside the tile. The tile
-    // is a visual preview + one-tap enable; the toggle is an explicit on/off
-    // for users who prefer a standard control. Both read from the same
-    // ThemeController.dynamic state, so they are always in sync.
     ToggleRow("Material You color", "Tint Pro with your wallpaper palette (Android 12+). When on, your selected accent is ignored.", checked = dynamic) { on ->
         ThemeController.setDynamic(on, ctx)
         onToast(if (on) "Material You color on — wallpaper palette applied." else "Material You color off — your selected accent applies now.")
@@ -1009,7 +996,7 @@ private fun computeLifeStageGuidance(age: Int?, gender: String, postpartumMonths
         "Skipping warm-ups", "Progressive strength, conditioning, skills", 1.0)
 }
 
-/** Library management card — p4LibMgmtCard — buttons to open Studio, export library, import library. */
+/** Library management card — p4LibMgmtCard — buttons to open Studio, 1RM Audit, export library, import library, and reset to default. */
 @Composable
 fun LibraryMgmtCardBody(
     onOpenSection: (String) -> Unit,
@@ -1025,7 +1012,7 @@ fun LibraryMgmtCardBody(
         onOpenSection("studio")
     }
     Spacer(Modifier.height(8.dp))
-    P4Button("1RM Audit", icon = "fa-dumbbell", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
+    P4Button("1RM Audit", icon = "fa-trophy", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
         onOpenSection("1rm_audit")
     }
     Spacer(Modifier.height(8.dp))
@@ -1040,20 +1027,29 @@ fun LibraryMgmtCardBody(
     P4Button("Reset to default library", icon = "fa-rotate-left", style = BtnStyle.DANGER, modifier = Modifier.fillMaxWidth()) {
         showResetConfirm = true
     }
+
     if (showResetConfirm) {
         AlertDialog(
             onDismissRequest = { showResetConfirm = false },
-            title = { Text("Reset Library?") },
-            text = { Text("This removes all custom exercises and restores the default library. This cannot be undone.") },
+            containerColor = c.glass2,
+            shape = RoundedCornerShape(22.dp),
+            title = { Text("Reset library to defaults?", style = ProType.cardTitle, color = c.text) },
+            text = {
+                Text(
+                    "All custom exercises you authored or imported will be removed from this profile. The default exercise library is restored. This cannot be undone.",
+                    style = ProType.body2, color = c.text2,
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    com.peakform.fitness.engine.Library.resetToDefault(ctx)
-                    com.peakform.fitness.core.ProState.notifyChanged()
                     showResetConfirm = false
-                }) { Text("Reset") }
+                    Library.resetToDefault(ctx)
+                }) { Text("Reset", color = c.bad, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
-                TextButton(onClick = { showResetConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { showResetConfirm = false }) {
+                    Text("Cancel", color = c.text2)
+                }
             },
         )
     }
@@ -1158,9 +1154,9 @@ fun NotificationsCardBody(onToast: (String) -> Unit) {
         NotifOpt("period_notice", "Show period phase notices (My Cycle — coming soon)"),
     )
     opts.forEach { o ->
-        val checked = ProfileSettings.getNotif(ctx, o.key)
+        val checked = ProfileSettings.getNotif(ctx, o.key) != "false"
         ToggleRow(o.label, checked = checked) { on ->
-            ProfileSettings.setNotif(ctx, o.key, on)
+            ProfileSettings.setNotif(ctx, o.key, if (on) "true" else "false")
             onToast(if (on) "Showing ${o.key.replace('_', ' ')}" else "Hiding ${o.key.replace('_', ' ')}")
         }
     }
@@ -1300,15 +1296,7 @@ private fun ResetFlowDialog(onCancel: () -> Unit, onDone: (String) -> Unit, ctx:
                     } catch (_: Exception) { "All data erased (snapshot failed)" }
                     try {
                         ProStore(ctx).wipeAllData()
-                        // BATCH-5A: per-profile state (onboarding, health, theme,
-                        // library prefs, etc.) lives in `p4_ls_$profileId`
-                        // SharedPreferences — wipe that too so a reset truly
-                        // resets the active profile. Global ProPrefs keeps
-                        // deviceId, license and migration gates only.
-                        ProfileState.prefs(ctx).edit().clear().commit()
-                        val preserve = setOf("deviceId", "p4_app_id", "p4_license",
-                            ProfileState.K_V18_MIGRATED, ProfileState.K_V22_MIGRATED,
-                            Profiles.ACTIVE_KEY, Profiles.DEFAULT_PROFILE_KEY)
+                        val preserve = setOf("deviceId", ProfileSettings.K_THEME, ProfileSettings.K_GYM, ProfileSettings.K_LANG, ProfileSettings.K_VOCAB, ProfileState.K_ONBOARDED, ProfileSettings.K_POWER_SETTINGS, "p4_app_id", "p4_license")
                         ProPrefs.all(ctx).keys.filter { it !in preserve }.forEach { ProPrefs.remove(ctx, it) }
                     } catch (_: Exception) {}
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -1350,7 +1338,7 @@ fun HealthClearanceCardBody(onToast: (String) -> Unit, onOpenSection: (String) -
     val ctx = LocalContext.current
     val tier = remember { Health.tier(ctx) }
     val locked = remember { Health.isGenerationLocked(ctx) }
-    val screenedAt = remember { ProfileState.get(ctx, Health.K_SCREENED) }
+    val screenedAt = remember { ProPrefs.get(ctx, Health.K_SCREENED) }
     when {
         tier == null -> {
             Text("You haven't run the health screen yet. It takes about a minute.", style = ProType.body2, color = c.text2)

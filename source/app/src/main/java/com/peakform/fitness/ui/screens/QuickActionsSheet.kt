@@ -1,74 +1,68 @@
 package com.peakform.fitness.ui.screens
 
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.peakform.fitness.ui.*
+import com.peakform.fitness.ui.LocalProColors
+import com.peakform.fitness.ui.ProType
 
 /**
- * BATCH-6 Item: Quick Actions modal.
+ * QuickActionsSheet — 5A+5B+6+7: a composable listing the app's quick actions
+ * (Start workout, Library, History, Progress, 1RM Audit, Settings). Each row is
+ * an icon + label, fully clickable, with a contentDescription for accessibility.
  *
- * Deferred from Batch 4C. A bottom sheet with quick shortcuts to the most
- * common destinations: Start Workout, Open Library, View History, View
- * Progress, Open Settings. Triggered from a floating button on the Dashboard.
+ * Intended to be embedded inside a ModalBottomSheet or AlertDialog — the host
+ * manages visibility and the action callback is propagated to the parent shell.
  */
 @Composable
-fun QuickActionsSheet(
-    onDismiss: () -> Unit,
-    onNavigate: (String) -> Unit,
-) {
+fun QuickActionsSheet(onAction: (String) -> Unit) {
     val c = LocalProColors.current
-    val actions = listOf(
-        QuickAction("Start workout", "fa-play", "dashboard") { onNavigate("dashboard") },
-        QuickAction("Library", "fa-dumbbell", "library") { onNavigate("library") },
-        QuickAction("History", "fa-clock-rotate-left", "history") { onNavigate("history") },
-        QuickAction("Progress", "fa-chart-line", "progress") { onNavigate("progress") },
-        QuickAction("1RM Audit", "fa-weight-hanging", "1rm_audit") { onNavigate("1rm_audit") },
-        QuickAction("Settings", "fa-gear", "settings") { onNavigate("settings") },
+    val items = listOf(
+        QuickAction("workout", "Start workout", "fa-play"),
+        QuickAction("library", "Library", "fa-book-open"),
+        QuickAction("history", "History", "fa-clock-rotate-left"),
+        QuickAction("progress", "Progress", "fa-chart-line"),
+        QuickAction("1rm_audit", "1RM Audit", "fa-trophy"),
+        QuickAction("settings", "Settings", "fa-cog"),
     )
-
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-            .background(c.surface)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Quick Actions", style = ProType.sectionTitle, color = c.text, modifier = Modifier.weight(1f))
-            FaIcon("fa-xmark", size = 20.sp, tint = c.text2, contentDescription = "Close",
-                modifier = Modifier.clickable(onClick = onDismiss).padding(4.dp).semantics { this.contentDescription = "Close quick actions" })
-        }
-        actions.forEach { action ->
+        items.forEach { item ->
             Row(
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(c.surface2)
-                    .clickable { action.onClick(); onDismiss() }
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
-                    .semantics { this.contentDescription = action.label },
+                    .background(c.surface)
+                    .border(1.dp, c.hairline, RoundedCornerShape(12.dp))
+                    .clickable { onAction(item.route) }
+                    .semantics { contentDescription = item.label }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                FaIcon(action.icon, size = 18.sp, tint = c.accent)
-                Text(action.label, style = ProType.body, color = c.text)
+                com.peakform.fitness.ui.FaIcon(item.icon, size = 16.sp, tint = c.accent)
+                Spacer(Modifier.width(12.dp))
+                Text(item.label, style = ProType.body2, color = c.text)
             }
+            Spacer(Modifier.height(6.dp))
         }
     }
 }
 
-data class QuickAction(val label: String, val icon: String, val section: String, val onClick: () -> Unit)
+private data class QuickAction(val route: String, val label: String, val icon: String)

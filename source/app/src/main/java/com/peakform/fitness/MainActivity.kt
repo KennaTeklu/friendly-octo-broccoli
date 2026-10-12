@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.sp
 import com.peakform.fitness.engine.Library
 import com.peakform.fitness.core.MigrationBridge
 import com.peakform.fitness.ProLog
-import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.ui.components.BtnStyle
@@ -37,6 +36,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import com.peakform.fitness.engine.Generator
 import com.peakform.fitness.engine.Stats
@@ -77,11 +77,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         Fa.appContext = applicationContext
         ProState.init(this)
-        // BATCH-5A: one-shot v22 migration — copy legacy global p4_* settings
-        // (theme, gym, lang, vocab, library prefs, notif prefs, ...) into the
-        // DEFAULT profile's per-profile SharedPreferences (`p4_ls_default`).
-        // Idempotent — gated on `p4_v22_migrated` in global ProPrefs.
-        ProfileSettings.migrateFromPrefs(this)
+        // 5A+5B+6+7: one-shot per-profile settings migration — copies legacy
+        // global p4_theme / p4_gym / p4_lang / p4_lib_* / p4_notif_* / etc. into
+        // the default profile's SharedPreferences namespace.
+        com.peakform.fitness.core.ProfileSettings.migrateFromPrefs(this)
         // FIX (audit): EngineHooks.rebuildDerived was never assigned — after imports the
         // derived aggregates/fatigue were not rebuilt until some other engine call happened.
         com.peakform.fitness.core.EngineHooks.rebuildDerived = {
@@ -89,16 +88,10 @@ class MainActivity : ComponentActivity() {
             com.peakform.fitness.engine.Fatigue.calculateMuscleLastTrained()
             com.peakform.fitness.engine.Sessions.recomputeAggregates()
         }
-        // BATCH-5B: theme now reads from the active profile's per-profile storage
-        // (ProfileSettings → ProfileState → `p4_ls_$profileId`). The v22
-        // migration above ensured legacy global values landed in p4_ls_default
-        // so a returning user sees their saved theme on the first cold start.
-        ThemeController.load(ProfileSettings.get(this, ProfileSettings.K_THEME))
-        ThemeController.loadDynamic(ProfileSettings.get(this, ProfileSettings.K_DYNAMIC))
-        // BATCH-5B: resolve `dark` from the system at boot — a fresh install
-        // starts in mode="system", so `dark` must follow the OS dark state.
+        ThemeController.load(com.peakform.fitness.core.ProfileSettings.get(this, com.peakform.fitness.core.ProfileSettings.K_THEME))
+        ThemeController.loadDynamic(com.peakform.fitness.core.ProfileSettings.get(this, com.peakform.fitness.core.ProfileSettings.K_DYNAMIC))
         val bootSystemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        ThemeController.setSystemDark(bootSystemDark)
+        ThemeController.resolveDark(bootSystemDark)
         Vocab.init(this)
         Badges.init(this)
         applyScreenshotSafeMode()
@@ -151,9 +144,9 @@ class MainActivity : ComponentActivity() {
             }
 
             ProTheme(dark = ThemeController.dark, accent = ThemeController.accent(), dynamic = ThemeController.dynamic) {
-                // BATCH-5B: re-feed the system dark state into ThemeController so
-                // mode="system" follows the OS dark/light setting in real time.
-                val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+                // 5A+5B+6+7: feed the current system-dark flag into the controller so
+                // mode=system tracks the OS state live.
+                val systemDark = isSystemInDarkTheme()
                 ThemeController.setSystemDark(systemDark)
                 Box(
                     Modifier
@@ -198,8 +191,7 @@ class MainActivity : ComponentActivity() {
 
     /** NA7: screenshot-safe mode hides content in the recents strip and screenshots. */
     private fun applyScreenshotSafeMode() {
-        // BATCH-5A: p4_secure is now per-profile (ProfileSettings → p4_ls_$profileId).
-        if (ProfileSettings.get(this, ProfileSettings.K_SECURE) == "on") {
+        if (com.peakform.fitness.core.ProfileSettings.get(this, com.peakform.fitness.core.ProfileSettings.K_SECURE) == "on") {
             window.setFlags(
                 android.view.WindowManager.LayoutParams.FLAG_SECURE,
                 android.view.WindowManager.LayoutParams.FLAG_SECURE,
@@ -293,8 +285,8 @@ fun AppShell(
     }
     LaunchedEffect(onboardingActive) {
         if (!onboardingActive && !Notify.hasPermission(ctx) && android.os.Build.VERSION.SDK_INT >= 33 &&
-            ProfileSettings.get(ctx, ProfileSettings.K_NOTIF_ASKED) == null) {
-            ProfileSettings.put(ctx, ProfileSettings.K_NOTIF_ASKED, "1")
+            com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_NOTIF_ASKED) == null) {
+            com.peakform.fitness.core.ProfileSettings.put(ctx, com.peakform.fitness.core.ProfileSettings.K_NOTIF_ASKED, "1")
             notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -471,6 +463,7 @@ fun AppShell(
                             }
                         })
                         "settings" -> SettingsScreen(onOpenSection = { go(it) })
+                        "1rm_audit" -> OneRMAuditScreen(onClose = { go("settings") })
                         "health" -> HealthScreenFlow(onDone = { go("dashboard") }, onCancel = { go("dashboard") })
                         "legal" -> LegalCenterScreen(onClose = { go("settings") })
                         "studio" -> StudioScreen(onOpenSection = { go(it) })
@@ -481,7 +474,6 @@ fun AppShell(
                         "feedback" -> FeedbackScreen(onClose = { go("settings") })
                         "mycycle" -> MyCycleScreen(onClose = { go("dashboard") })
                         "badges" -> BadgeGalleryScreen()
-                        "1rm_audit" -> com.peakform.fitness.ui.screens.OneRMAuditScreen(onClose = { go("settings") })
                     }
                 }
             }

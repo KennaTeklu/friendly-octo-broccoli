@@ -63,9 +63,6 @@ data class OnboardDraft(
             ))
             ProState.saveWorkoutData()
             // theme + vocab
-            // BATCH-5B: ThemeController.set() persists K_THEME per-profile, so
-            // the redundant ProPrefs mirror write below is now an explicit
-            // per-profile write to be safe (idempotent).
             ThemeController.set(mode, accentId, ctx)
             ProfileSettings.put(ctx, ProfileSettings.K_THEME, ThemeController.currentJson())
             Vocab.setLevel(ctx, level)

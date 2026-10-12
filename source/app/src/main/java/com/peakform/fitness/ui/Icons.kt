@@ -64,18 +64,13 @@ object Fa {
     }
 }
 
-/** FontAwesome icon rendered as text glyph.
- *  BATCH-6 Accessibility pass: contentDescription is now wired to Compose
- *  semantics so TalkBack reads the icon's purpose. Previously the param
- *  existed but was never applied. */
+/** FontAwesome icon rendered as text glyph. */
 @Composable
 fun FaIcon(cls: String, modifier: Modifier = Modifier, size: TextUnit = 16.sp, tint: Color = LocalProColors.current.text, contentDescription: String? = null) {
     val ch = remember(cls) { Fa.glyph(cls) }
     val semanticsModifier = if (contentDescription != null) {
         modifier.semantics { this.contentDescription = contentDescription }
-    } else {
-        modifier
-    }
+    } else modifier
     Box(semanticsModifier) {
         if (ch != null) {
             Text(

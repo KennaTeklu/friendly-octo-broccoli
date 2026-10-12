@@ -2,7 +2,6 @@ package com.peakform.fitness.core
 
 import android.content.Context
 import com.peakform.fitness.ProLog
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import java.io.File
@@ -170,39 +169,28 @@ object Profiles {
      * BATCH-4B item 3: after the switch, callers should land on Dashboard.
      * The state-notify flow drives the recomposition so the change is visible
      * without a restart — see `ProfilesScreen` for the navigation call.
-     *
-     * BATCH-5B:
-     *  - The entire flow runs on `Dispatchers.IO` via `runBlocking` so a profile
-     *    switch from the main thread does not freeze the UI (every step here is
-     *    either a DB read or a SharedPreferences write — moving them off the
-     *    main thread is the structural fix for the ANR pattern seen in 4D).
-     *  - After loadAll() and BEFORE notifyChanged(), ThemeController.reload(ctx)
-     *    reads the new profile's K_THEME/K_DYNAMIC from per-profile storage and
-     *    applies them to the in-memory state. resolveDark(systemDark) then
-     *    re-derives `dark` from the new mode + the current OS dark state.
-     *  - The 4D crash fix (W1/W2/W3) stays intact — saveJobs tracking,
-     *    trackSave, flush joining all saves, reopenStore checking for
-     *    in-flight saves, ProDb.withDb, close-before-unlink.
      */
-    fun switchTo(ctx: Context, profileId: String): String = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+    fun switchTo(ctx: Context, profileId: String): String {
         val oldId = activeId(ctx)
         ProLog.i("ProTheme", "profile switch $oldId → $profileId")
-        ProState.flush()
-        setActive(ctx, profileId)
-        ProState.reopenStore(ctx)
-        ProState.loadAll()
-        // BATCH-5B: theme follows the profile switch — reload from the new
-        // active profile's per-profile storage, then re-derive `dark` from
-        // the OS dark state.
-        com.peakform.fitness.ui.ThemeController.reload(ctx)
-        val systemDark = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        com.peakform.fitness.ui.ThemeController.resolveDark(systemDark)
-        // BATCH-4B item 6: stamp the (possibly new) profile's first-launch
-        // timestamp as part of the multi-signal new-user detection.
-        ProfileState.stampFirstLaunch(ctx)
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            ProState.flush()
+            setActive(ctx, profileId)
+            ProState.reopenStore(ctx)
+            ProState.loadAll()
+            // 5A+5B+6+7: reload per-profile theme AFTER loadAll, BEFORE notifyChanged.
+            com.peakform.fitness.ui.ThemeController.reload(ctx)
+            val systemDark = (ctx.resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+            com.peakform.fitness.ui.ThemeController.resolveDark(systemDark)
+            // BATCH-4B item 6: stamp the (possibly new) profile's first-launch
+            // timestamp as part of the multi-signal new-user detection.
+            ProfileState.stampFirstLaunch(ctx)
+        }
         ProState.notifyChanged()
         val p = list(ctx).firstOrNull { it.id == profileId }
-        p?.name ?: profileId
+        return p?.name ?: profileId
     }
 
     fun randomAnimalEmoji(ctx: Context): String = try {

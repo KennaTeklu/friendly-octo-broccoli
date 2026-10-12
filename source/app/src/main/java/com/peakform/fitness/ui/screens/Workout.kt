@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -387,6 +388,7 @@ fun ExerciseCard(
     onResume: () -> Unit = {},
 ) {
     val c = LocalProColors.current
+    val ctx = LocalContext.current
     val isDrill = exercise.noFatigue || exercise.isWarmup || exercise.isCooldown || exercise.isComponentDrill
 
     // BATCH-2: per-card UI toggles for superset / drop set / warmup (transient, not persisted —
@@ -469,7 +471,33 @@ fun ExerciseCard(
             }
             com.peakform.fitness.ui.FaIcon(if (expanded) "fa-chevron-up" else "fa-chevron-down", size = 14.sp, tint = c.accent)
         }
-
+        // BATCH-8 Item 1A: 1RM context FIRST, then prescription.
+        Spacer(Modifier.height(12.dp))
+        val rec = ProState.data.exercises[exercise.id]
+        val has1RM = (rec?.tested1RM ?: 0.0) > 0
+        OneRmContextBlock(
+            has1RM = has1RM,
+            tested1RM = rec?.tested1RM,
+            testDate = rec?.testDate,
+            lastWeight = rec?.history?.lastOrNull()?.weight ?: 0.0,
+            lastReps = rec?.history?.lastOrNull()?.reps?.maxOrNull() ?: 0.0,
+        )
+        // BATCH-8 Item 1C: target chips + coach sentence
+        val tuning = com.peakform.fitness.core.CoachingEngine.getTuning(ctx, exercise.id)
+        val coachSentence = com.peakform.fitness.core.CoachingEngine.coachSentence(
+            exercise.name, exercise.fitnessComponents, exercise.muscleGroup, tuning
+        )
+        TargetChipsBlock(exercise.fitnessComponents, exercise.muscleGroup, coachSentence)
+        // BATCH-8 Item 1B: banded exercise input
+        if (exercise.equipment.equals("bands", ignoreCase = true) || exercise.equipment.equals("band", ignoreCase = true)) {
+            Spacer(Modifier.height(8.dp))
+            var bandColor by remember(exercise.id) { mutableStateOf<String?>(com.peakform.fitness.core.ProfileSettings.get(ctx, "p8_band_" + exercise.id)) }
+            BandedExerciseInput(bandColor) { color ->
+                bandColor = if (color.isBlank()) null else color
+                if (bandColor != null) com.peakform.fitness.core.ProfileSettings.put(ctx, "p8_band_" + exercise.id, bandColor!!)
+                else com.peakform.fitness.core.ProfileSettings.remove(ctx, "p8_band_" + exercise.id)
+            }
+        }
         // prescription summary (always visible) — also a toggle target
         Spacer(Modifier.height(12.dp))
         val rx = exercise.prescribed
@@ -603,8 +631,7 @@ fun ExerciseCard(
     }
 }
 
-/** Reads a boolean from the p4_power_settings JSON (default when absent).
- *  BATCH-5A: p4_power_settings is now per-profile (ProfileSettings.K_POWER_SETTINGS). */
+/** Reads a boolean from the p4_power_settings JSON (default when absent). */
 internal fun powerFlag(key: String, default: Boolean): Boolean {
     val ctx = com.peakform.fitness.ui.Fa.appContext ?: return default
     return try {
@@ -619,11 +646,10 @@ internal fun powerFlag(key: String, default: Boolean): Boolean {
 
 /** Reads a notification preference (p4_notif_<key>, absent = on) — FIX (audit): the
  * Settings notification toggles persisted but nothing read them; the retest banner and
- * the Deload chip are now wired to their switches.
- * BATCH-5A: notif prefs are now per-profile (ProfileSettings.getNotif). */
+ * the Deload chip are now wired to their switches. */
 internal fun notifFlag(key: String, default: Boolean = true): Boolean {
     val ctx = com.peakform.fitness.ui.Fa.appContext ?: return default
-    return com.peakform.fitness.core.ProfileSettings.getNotif(ctx, key, default)
+    return com.peakform.fitness.core.ProfileSettings.getNotif(ctx, key) != "false"
 }
 
 @Composable

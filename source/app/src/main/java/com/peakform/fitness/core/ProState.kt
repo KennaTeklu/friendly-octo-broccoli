@@ -216,9 +216,7 @@ object ProState {
             val s = store ?: return@launch
             val d = data
             s.saveAggregate(d, null)
-            // BATCH-5A: workoutData legacy mirror key is now per-profile
-            // (ProfileSettings.K_WORKOUT_DATA → `p4_ls_$profileId`).
-            ProfileSettings.put(ctx!!, ProfileSettings.K_WORKOUT_DATA, ProJson.encode(WorkoutData.serializer(), d))
+            ProfileSettings.put(ctx!!, ProfileSettings.K_WORKOUT_DATA, ProJson.encode(WorkoutData.serializer(), d)) // legacy mirror key
         }
         saveJob = trackSave(job)
     }

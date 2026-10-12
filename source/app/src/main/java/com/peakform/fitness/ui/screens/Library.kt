@@ -19,8 +19,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.LibraryExercise
-import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProfileSettings
+import com.peakform.fitness.core.ProState
+import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.core.ProJson
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -81,9 +82,7 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806).
     // BATCH-4C Gap 1: honor p4_lib_expand_all pref — when "true", start with all
     // groups EXPANDED (empty collapsed set) instead of the default all-collapsed.
-    // BATCH-5A: prefs read from per-profile SharedPreferences via ProfileSettings.
-    // Default to all-collapsed so the user sees group headers first and taps to
-    // expand the ones they care about — keeps the Library fast on cold start.
+    // 5A+5B+6+7: default is now ALL-COLLAPSED (matches legacy).
     var collapsedGroups by remember(Library.groups) {
         val expandAllPref = ProfileSettings.get(ctx, ProfileSettings.K_LIB_EXPAND_ALL) == "true"
         val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
@@ -99,7 +98,6 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         ProfileSettings.put(ctx, ProfileSettings.K_LIBRARY_COLLAPSED,
             ProJson.json.encodeToString(ListSerializer(String.serializer()), collapsedGroups.toList()))
     }
-    fun changeGroupBy(idx: Int) { groupBy = idx }
 
     val mode = ProState.data.user.settings.trainingMode
     val all = remember(ver.intValue, mode) { Library.allLibraryExercises(mode).map { Library.augmented(it) } }
@@ -121,6 +119,15 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
             list = list.filter { ex -> ex.fitnessComponents.contains(componentFilter) }
         }
         list
+    }
+
+    // 5A+5B+6+7: changeGroupBy(idx) — single helper that updates the in-memory
+    // group-by index AND persists the pref in one call. Defined AFTER `grouped`
+    // so it can verify the new mode is valid.
+    fun changeGroupBy(idx: Int) {
+        if (idx !in groupings.indices) return
+        groupBy = idx
+        ProfileSettings.put(ctx, ProfileSettings.K_LIB_GROUP, groupings[idx].first)
     }
 
     val grouped: List<Pair<String, List<LibraryExercise>>> = remember(filtered, groupBy) {
@@ -169,7 +176,6 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     // When streaming is ON (default), cap each group at the chunk size (default 20)
     // so the Library loads fast on large databases. When streaming is OFF, show all
     // (200 / 60 legacy caps). Search always bumps to 200 to avoid hiding matches.
-    // BATCH-5A: prefs read from per-profile SharedPreferences via ProfileSettings.
     val cap = run {
         if (search.isNotBlank()) return@run 200
         val streamingOn = ProfileSettings.get(ctx, ProfileSettings.K_LIB_STREAM) != "false"
@@ -222,23 +228,26 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
                 }
             }
         }
-        // BATCH-5A: smart button visibility — only show Expand All when at
-        // least one group is collapsed (otherwise the button is a no-op);
-        // only show Collapse All when at least one group is expanded. Reduces
-        // visual noise on small libraries with a single group.
         item(key = "hdr_expand_collapse", contentType = "header") {
-            val collapsedCount = grouped.count { it.first in collapsedGroups }
-            val expandedCount = grouped.size - collapsedCount
+            // 5A+5B+6+7: smart visibility — only show Expand All when at least
+            // one group is collapsed; only show Collapse All when at least one
+            // group is expanded. Avoids dead-button taps on already-all-expanded.
+            val anyCollapsed = grouped.any { it.first in collapsedGroups }
+            val anyExpanded = grouped.any { it.first !in collapsedGroups }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (expandedCount < grouped.size) {
+                if (anyCollapsed) {
                     P4Button("Expand All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
                         collapsedGroups = emptySet(); persistCollapse()
                     }
                 }
-                if (collapsedCount < grouped.size) {
-                    P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
+                if (anyExpanded) {
+                    P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = if (anyCollapsed) Modifier.weight(1f) else Modifier.fillMaxWidth()) {
                         collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
                     }
+                }
+                if (!anyCollapsed && !anyExpanded) {
+                    // No groups at all — show a non-interactive placeholder so the row keeps its height.
+                    P4Button("No groups", style = BtnStyle.GHOST, minHeight = 34, modifier = Modifier.fillMaxWidth(), onClick = {})
                 }
             }
         }

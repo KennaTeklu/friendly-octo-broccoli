@@ -3,7 +3,6 @@ package com.peakform.fitness
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.peakform.fitness.core.ProfileSettings
-import com.peakform.fitness.core.ProfileState
 import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.ui.ACCENTS
 import com.peakform.fitness.ui.ThemeController
@@ -22,11 +21,6 @@ import org.robolectric.annotation.Config
  *    accent is applied.
  * 2. Atomic-write test: tapping a non-Material-You swatch writes accent AND
  *    p4_dynamic=off in the same SharedPreferences commit().
- *
- * BATCH-5A: theme storage moved from global ProPrefs to per-profile
- * SharedPreferences (`p4_ls_$profileId` via ProfileSettings). Reads now go
- * through ProfileSettings and the fresh-install simulation clears the
- * per-profile SharedPreferences too.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -37,10 +31,11 @@ class Batch4EAppearanceTest {
     @Before
     fun setUp() {
         ctx = ApplicationProvider.getApplicationContext()
-        // Simulate a fresh install: clear global ProPrefs AND per-profile
-        // SharedPreferences (p4_ls_default — the active profile's namespace).
+        // Simulate a fresh install: clear all global prefs.
         ProPrefs.clearAll(ctx)
-        ProfileState.prefs(ctx).edit().clear().commit()
+        // 5A+5B+6+7: clear per-profile prefs too — theme + dynamic now live
+        // in p4_ls_<profileId>, not in the global p4_ls file.
+        com.peakform.fitness.core.ProfileState.prefsFor(ctx, com.peakform.fitness.core.Profiles.DEFAULT).edit().clear().commit()
         // Reset ThemeController to defaults — load() with null returns early,
         // so we load a known-default JSON to force accentId back to "blue".
         ThemeController.load("""{"mode":"dark","accent":"blue"}""")
@@ -50,25 +45,26 @@ class Batch4EAppearanceTest {
     @After
     fun tearDown() {
         ProPrefs.clearAll(ctx)
-        ProfileState.prefs(ctx).edit().clear().commit()
+        com.peakform.fitness.core.ProfileState.prefsFor(ctx, com.peakform.fitness.core.Profiles.DEFAULT).edit().clear().commit()
     }
 
     /**
      * P4E-UI-03: Material You default OFF on fresh install.
      *
-     * Simulates a fresh install by clearing all prefs (global + per-profile),
-     * then loading ThemeController the same way MainActivity does.
+     * Simulates a fresh install by clearing all prefs, then loading
+     * ThemeController the same way MainActivity does (loadDynamic with
+     * the value from prefs, which is null on fresh install).
      *
      * Asserts:
-     *   - p4_dynamic key is absent from per-profile storage
+     *   - p4_dynamic key is absent from prefs
      *   - ThemeController.dynamic is false
      *   - The default accent is applied (accentId == "blue", ACCENTS[0])
      */
     @Test
     fun freshInstall_materialYouOff_defaultAccentApplied() {
-        // Simulate the exact cold-start path from MainActivity.kt:
-        //   ThemeController.load(ProfileSettings.get(this, ProfileSettings.K_THEME))
-        //   ThemeController.loadDynamic(ProfileSettings.get(this, ProfileSettings.K_DYNAMIC))
+        // Simulate the exact cold-start path from MainActivity.kt:86-87:
+        //   ThemeController.load(ProfileSettings.get(this, K_THEME))
+        //   ThemeController.loadDynamic(ProfileSettings.get(this, K_DYNAMIC))
         val p4Theme = ProfileSettings.get(ctx, ProfileSettings.K_THEME)  // null on fresh install
         val p4Dynamic = ProfileSettings.get(ctx, ProfileSettings.K_DYNAMIC)  // null on fresh install
 
@@ -103,7 +99,7 @@ class Batch4EAppearanceTest {
 
         // Action: tap the "green" swatch — this should atomically write
         // accent="green" AND p4_dynamic="off" in one commit.
-        // Code path: ThemeController.setAccentAndDynamic() at ThemeController.kt
+        // Code path: ThemeController.setAccentAndDynamic() at ThemeController.kt:83
         ThemeController.setAccentAndDynamic("dark", "green", dynamic = false, ctx = ctx)
 
         // Assert: both keys are written atomically

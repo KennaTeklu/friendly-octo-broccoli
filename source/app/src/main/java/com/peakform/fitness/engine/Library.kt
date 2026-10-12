@@ -233,16 +233,14 @@ object Library {
     fun customExercisesSnapshot(): List<LibraryExercise> = customExercises.toList()
 
     /**
-     * BATCH-6 Item: Reset-to-Default Library.
-     * Clears all custom exercises and removes the persisted custom exercise
-     * key (p4_custom_ex) from global prefs. The default exercise library
-     * (loaded from assets/exercises.json) is untouched — it is always the
-     * source of truth. After reset, allLibraryExercises() returns only the
-     * default exercises.
+     * 5A+5B+6+7: resetToDefault — clears all custom exercises from the in-memory
+     * library AND removes the persisted Studio.CUST_KEY from ProPrefs. Used by
+     * Settings → Library management → Reset to default library.
      */
     fun resetToDefault(ctx: Context) {
         customExercises.clear()
         com.peakform.fitness.core.ProPrefs.remove(ctx, com.peakform.fitness.core.Studio.CUST_KEY)
+        ProLog.i("LIBRARY", "custom exercises cleared (reset to default)")
     }
 
     /**
