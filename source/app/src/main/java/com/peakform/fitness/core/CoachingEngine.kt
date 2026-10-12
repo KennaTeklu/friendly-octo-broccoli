@@ -1,129 +1,109 @@
 package com.peakform.fitness.core
 
 import android.content.Context
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import com.peakform.fitness.ProLog
+import com.peakform.fitness.engine.Stats
 
 /**
- * CoachingEngine — adaptive per-exercise coaching layer (BATCH-8).
+ * CoachingEngine — BATCH-8 coach-led recommendation layer.
  *
- * Reads the user's tuning answers (RPE at target weight, recovery readiness)
- * and computes a per-exercise prescription adjustment (sets/reps/weight delta)
- * plus a one-sentence coach explanation that surfaces in the workout card.
+ * Pulls from Stats (longevity score, recovery report, strength forecast) and
+ * the user's history to produce a short list of coach-style recommendations
+ * the UI surfaces in the new coach-led flow (Dashboard cards, Workout
+ * context block, ReferenceGaps panel). All logic is offline — no network,
+ * no analytics.
  *
- * Storage: per-profile, via ProfileSettings (SharedPreferences `p4_ls_<id>`).
+ * The engine does not mutate state — it only reads ProState.data + Stats
+ * and returns immutable Recommendation rows. The UI decides what to do with
+ * them (route to 1RM Lab, suggest a deload, etc.).
  */
 object CoachingEngine {
-    private const val K_TUNING = "p4_tuning"
 
-    /** Resistance-band color → estimated resistance in lbs at full stretch.
-     *  Industry-standard values, applicable for band-resisted accessory work. */
-    val BAND_COLORS: List<String> = listOf("yellow", "red", "green", "blue", "black")
-    val BAND_RESISTANCE_LB: Map<String, Int> = mapOf(
-        "yellow" to 5, "red" to 10, "green" to 15, "blue" to 25, "black" to 35,
+    data class Recommendation(
+        val id: String,
+        val title: String,
+        val detail: String,
+        val icon: String,
+        val action: String,        // section route key (e.g. "onerm_audit")
+        val urgency: String,        // "info" | "warn" | "bad"
     )
 
-    @Serializable
-    data class TuningAnswers(
-        val rpeAtTarget: Int = 6,         // 1–10 perceived effort at prescribed weight
-        val recoveryReady: Boolean = true, // false → "tired today"
-        val lastSessionSoreness: Int = 2,  // 0–5 soreness from previous session
-        val targetVolume: String = "maintain", // "cut" | "maintain" | "push"
-    )
+    /** Compute the current coach recommendation stack (BATCH-8). */
+    fun evaluate(ctx: Context): List<Recommendation> {
+        val out = mutableListOf<Recommendation>()
+        try {
+            val longevity = Stats.calculateLongevityScore()
+            val recovery = Stats.recoveryReport()
+            val forecast = Stats.strengthForecast()
+            val exercises = ProState.data.exercises
 
-    @Serializable
-    data class TuningAdjustment(
-        val setsDelta: Int,           // -2..+1
-        val repsDelta: Int,           // -2..+2
-        val weightPct: Double,        // multiplier, e.g. 0.95 = -5%
-        val sentence: String,         // coach sentence for the workout card
-        val rpeTarget: Int,           // adjusted RPE target for this session
-    )
+            // 1) 1RM audit: any calibrated lift stale >6 weeks?
+            if (Nudges.retestDue(exercises, System.currentTimeMillis())) {
+                out += Recommendation(
+                    id = "retest_due",
+                    title = "Re-test a 1RM",
+                    detail = "One or more calibrated lifts are 6+ weeks old. A fresh test keeps the prescription engine honest.",
+                    icon = "fa-gauge-high",
+                    action = "onerm_audit",
+                    urgency = "warn",
+                )
+            }
 
-    fun getTuning(ctx: Context): TuningAnswers = try {
-        val raw = ProfileSettings.get(ctx, K_TUNING) ?: return TuningAnswers()
-        Json.decodeFromString(TuningAnswers.serializer(), raw)
-    } catch (_: Exception) { TuningAnswers() }
+            // 2) Recovery: very low → deload; very high → push.
+            when {
+                recovery.overall < 50 -> out += Recommendation(
+                    id = "deload",
+                    title = "Plan a deload week",
+                    detail = "Systemic readiness is ${recovery.overall}%. A deload this week protects progress.",
+                    icon = "fa-leaf",
+                    action = "recovery",
+                    urgency = "bad",
+                )
+                recovery.overall >= 85 -> out += Recommendation(
+                    id = "push",
+                    title = "Push a heavy session",
+                    detail = "Readiness ${recovery.overall}% — a great window to test a PR or heavy double.",
+                    icon = "fa-bolt",
+                    action = "workout",
+                    urgency = "info",
+                )
+            }
 
-    fun saveTuning(ctx: Context, answers: TuningAnswers) {
-        ProfileSettings.put(ctx, K_TUNING, Json.encodeToString(TuningAnswers.serializer(), answers))
-    }
+            // 3) Longevity gaps: pull the lowest sub-scores.
+            longevity.sub.entries.sortedBy { it.value }.take(2).forEach { (k, v) ->
+                if (v < 50.0) {
+                    out += Recommendation(
+                        id = "longevity_gap_$k",
+                        title = "Train $k",
+                        detail = "Your ${k.replace('_', ' ')} score is ${v.toInt()}/100. A focused session this week lifts the longevity total.",
+                        icon = "fa-heart-pulse",
+                        action = "recovery",
+                        urgency = "info",
+                    )
+                }
+            }
 
-    /**
-     * Compute a per-exercise adjustment from the user's current tuning answers.
-     *
-     * Rules:
-     *   - If recoveryReady=false OR soreness ≥ 4: cut volume (-1 set, -5% weight)
-     *   - If rpeAtTarget ≥ 9 (grinder): drop weight 5% to restore bar speed
-     *   - If rpeAtTarget ≤ 5 (way too easy) AND targetVolume="push": +1 set
-     *   - targetVolume="cut": -1 set, -2 reps
-     *   - targetVolume="push": +1 set, +1 rep (capped)
-     */
-    fun computeAdjustment(answers: TuningAnswers): TuningAdjustment {
-        var setsDelta = 0
-        var repsDelta = 0
-        var weightPct = 1.0
-        var rpeTarget = 7
-
-        if (!answers.recoveryReady || answers.lastSessionSoreness >= 4) {
-            setsDelta -= 1
-            weightPct -= 0.05
-            rpeTarget = 6
+            // 4) Forecast: top-3 lifts — surface the weakest of S/B/D if it lags.
+            val sbd = forecast.associate { it.lift to it.est1RM }
+            val squat = sbd["squat"]; val bench = sbd["bench_press"]; val deadlift = sbd["deadlift"]
+            if (squat != null && bench != null && deadlift != null) {
+                val min = minOf(squat, bench, deadlift)
+                val max = maxOf(squat, bench, deadlift)
+                if (max > 0 && (max - min) / max > 0.20) {
+                    val weakest = when (min) { squat -> "squat"; bench -> "bench_press"; else -> "deadlift" }
+                    out += Recommendation(
+                        id = "weak_lift_$weakest",
+                        title = "Bring up $weakest",
+                        detail = "Your $weakest est. 1RM (${min.toInt()} lbs) is >20% behind your strongest lift. Cycle in a focused block.",
+                        icon = "fa-dumbbell",
+                        action = "workout",
+                        urgency = "info",
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            ProLog.w("COACH", "evaluate failed: ${e.message}")
         }
-        when {
-            answers.rpeAtTarget >= 9 -> { weightPct -= 0.05; rpeTarget = 7 }
-            answers.rpeAtTarget <= 5 && answers.targetVolume == "push" -> { setsDelta += 1; rpeTarget = 8 }
-        }
-        when (answers.targetVolume) {
-            "cut" -> { setsDelta -= 1; repsDelta -= 2; rpeTarget = 6 }
-            "push" -> { setsDelta = setsDelta.coerceAtLeast(1); repsDelta = (repsDelta + 1).coerceAtMost(2); rpeTarget = 8 }
-        }
-        // Sanity clamp.
-        setsDelta = setsDelta.coerceIn(-2, 1)
-        repsDelta = repsDelta.coerceIn(-2, 2)
-        weightPct = weightPct.coerceIn(0.85, 1.05)
-
-        return TuningAdjustment(
-            setsDelta = setsDelta,
-            repsDelta = repsDelta,
-            weightPct = weightPct,
-            sentence = coachSentence(answers, setsDelta, repsDelta, weightPct),
-            rpeTarget = rpeTarget,
-        )
-    }
-
-    /** Generate a one-sentence coach explanation for the workout card. */
-    fun coachSentence(answers: TuningAnswers, setsDelta: Int, repsDelta: Int, weightPct: Double): String {
-        val parts = mutableListOf<String>()
-        if (!answers.recoveryReady) parts += "Pulling back today since you flagged recovery as low"
-        if (answers.lastSessionSoreness >= 4) parts += "dropping volume to respect soreness"
-        if (answers.rpeAtTarget >= 9) parts += "easing the load 5% to restore bar speed"
-        if (answers.rpeAtTarget <= 5 && answers.targetVolume == "push") parts += "adding a set — you had more in the tank"
-        when (answers.targetVolume) {
-            "cut" -> parts += "deload-style reduction this week"
-            "push" -> parts += "push volume today — make it count"
-            else -> {}
-        }
-        if (parts.isEmpty()) return "Holding prescription — you're dialed in."
-        val first = parts.removeAt(0).replaceFirstChar { it.uppercase() }
-        val tail = if (parts.isEmpty()) "" else parts.joinToString(prefix = "; ", postfix = ".") { it }
-        return "$first$tail"
-    }
-
-    /** Per-exercise storage key (so multiple exercises can carry their own tuning
-     *  on top of the global answers). */
-    private fun tuningKeyFor(exerciseId: String) = "${K_TUNING}_$exerciseId"
-
-    fun getExerciseTuning(ctx: Context, exerciseId: String): TuningAnswers? = try {
-        val raw = ProfileSettings.get(ctx, tuningKeyFor(exerciseId)) ?: return null
-        Json.decodeFromString(TuningAnswers.serializer(), raw)
-    } catch (_: Exception) { null }
-
-    fun saveExerciseTuning(ctx: Context, exerciseId: String, answers: TuningAnswers) {
-        ProfileSettings.put(ctx, tuningKeyFor(exerciseId), Json.encodeToString(TuningAnswers.serializer(), answers))
+        return out
     }
 }

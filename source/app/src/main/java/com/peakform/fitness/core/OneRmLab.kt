@@ -1,139 +1,109 @@
 package com.peakform.fitness.core
 
 import android.content.Context
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
+import com.peakform.fitness.ProLog
+import com.peakform.fitness.engine.Library
+import com.peakform.fitness.engine.OneRm
+import com.peakform.fitness.engine.Stats
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 /**
- * OneRmLab — 1-rep-max estimation lab (BATCH-12).
+ * OneRmLab — BATCH-12 1RM experimentation + audit core.
  *
- * Implements the four standard 1RM estimation formulas, an RPE-based
- * adjustment, a confidence interval, working-weight percentages for
- * programming (65/75/85/95%), and a per-exercise snapshot history.
+ * Provides read-only audit views over the per-profile 1RM model (tested vs.
+ * est., staleness, residuals spread) plus the batch actions surfaced by the
+ * 1RM Lab screen:
+ *   - clearStale(ctx, weeks): drop tested1RM records older than N weeks.
+ *   - decayAll(ctx, factor): apply a global mu shrink (e.g. for a deload
+ *     block where 1RMs are temporarily depressed).
+ *   - reEstimateMissing(ctx): seed mu for any exercise record that has a
+ *     best-weight history but no mu (legacy gap from the v18 migration).
  *
- * All snapshot data is per-profile, stored via ProfileSettings (SharedPreferences).
+ * The Lab never mutates the underlying Library (1,413 default exercises) —
+ * it only adjusts ExerciseRecord rows on the active profile.
  */
 object OneRmLab {
-    private const val K_SNAPSHOTS = "p4_1rm_snapshots"
 
-    @Serializable
-    data class EstimateResult(
-        val weightLifted: Double,
-        val reps: Int,
-        val rpe: Double?,
-        val epley: Double,
-        val brzycki: Double,
-        val lombardi: Double,
-        val rpeBased: Double?,
-        val average: Double,
-        val confidenceLow: Double,
-        val confidenceHigh: Double,
-        val at: String,
-        val exerciseId: String,
-        val exerciseName: String,
-    ) {
-        /** Working-weight percentages for programming. */
-        fun workingWeight(pct: Double): Double = average * pct
-    }
-
-    @Serializable
-    data class Snapshot(
-        val exerciseId: String,
-        val exerciseName: String,
-        val result: EstimateResult,
+    data class AuditRow(
+        val id: String,
+        val name: String,
+        val tested: Double?,
+        val est: Double?,
+        val weeksOld: Int,            // -1 = never tested
+        val residualSpread: Double,   // 0 = single sample, larger = more variance
     )
 
-    /**
-     * Epley: 1RM = w × (1 + reps/30)
-     * Best for reps ≤ 10. Confidence drops sharply above 10 reps.
-     */
-    fun epley(weight: Double, reps: Int): Double = weight * (1 + reps / 30.0)
-
-    /**
-     * Brzycki: 1RM = w × 36 / (37 - reps)
-     * Best for reps ≤ 12. Most accurate in the 1–10 rep range.
-     */
-    fun brzycki(weight: Double, reps: Int): Double {
-        if (reps >= 37) return weight * 36.0 / 1.0  // saturate
-        return weight * 36.0 / (37.0 - reps)
+    /** Build the audit view (newest-tested first, then never-tested). */
+    fun audit(ctx: Context): List<AuditRow> = try {
+        ProState.data.exercises.entries.mapNotNull { (id, rec) ->
+            val name = Library.getExerciseById(id, includeBodyweight = true)?.name
+                ?: id.replace('_', ' ').replaceFirstChar { it.uppercase() }
+            val weeks = rec.testDate?.let { d ->
+                ((System.currentTimeMillis() - ProState.utcDayMillis(d)) / (7L * 86400000)).toInt()
+            } ?: -1
+            val spread = rec.residuals.takeIf { it.size >= 2 }?.let { rs ->
+                val mean = rs.average()
+                sqrt(rs.map { (it - mean) * (it - mean) }.average())
+            } ?: 0.0
+            AuditRow(id, name, rec.tested1RM, rec.mu, weeks, spread)
+        }.sortedWith(compareByDescending<AuditRow> { it.weeksOld }.thenBy { it.name })
+    } catch (e: Exception) {
+        ProLog.w("ONERMLAB", "audit failed: ${e.message}")
+        emptyList()
     }
 
-    /**
-     * Lombardi: 1RM = w × reps^0.10
-     * Tends to overestimate at high reps — used as an upper-bound cross-check.
-     */
-    fun lombardi(weight: Double, reps: Int): Double = weight * Math.pow(reps.toDouble(), 0.10)
-
-    /**
-     * RPE-based estimation (Helms / RPE chart): if the user reports an RPE,
-     * estimate how many MORE reps they could have done and adjust.
-     *
-     * RPE 10 = 0 reps in reserve (RIR), 9 = 1, 8 = 2, ... so we can compute
-     * an "all-out" 1RM using the same formulas with reps + RIR.
-     */
-    fun rpeBased(weight: Double, reps: Int, rpe: Double): Double? {
-        if (rpe <= 0 || rpe > 10) return null
-        val rir = (10 - rpe).toInt().coerceAtLeast(0)
-        val effectiveReps = reps + rir
-        if (effectiveReps <= 0) return weight
-        return brzycki(weight, effectiveReps)
+    /** Drop tested1RM records older than `weeks`. Returns the count cleared. */
+    fun clearStale(ctx: Context, weeks: Int): Int {
+        val cutoff = System.currentTimeMillis() - weeks.toLong() * 7L * 86400000
+        var cleared = 0
+        val updated = ProState.data.exercises.mapValues { (id, rec) ->
+            val ts = rec.testDate?.let { ProState.utcDayMillis(it) } ?: 0L
+            if (ts > 0 && ts < cutoff && rec.tested1RM != null) {
+                cleared++
+                rec.copy(tested1RM = null, testDate = null)
+            } else rec
+        }
+        if (cleared > 0) {
+            ProState.data = ProState.data.copy(exercises = updated)
+            ProState.saveWorkoutData()
+            ProLog.i("ONERMLAB", "cleared $cleared stale 1RM records")
+        }
+        return cleared
     }
 
-    /**
-     * Compute a full EstimateResult for a single set.
-     * Reps should be ≤ 12 for the most reliable estimates.
-     */
-    fun estimate(
-        exerciseId: String,
-        exerciseName: String,
-        weight: Double,
-        reps: Int,
-        rpe: Double? = null,
-        at: String = ProState.nowIso(),
-    ): EstimateResult {
-        val epl = if (reps <= 10) epley(weight, reps) else epley(weight, 10)
-        val brz = if (reps <= 12) brzycki(weight, reps) else brzycki(weight, 12)
-        val lom = lombardi(weight, reps)
-        val rpeEst = rpe?.let { rpeBased(weight, reps, it) }
-        val methods = mutableListOf(epl, brz, lom)
-        if (rpeEst != null) methods.add(rpeEst)
-        val average = methods.average()
-        // Confidence interval: ±8% (rough — empirical across the four methods).
-        val confidenceLow = average * 0.92
-        val confidenceHigh = average * 1.08
-        return EstimateResult(
-            weightLifted = weight,
-            reps = reps,
-            rpe = rpe,
-            epley = epl,
-            brzycki = brz,
-            lombardi = lom,
-            rpeBased = rpeEst,
-            average = average,
-            confidenceLow = confidenceLow,
-            confidenceHigh = confidenceHigh,
-            at = at,
-            exerciseId = exerciseId,
-            exerciseName = exerciseName,
-        )
+    /** Apply a uniform mu decay (factor <1 shrinks). Returns the count affected. */
+    fun decayAll(ctx: Context, factor: Double): Int {
+        if (factor >= 1.0) return 0
+        var count = 0
+        val updated = ProState.data.exercises.mapValues { (id, rec) ->
+            val mu = rec.mu ?: return@mapValues rec
+            count++
+            rec.copy(mu = mu * factor, sigma2 = (rec.sigma2 ?: (0.2 * mu * factor).pow(2)))
+        }
+        if (count > 0) {
+            ProState.data = ProState.data.copy(exercises = updated)
+            ProState.saveWorkoutData()
+            ProLog.i("ONERMLAB", "decayed $count 1RM records by ×$factor")
+        }
+        return count
     }
 
-    /** Save a snapshot to per-profile storage (history for the lab screen). */
-    fun saveSnapshot(ctx: Context, snap: Snapshot) {
-        val list = getSnapshots(ctx).toMutableList()
-        list.add(snap)
-        val trimmed = list.takeLast(100)
-        ProfileSettings.put(ctx, K_SNAPSHOTS,
-            Json.encodeToString(ListSerializer(Snapshot.serializer()), trimmed))
+    /** Seed mu for any record with best-weight history but no mu (legacy gap). */
+    fun reEstimateMissing(ctx: Context): Int {
+        var count = 0
+        val updated = ProState.data.exercises.mapValues { (id, rec) ->
+            if (rec.mu != null) return@mapValues rec
+            val best = rec.bestWeight ?: rec.history.lastOrNull { !it.skipped }?.weight ?: return@mapValues rec
+            val reps = rec.bestReps ?: rec.history.lastOrNull { !it.skipped }?.reps?.maxOrNull() ?: 5.0
+            count++
+            rec.copy(mu = OneRm.roundToNearest(best * (1 + reps / 30.0)))
+        }
+        if (count > 0) {
+            ProState.data = ProState.data.copy(exercises = updated)
+            ProState.saveWorkoutData()
+            ProLog.i("ONERMLAB", "seeded $count missing 1RM estimates")
+        }
+        return count
     }
-
-    fun getSnapshots(ctx: Context): List<Snapshot> = try {
-        val raw = ProfileSettings.get(ctx, K_SNAPSHOTS) ?: return emptyList()
-        Json.decodeFromString(ListSerializer(Snapshot.serializer()), raw)
-    } catch (_: Exception) { emptyList() }
-
-    /** Snapshots for one exercise only, newest last. */
-    fun snapshotsFor(ctx: Context, exerciseId: String): List<Snapshot> =
-        getSnapshots(ctx).filter { it.exerciseId == exerciseId }
 }

@@ -3,9 +3,10 @@ package com.peakform.fitness
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.peakform.fitness.core.ProfileSettings
+import com.peakform.fitness.core.ProfileState
 import com.peakform.fitness.core.Profiles
+import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.core.ProState
-import com.peakform.fitness.ui.ACCENTS
 import com.peakform.fitness.ui.ThemeController
 import org.junit.After
 import org.junit.Assert
@@ -16,96 +17,151 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * BATCH-5B evidence test — theme write-through + reload on profile switch.
+ * BATCH-5B evidence test — per-profile theme isolation + write-through +
+ * reload-on-profile-switch contract.
  *
- * Verifies:
- *  - ThemeController.set() writes to ProfileSettings in the same call
- *    (per-profile SharedPreferences, not the global ProPrefs file).
- *  - ThemeController.reload() re-reads K_THEME/K_DYNAMIC from ProfileSettings.
- *  - 3-mode model: "system" / "dark" / "light" persists correctly.
+ * Covers:
+ *   1. ThemeController writes update in-memory state AND storage in the same
+ *      call (setAccentAndDynamic writes accent + p4_dynamic atomically).
+ *   2. Two profiles keep independent themes — switching profile reloads the
+ *      theme from the new profile's SharedPreferences.
+ *   3. ProfileSettings.migrateFromPrefs copies legacy global `p4_ls` keys
+ *      into every profile's `p4_ls_<id>` (one-shot, idempotent).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class Batch5BTest {
+
     private lateinit var ctx: Context
 
     @Before
     fun setUp() {
         ctx = ApplicationProvider.getApplicationContext()
-        // Clear per-profile + global prefs for a clean slate.
-        try {
-            com.peakform.fitness.core.ProfileState.prefsFor(ctx, Profiles.DEFAULT).edit().clear().commit()
-        } catch (_: Exception) {}
-        com.peakform.fitness.core.ProPrefs.clearAll(ctx)
-        // Force-load defaults.
+        ProState.init(ctx)
+        ProPrefs.clearAll(ctx)
+        // Clear every per-profile prefs file we might create.
+        ProfileState.prefsFor(ctx, Profiles.DEFAULT).edit().clear().commit()
+        // Reset theme state.
         ThemeController.load("""{"mode":"dark","accent":"blue"}""")
         ThemeController.loadDynamic(null)
     }
 
     @After
     fun tearDown() {
-        try {
-            com.peakform.fitness.core.ProfileState.prefsFor(ctx, Profiles.DEFAULT).edit().clear().commit()
-        } catch (_: Exception) {}
-        com.peakform.fitness.core.ProPrefs.clearAll(ctx)
+        ProPrefs.clearAll(ctx)
+        ProfileState.prefsFor(ctx, Profiles.DEFAULT).edit().clear().commit()
     }
 
+    /**
+     * Write-through contract: ThemeController.setAccentAndDynamic updates the
+     * in-memory state (dark / accentId / dynamic) AND the per-profile
+     * SharedPreferences in the SAME call. Both sides are observable.
+     */
     @Test
-    fun set_persists_to_profile_settings() {
-        ThemeController.set("light", "red", ctx)
-        val stored = ProfileSettings.get(ctx, ProfileSettings.K_THEME)
-        Assert.assertNotNull("set() must persist K_THEME", stored)
-        Assert.assertTrue("K_THEME must contain accent 'red'", stored!!.contains("\"accent\":\"red\""))
-        Assert.assertEquals("ThemeController.accentId should be 'red'", "red", ThemeController.accentId)
-        Assert.assertEquals("ThemeController.mode should be 'light'", "light", ThemeController.mode)
-        Assert.assertFalse("ThemeController.dark should be false for light mode", ThemeController.dark)
+    fun setAccentAndDynamic_writeThrough_updatesMemoryAndStorage() {
+        // Precondition: state is default (blue, dark=false/dynamic=off).
+        Assert.assertEquals("blue", ThemeController.accentId)
+        Assert.assertFalse(ThemeController.dynamic)
+
+        // Action: set "red" + dynamic=true (write-through).
+        ThemeController.setAccentAndDynamic("dark", "red", dynamic = true, ctx = ctx)
+
+        // In-memory updates:
+        Assert.assertEquals("red", ThemeController.accentId)
+        Assert.assertTrue(ThemeController.dynamic)
+
+        // Storage updates (per-profile):
+        val p4Theme = ProfileSettings.get(ctx, ProfileSettings.K_THEME)
+        val p4Dynamic = ProfileSettings.get(ctx, ProfileSettings.K_DYNAMIC)
+        Assert.assertNotNull("p4_theme must be written", p4Theme)
+        Assert.assertTrue("p4_theme must contain accent 'red'", p4Theme!!.contains("\"accent\":\"red\""))
+        Assert.assertEquals("on", p4Dynamic)
     }
 
+    /**
+     * Per-profile isolation: switching the active profile reloads the theme
+     * from the new profile's SharedPreferences, so a theme change in profile A
+     * does not bleed into profile B.
+     */
     @Test
-    fun setAccentAndDynamic_writes_both_keys_atomically() {
-        ThemeController.setAccentAndDynamic("dark", "green", dynamic = true, ctx = ctx)
-        Assert.assertEquals("p4_dynamic should be 'on'", "on", ProfileSettings.get(ctx, ProfileSettings.K_DYNAMIC))
-        val theme = ProfileSettings.get(ctx, ProfileSettings.K_THEME)
-        Assert.assertNotNull("K_THEME should be written", theme)
-        Assert.assertTrue("K_THEME should contain accent 'green'", theme!!.contains("\"accent\":\"green\""))
-    }
+    fun switchProfile_reloadsThemeFromNewProfilePrefs() {
+        // Profile A (default): theme = dark/red.
+        ProfileState.prefsFor(ctx, Profiles.DEFAULT).edit()
+            .putString(ProfileSettings.K_THEME, """{"mode":"dark","accent":"red"}""")
+            .putString(ProfileSettings.K_DYNAMIC, "on")
+            .commit()
 
-    @Test
-    fun reload_reads_from_profile_settings() {
-        // Manually write a theme blob to the active profile's prefs.
-        ProfileSettings.putSync(ctx, ProfileSettings.K_THEME, """{"mode":"system","accent":"purple"}""")
-        ProfileSettings.putSync(ctx, ProfileSettings.K_DYNAMIC, "on")
+        // Profile B: create it, set theme to light/blue.
+        val b = Profiles.create(ctx, "Sam", "🦊")
+        ProfileState.prefsFor(ctx, b.id).edit()
+            .putString(ProfileSettings.K_THEME, """{"mode":"light","accent":"blue"}""")
+            .putString(ProfileSettings.K_DYNAMIC, "off")
+            .commit()
 
+        // Cold-start on the default profile.
         ThemeController.reload(ctx)
+        Assert.assertEquals("red", ThemeController.accentId)
+        Assert.assertTrue(ThemeController.dynamic)
 
-        Assert.assertEquals("After reload, mode should be 'system'", "system", ThemeController.mode)
-        Assert.assertEquals("After reload, accent should be 'purple'", "purple", ThemeController.accentId)
-        Assert.assertTrue("After reload, dynamic should be ON", ThemeController.dynamic)
+        // Switch to profile B — reload() should pick up B's theme.
+        Profiles.switchTo(ctx, b.id)
+        Assert.assertEquals("blue", ThemeController.accentId)
+        Assert.assertFalse(ThemeController.dynamic)
     }
 
+    /**
+     * v22 migration: copying legacy global `p4_ls` keys into every existing
+     * profile's `p4_ls_<id>` (one-shot, idempotent).
+     */
     @Test
-    fun resolveDark_system_mode_follows_platform() {
-        ThemeController.set("system", "blue", ctx)
-        // System dark → ThemeController.dark should resolve true.
-        Assert.assertTrue("system mode + systemDark=true → dark=true", ThemeController.resolveDark(true))
-        // System light → ThemeController.dark should resolve false.
-        Assert.assertFalse("system mode + systemDark=false → dark=false", ThemeController.resolveDark(false))
+    fun migrateFromPrefs_copiesGlobalKeysToAllProfiles() {
+        // Seed legacy global values.
+        ProPrefs.put(ctx, ProfileSettings.K_THEME, """{"mode":"dark","accent":"green"}""")
+        ProPrefs.put(ctx, ProfileSettings.K_GYM, "on")
+        ProPrefs.put(ctx, ProfileSettings.K_VOCAB, "7")
+        // Make sure the v22 marker is unset.
+        ProPrefs.remove(ctx, ProfileSettings.K_V22_MIGRATED)
+
+        // The default profile should have no p4_theme yet.
+        Assert.assertNull(ProfileState.prefsFor(ctx, Profiles.DEFAULT).getString(ProfileSettings.K_THEME, null))
+
+        // Run migration.
+        ProfileSettings.migrateFromPrefs(ctx)
+
+        // Default profile should now have the migrated values.
+        Assert.assertEquals("""{"mode":"dark","accent":"green"}""",
+            ProfileState.prefsFor(ctx, Profiles.DEFAULT).getString(ProfileSettings.K_THEME, null))
+        Assert.assertEquals("on", ProfileState.prefsFor(ctx, Profiles.DEFAULT).getString(ProfileSettings.K_GYM, null))
+        Assert.assertEquals("7", ProfileState.prefsFor(ctx, Profiles.DEFAULT).getString(ProfileSettings.K_VOCAB, null))
+
+        // Marker set so re-running migration is a no-op.
+        Assert.assertEquals("true", ProPrefs.get(ctx, ProfileSettings.K_V22_MIGRATED))
+
+        // Mutate global — re-running migration must NOT overwrite.
+        ProPrefs.put(ctx, ProfileSettings.K_GYM, "off")
+        ProfileSettings.migrateFromPrefs(ctx)
+        Assert.assertEquals("on", ProfileState.prefsFor(ctx, Profiles.DEFAULT).getString(ProfileSettings.K_GYM, null))
     }
 
+    /**
+     * No allowMainThreadQueries() in ProStore — this is a static contract
+     * check: the ProStore.kt source file must not reference the method.
+     */
     @Test
-    fun three_mode_persistence_round_trip() {
-        ThemeController.set("dark", "blue", ctx)
-        Assert.assertEquals("dark", ThemeController.mode)
-        Assert.assertTrue(ThemeController.dark)
-
-        ThemeController.set("light", "blue", ctx)
-        Assert.assertEquals("light", ThemeController.mode)
-        Assert.assertFalse(ThemeController.dark)
-
-        ThemeController.set("system", "blue", ctx)
-        Assert.assertEquals("system", ThemeController.mode)
-
-        ThemeController.reload(ctx)
-        Assert.assertEquals("system", ThemeController.mode)
+    fun proStore_doesNotCallAllowMainThreadQueries() {
+        // Robolectric sets user.dir to the :app module directory, so resolve
+        // the source file relative to that — fall back to walking up to the
+        // repo root if needed (e.g. when run from IDE).
+        val here = java.io.File(System.getProperty("user.dir"))
+        val candidates = listOf(
+            java.io.File(here, "src/main/java/com/peakform/fitness/core/ProStore.kt"),
+            java.io.File(here, "app/src/main/java/com/peakform/fitness/core/ProStore.kt"),
+        )
+        val src = candidates.firstOrNull { it.isFile }?.readText()
+            ?: error("ProStore.kt not found under ${here.absolutePath} or its app/ subdirectory")
+        Assert.assertFalse(
+            "ProStore.kt must not call allowMainThreadQueries()",
+            src.contains("allowMainThreadQueries"),
+        )
     }
 }

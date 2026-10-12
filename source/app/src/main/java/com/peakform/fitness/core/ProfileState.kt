@@ -5,38 +5,35 @@ import android.content.SharedPreferences
 import com.peakform.fitness.ProLog
 
 /**
- * ProfileState — per-profile state lives in the active profile's SharedPreferences
- * file `p4_ls_<profileId>` (the default profile uses `p4_ls_default`).
- *
- * BATCH-5A: previously, per-profile state was stored in the Room `meta` table of
- * the active profile. That required a DB hit on every read and a writable
- * DB handle on every write — slow, and a footgun when a profile switch closed
- * the DB mid-write. SharedPreferences are lighter, never block on the DB lock,
- * and give us atomic multi-key writes via a single edit().commit().
+ * ProfileState — per-profile state lives in per-profile SharedPreferences
+ * `p4_ls_<profileId>` (BATCH-5A).
  *
  * Storage boundary:
- *   PER-PROFILE (this file, SharedPreferences `p4_ls_<profileId>`): onboarding
- *                 flag, onboarding draft, onboarding finished_at, first-launch
- *                 timestamp, health-screen state, emergency draft backup,
- *                 training preferences, theme mode+accent, Material You flag,
- *                 gym mode, language, vocab level, library collapsed groups,
- *                 notification flags, last-backup timestamp, last-streak-recover,
- *                 competition date, studio export, workout data mirror.
- *   GLOBAL    (ProPrefs, file `p4_ls`): active profile id, default profile id,
- *                 device id, consent log (legal record), p4_v18_migrated flag,
- *                 p4_v22_migrated flag.
+ *   PER-PROFILE (this file, `p4_ls_<profileId>`): onboarding flag, onboarding
+ *                 draft, onboarding finished_at, first-launch timestamp,
+ *                 health-screen state, health-intro-seen, emergency backup,
+ *                 training preferences, theme, dynamic flag, gym mode, language,
+ *                 vocab level, library prefs, notification toggles, etc.
+ *   GLOBAL      (ProPrefs, `p4_ls`):              active profile id, default
+ *                 profile id, device id, consent log, license.
  *
- * New-user detection — a profile is "new" if NONE of:
- *   p4_onboarded, p4_health_screened_at, workout_count > 0,
- *   exercise_count > 0, p4_first_launch are present.
+ * The previous BATCH-4B implementation wrote these keys into Room `meta` table;
+ * BATCH-5A moves them to SharedPreferences for synchronous, main-thread-safe
+ * access (no DAO, no IO dispatcher hop) and correct per-profile isolation.
  *
- * Migration (one-shot v18): on first v18 cold start, every profile in the
- * registry inherits the legacy global p4_onboarded / p4_health_* values from
- * ProPrefs so existing users keep their "already onboarded" state and never
- * see the wizard fire again. Idempotent and gated on `p4_v18_migrated`.
+ * Migration:
+ *   - v18: copy legacy global `p4_ls` onboarded / health / draft values into
+ *     every existing profile's `p4_ls_<id>` (one-shot, gated on `p4_v18_migrated`).
+ *   - v22: see ProfileSettings.migrateFromPrefs — copies the per-profile-
+ *     eligible keys (theme, gym, lang, vocab, …) from global `p4_ls` into every
+ *     profile's `p4_ls_<id>`.
+ *
+ * New-user detection (BATCH-4B item 6) — a profile is "new" if NONE of:
+ *   p4_onboarded, p4_health_screened_at, workout_count > 0, exercise_count > 0,
+ *   p4_first_launch are present.
  */
 object ProfileState {
-    // Per-profile keys (SharedPreferences `p4_ls_<profileId>` namespace)
+    // Per-profile keys (`p4_ls_<profileId>` SharedPreferences file)
     const val K_ONBOARDED = "p4_onboarded"
     const val K_OB_DRAFT = "p4_ob_draft"
     const val K_OB_FINISHED_AT = "p4_ob_finished_at"
@@ -51,19 +48,15 @@ object ProfileState {
     const val K_HEALTH_INTRO_SEEN = "p4_health_intro_seen"
     const val K_EMERGENCY_BACKUP = "workoutEmergencyBackup"
     const val K_V18_MIGRATED = "p4_v18_migrated"
-    // BATCH-5A: legacy meta keys kept on the global ProPrefs file
-    const val K_WORKOUT_DATA = "workoutData"
 
-    /** SharedPreferences file name for a profile id. The default profile uses
-     *  `p4_ls_default` so it never collides with the global `p4_ls` file
-     *  (which holds profile-registry, device-id and consent records). */
-    fun prefsNameFor(profileId: String): String = "p4_ls_${profileId}"
+    /** File name format for per-profile SharedPreferences. */
+    fun prefsName(profileId: String): String = "p4_ls_$profileId"
 
-    /** SharedPreferences for a specific profile id. */
+    /** Returns the SharedPreferences for the given profile (`p4_ls_<profileId>`). */
     fun prefsFor(ctx: Context, profileId: String): SharedPreferences =
-        ctx.applicationContext.getSharedPreferences(prefsNameFor(profileId), Context.MODE_PRIVATE)
+        ctx.applicationContext.getSharedPreferences(prefsName(profileId), Context.MODE_PRIVATE)
 
-    /** SharedPreferences for the active profile. */
+    /** Returns the SharedPreferences for the active profile. */
     fun prefs(ctx: Context): SharedPreferences = prefsFor(ctx, Profiles.activeId(ctx))
 
     fun get(ctx: Context, key: String, default: String? = null): String? = try {
@@ -74,11 +67,14 @@ object ProfileState {
         prefs(ctx).edit().putString(key, value).apply()
     } catch (e: Exception) { ProLog.w("PROFILESTATE", "put $key failed: ${e.message}") }
 
-    /** Synchronous write — used by performSave() / emergency backup so the
-     *  value lands on disk before the next read. */
-    fun putSync(ctx: Context, key: String, value: String) = try {
+    /** Synchronous write — uses commit() so the value is on disk before the
+     *  call returns. Use for emergency backup writes and migration steps. */
+    fun putSync(ctx: Context, key: String, value: String): Boolean = try {
         prefs(ctx).edit().putString(key, value).commit()
-    } catch (e: Exception) { ProLog.w("PROFILESTATE", "putSync $key failed: ${e.message}") }
+    } catch (e: Exception) {
+        ProLog.w("PROFILESTATE", "putSync $key failed: ${e.message}")
+        false
+    }
 
     fun remove(ctx: Context, key: String) = try {
         prefs(ctx).edit().remove(key).apply()
@@ -93,8 +89,8 @@ object ProfileState {
     } catch (_: Exception) { emptyList() }
 
     /**
-     * New-user detection — a profile is "new" only if NONE of the strong
-     * signals are present:
+     * New-user detection (BATCH-4B item 6) — a profile is "new" only if NONE of
+     * the strong signals are present:
      *   - p4_onboarded (per-profile)
      *   - p4_health_screened_at (per-profile)
      *   - workout count > 0 (active profile Room workouts table)
@@ -120,10 +116,10 @@ object ProfileState {
 
     /**
      * One-shot v18 migration: copy legacy global p4_onboarded / p4_health_* /
-     * workoutEmergencyBackup values from ProPrefs into EVERY existing profile's
-     * SharedPreferences file (`p4_ls_<id>`), so existing users keep their
-     * onboarded / screened state and never see the wizard fire again after
-     * upgrade.
+     * workoutEmergencyBackup values from the global ProPrefs file into EVERY
+     * existing profile's `p4_ls_<id>` SharedPreferences, so existing users
+     * keep their onboarded / screened state and never see the wizard fire
+     * again after upgrade.
      *
      * Idempotent — gated on the global `p4_v18_migrated` flag. New profiles
      * created after v18 do NOT inherit the legacy flag (they're genuinely new).
@@ -156,6 +152,6 @@ object ProfileState {
             ed.commit()
         }
         ProPrefs.put(ctx, K_V18_MIGRATED, "true")
-        ProLog.i("MIGRATE", "v18 prefs migration complete for ${profiles.size} profiles")
+        ProLog.i("MIGRATE", "v18 meta migration complete for ${profiles.size} profiles")
     }
 }

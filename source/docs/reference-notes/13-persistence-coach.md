@@ -1,38 +1,175 @@
-# 13-persistence-coach — Critical persistence, exercise history, auto-advance, completion modal
+# 13 — Critical Persistence + P4 Coach Mathematics
 
-Source: `reference/scripts/app/13-persistence-coach.js` (L67074–69069 of original `app.js`; ~2,000 lines)
+> Reference module: `reference/scripts/app/13-persistence-coach.js` (2 003 lines).
+> Native counterparts: `engine/Sessions.kt`, `core/ProState.kt`, `core/ProfileState.kt`, `core/MigrationBridge.kt`.
 
-## A. File purpose
-This module guarantees a logged set survives a crash: it clears the per-exercise draft from localStorage, force-saves the workout to IndexedDB (`saveCurrentWorkoutToStorage`), writes an emergency backup (`workoutEmergencyBackup` in localStorage), updates exercise history (`updateExerciseHistory` handling reps/time prescriptions, RPE arrays, notes, firstRPE, restEstimate, muscle list), auto-advances to the next unfinished exercise, toggles the "Complete Workout" button, and shows the SweetAlert completion modal summarizing logged/skipped counts + total volume + finalizing prompt.
+This module owns the **critical persistence layer**: draft clearing, emergency localStorage backup, IndexedDB immediate-save (bypass debounce), auto-advance to next unfinished exercise, all-logged detection, complete-workout prompt, and exercise history record update (with best-weight tracking).
 
-## B. Public surface
-- Persistence flow (top of file, IIFE-adjacent):
-  - Clears `draft_${currentWorkout.id}_${exercise.id}` from localStorage.
-  - Calls `saveCurrentWorkoutToStorage()` (bypasses debounce) — IndexedDB write.
-  - Writes `workoutEmergencyBackup` = `{workout, timestamp, version:2, lastSavedExercise}`.
-  - Calls `showNotification('… logged successfully!', 'success')`.
-- `findNextUnfinished(startIndex)` — scans forward then wraps to find the next non-skipped, non-logged exercise; returns -1 if all done. Scrolls card into view.
-- `updateCompleteWorkoutButton()` — shows `#workoutButtons` only when every exercise is `actual || skipped`.
-- Completion modal (delayed 500ms) — SweetAlert with logged/skipped counts, total volume (handles both reps×weight and time-based durations), "Complete Workout" CTA calling `completeWorkout()`.
-- `updateExerciseHistory(exercise)` — pushes `{date, weight, sets, rpe, notes, prescriptionType, muscles, firstRPE, restEstimate, durations?, totalTime?, volume?}` onto `workoutData.exercises[exercise.id].history[]`. For `prescriptionType: 'time'`, `volume = total seconds under tension`.
+---
 
-## C. Dependencies
-- Globals: `localStorage`, `currentWorkout`, `workoutData`, `document`, `Swal`, `setTimeout`, `formatNumber`.
-- Cross-module: `saveCurrentWorkoutToStorage`, `saveWorkoutData`, `showNotification`, `completeWorkout`.
+## E2. Deep patterns
 
-## D. Native-equivalent mapping
-- Critical persistence + emergency backup → `core/ProState.kt::saveWorkoutDraftImmediately` (L237) + `performSave` (L256) + `readEmergencyBackup` (L292) + `clearEmergencyBackup` (L302) — ported. Native uses DataStore + `workoutEmergencyBackup` SharedPreferences.
-- Draft key `draft_${workoutId}_${exerciseId}` → `ProfileState` per-exercise prefs keys (similar pattern).
-- `findNextUnfinished` → `engine/Sessions.kt::findNextUnfinished` (L1191) — ported, used by auto-advance.
-- `updateCompleteWorkoutButton` → `WorkoutLogger.kt` button-state Compose — ported via `unloggedExercises` (Sessions.kt L377) and `allLoggedLines` (L481).
-- Completion modal → `WorkoutLogger.kt::CelebrationDialog` (L424) + `Confetti.kt` — ported with richer celebration. Native `Sessions.completeWorkout` (L397) returns `CompletionResult` consumed by the dialog.
-- `updateExerciseHistory` → `engine/Sessions.kt::updateExerciseHistory` (L234) — ported; native also tracks `prescriptionType` branch and stores `durations` for time-based exercises.
+### 2.1 Draft clearing + immediate save
+- **Inputs**: `currentWorkout.id`, `exercise.id`.
+- **Computation**:
+  1. Build draft key `draft_${currentWorkout.id}_${exercise.id}`.
+  2. `localStorage.removeItem(draftKey)` — clears per-exercise draft.
+  3. Call `saveCurrentWorkoutToStorage()` if defined (bypasses debounce); else `saveWorkoutData()`.
+  4. **Emergency backup**: write `localStorage['workoutEmergencyBackup'] = JSON.stringify({workout, timestamp, version:2, lastSavedExercise: exercise.id})`.
+- **Output**: persisted workout + emergency backup.
+- **Reasoning**: log-a-set is the most critical write — never lose it to a crash; emergency backup is disaster recovery.
 
-## E. Patterns worth porting
-- **Triple-write redundancy**: localStorage draft cleared, IndexedDB force-save, localStorage emergency backup. Native relies on DataStore atomic writes — generally safe, but the emergency-backup JSON in SharedPreferences is a genuinely belt-and-suspenders disaster-recovery pattern worth keeping (one Android equivalent is a separate "crash recovery" prefs file).
-- **Auto-advance to next unfinished exercise** (forward scan, then wrap) — smooth UX; verify `WorkoutLogger.kt` auto-scrolls on log.
-- **`firstRPE` and `restEstimate` stored per history entry** — these enable RPE-trend analysis and rest-time analytics over time. Native `HistoryEntry` (Model.kt L311) doesn't carry `firstRPE`/`restEstimate`; porting them unlocks richer recovery analytics.
-- **`prescriptionType: 'time'` volume = total seconds under tension** — clean way to unify time-based and rep-based volume. Native `calculateVolume` (Sessions.kt L697) branches similarly but doesn't unify into a single `volume` field.
+### 2.2 `findNextUnfinished(startIndex)` — auto-advance
+- **Inputs**: `currentWorkout.exercises`, start index.
+- **Computation**: scan forward from `startIndex+1` to end; if no unfinished found, wrap from 0 to `startIndex-1`; return first index where `!actual && !skipped`; return -1 if all done.
+- **Output**: next index or -1.
+- **Reasoning**: forward-then-wrap ensures sequential flow but recovers from skipped exercises.
 
-## F. Feature IDs
-`P13-FORCE-SAVE`, `P13-EMERGENCY-BACKUP`, `P13-AUTO-ADVANCE`, `P13-COMPLETE-WORKOUT-MODAL`, `P13-EXERCISE-HISTORY`, `P13-TIME-BASED-VOLUME`, `P13-FIRST-RPE-REST-ESTIMATE`.
+### 2.3 Auto-advance scroll-into-view
+- **Inputs**: `nextIndex`, exercise card element.
+- **Computation**: `nextCard.scrollIntoView({behavior:'smooth', block:'center'})`.
+- **Output**: smooth scroll to next exercise.
+- **Reasoning**: keeps the user in flow — no manual scrolling between sets.
+
+### 2.4 `updateCompleteWorkoutButton()` — visibility gate
+- **Inputs**: `currentWorkout.exercises`, all exercises' `actual`/`skipped` flags.
+- **Computation**: if `currentWorkout` missing or empty → hide button; else `allDone = every(ex => ex.actual || ex.skipped)`; show button if `allDone`, hide otherwise.
+- **Output**: button visibility.
+- **Reasoning**: complete-workout button only appears when there's nothing left to log.
+
+### 2.5 All-logged prompt flow
+- **Inputs**: `currentWorkout.exercises`, 500ms delay.
+- **Computation**:
+  1. Check `allLogged = every(ex => ex.actual || ex.skipped)`.
+  2. If true → `setTimeout(500ms)` → show SweetAlert:
+     - Title: "🎉 All exercises logged!"
+     - HTML: stats list — logged count, skipped count (if >0), total volume (formatted with `formatNumber`).
+     - Confirm: "Complete Workout 🏆" (green #10b981); Cancel: "Later" (gray #6c757d).
+  3. On confirm → `completeWorkout()`.
+- **Output**: completion prompt.
+- **Reasoning**: 500ms delay lets the last log animation finish before prompt; green confirm reinforces positive completion.
+
+### 2.6 Volume calculation for prompt
+- **Inputs**: `currentWorkout.exercises`.
+- **Computation**: for each exercise with `actual && !skipped`:
+  - If `actual.reps && actual.reps.length` → `totalVolume += actual.weight * actual.reps.reduce((a,b)=>a+b, 0)`.
+  - Else if `actual.durations && actual.durations.length` → `totalVolume += actual.durations.reduce((a,b)=>a+b, 0)` (time-based volume = total seconds).
+- **Output**: total volume number.
+- **Reasoning**: time-based exercises (plank) contribute seconds, not weight×reps.
+
+### 2.7 `updateExerciseHistory(exercise)` — history record
+- **Inputs**: exercise with `actual`, `prescriptionType`.
+- **Computation**:
+  1. Ensure `workoutData.exercises[exercise.id]` exists with `{history:[]}`.
+  2. Build `historyEntry = {date: ISO now, weight, sets, rpe, notes, prescriptionType, muscles:[...muscleGroup], firstRPE, restEstimate}`.
+  3. If `prescriptionType === 'time'`:
+     - `historyEntry.durations = actual.durations` (array of seconds).
+     - `historyEntry.totalTime = durations.reduce((a,b)=>a+b, 0)`.
+     - `historyEntry.volume = totalTime` (seconds under tension).
+  4. Else (reps/amrap):
+     - `historyEntry.reps = actual.reps`.
+     - `totalReps = actual.reps.reduce((a,b)=>a+b, 0)`.
+     - `historyEntry.volume = actual.weight * totalReps`.
+     - **Best-weight tracking**: if `actual.weight > exData.bestWeight` → update `bestWeight`, `bestReps = max(reps)`; elif `actual.weight === bestWeight` → update `bestReps` if higher.
+  5. Push `historyEntry` to `exData.history`.
+- **Output**: updated exercise history record.
+- **Reasoning**: best-weight/best-reps tracking lets users see PRs without parsing history.
+
+### 2.8 Best-weight comparison logic
+- **Inputs**: `actual.weight`, `exData.bestWeight` (default 0).
+- **Computation**:
+  - If `actual.weight > bestWeight || bestWeight === undefined` → new PR; update both `bestWeight` and `bestReps`.
+  - Elif `actual.weight === bestWeight` → check reps; if `max(reps) > bestReps` → update `bestReps`.
+- **Output**: best fields updated.
+- **Reasoning**: same-weight-more-reps is also a PR (rep PR); only weight PR is strictly higher.
+
+### 2.9 Time-based volume tracking
+- **Inputs**: `actual.durations` (array of seconds).
+- **Computation**: `totalTime = durations.reduce((a,b)=>a+b, 0)`; `volume = totalTime`.
+- **Output**: time volume.
+- **Reasoning**: time under tension is the load metric for isometric/time-based work.
+
+### 2.10 `restEstimate` field
+- **Inputs**: optional per-set rest time.
+- **Computation**: stored if present (computed elsewhere); null otherwise.
+- **Output**: rest estimate on history entry.
+- **Reasoning**: tracks actual rest vs prescribed rest for future prescription tuning.
+
+---
+
+## E3. Edge cases handled
+
+- **`currentWorkout` null**: `updateCompleteWorkoutButton` returns early.
+- **`currentWorkout.exercises` empty**: button hidden.
+- **Exercise with no `actual` and not `skipped`**: not "done"; `allLogged` is false.
+- **All exercises skipped**: `allLogged` is true (skipped counts as "handled"); prompt still shows.
+- **`actual.reps` empty array**: `totalReps = 0`; volume = 0.
+- **`actual.durations` empty array**: `totalTime = 0`; volume = 0.
+- **`actual.weight = 0`** (bodyweight only): volume = 0; best-weight check `0 > 0` is false, no PR.
+- **`exData.bestWeight` undefined**: treated as 0; first log sets it.
+- **`exercise.id` not in `workoutData.exercises`**: creates `{history:[]}`.
+- **`exercise.muscleGroup` empty/missing**: `muscles: []` on history entry.
+- **`actual.firstRPE` undefined**: stored as null.
+- **`actual.restEstimate` undefined**: stored as null.
+- **SweetAlert `result.isConfirmed` false**: prompt dismissed; workout not completed.
+- **`saveCurrentWorkoutToStorage` not defined**: falls back to `saveWorkoutData`.
+- **`workoutEmergencyBackup` localStorage quota exceeded**: try/catch in `saveCurrentWorkoutToStorage` swallows.
+- **`nextIndex === -1`** (all done): no scroll; complete button visible.
+
+---
+
+## E4. UX decisions baked in
+
+| Decision | Value | Reason |
+|---|---|---|
+| Draft clear timing | immediate on log | No stale drafts after successful log |
+| IndexedDB save mode | bypass debounce | Critical write — must hit disk now |
+| Emergency backup | localStorage (separate from Dexie) | Double-redundancy in case IndexedDB corrupts |
+| Emergency backup version | 2 | Schema migration marker |
+| Auto-advance scan | forward then wrap | Sequential flow + skip recovery |
+| Scroll behavior | smooth, center | User keeps context |
+| Complete button visibility | only when allDone | Prevents accidental partial completion |
+| All-logged prompt delay | 500 ms | Lets last log animation settle |
+| Prompt title | "🎉 All exercises logged!" | Celebratory |
+| Confirm button color | #10b981 (green) | Positive reinforcement |
+| Confirm text | "Complete Workout 🏆" | Trophy emoji = achievement |
+| Cancel text | "Later" | Non-judgmental |
+| Volume display | `formatNumber(totalVolume) lbs` | Comma-separated thousands |
+| Skipped count shown | only if > 0 | Don't shame zero-skip workouts |
+| Best-weight update | strictly > | Same weight isn't a weight PR |
+| Best-reps at same weight | > | Rep PR is valid |
+| Time volume unit | seconds | Simple, unambiguous |
+
+---
+
+## G. Audit score
+
+| Behavior in reference | Native coverage | Gap |
+|---|---|---|
+| Draft clearing on log | FULL (`Sessions.kt`) | — |
+| Immediate IndexedDB save (bypass debounce) | FULL | — |
+| Emergency localStorage backup | PARTIAL | `Backup.kt` writes periodic snapshots, not per-log emergency backup |
+| Auto-advance to next unfinished | FULL | — |
+| Forward-then-wrap scan order | FULL | — |
+| Scroll-into-view smooth center | FULL (Compose scroll) | — |
+| `updateCompleteWorkoutButton` visibility gate | FULL | — |
+| All-logged prompt (500ms delay, stats) | FULL (`Sessions.kt` ALL_LOGGED_*) | — |
+| Volume calculation (reps + time) | FULL | — |
+| `updateExerciseHistory` full record | FULL | — |
+| Best-weight/best-reps tracking | FULL | — |
+| Same-weight rep PR | FULL | — |
+| Time-based volume = seconds | FULL | — |
+| `firstRPE` capture on history | FULL | — |
+| `restEstimate` capture | PARTIAL | Field exists but rest timer not wired in UI |
+| `muscles` copy on history entry | FULL | — |
+| `prescriptionType` stored on history | FULL | — |
+
+**Coverage: 88%** (15 FULL / 2 PARTIAL / 0 MISSING of 17 behaviours)
+
+---
+
+## H. Top 3 gaps to close
+
+1. **No per-log emergency backup** — native `Backup.kt` writes periodic snapshots (every 5 workouts) but not a per-log emergency backup. Add a per-log write to a separate `emergency_workout.json` in app-private storage so a crash mid-session never loses the last set.
+2. **Rest estimate not captured** — the `restEstimate` field exists on history but the rest timer UI isn't wired to populate it. Add a rest timer that auto-starts after each set log and writes the elapsed time to `actual.restEstimate`.
+3. **Best-weight PR not surfaced** — the `bestWeight`/`bestReps` fields are updated but no notification fires. Show a "🏆 New PR!" toast when a weight or rep PR is hit.

@@ -30,7 +30,6 @@ import com.peakform.fitness.core.MigrationBridge
 import com.peakform.fitness.ProLog
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProPrefs
-import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.ui.components.BtnStyle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -60,6 +59,7 @@ import com.peakform.fitness.core.Badges
 import com.peakform.fitness.core.Health
 import com.peakform.fitness.core.Notify
 import com.peakform.fitness.core.OnboardDraft
+import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.Profiles
 import com.peakform.fitness.core.ProfileRegistry
 import com.peakform.fitness.core.StreakFire
@@ -77,11 +77,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         Fa.appContext = applicationContext
         ProState.init(this)
-        // BATCH-5A: one-shot v18 + v22 migrations — copy legacy global ProPrefs
-        // values (onboarding/health/theme/etc) into the active profile's
-        // SharedPreferences (p4_ls_<id>) so existing users keep their state.
-        com.peakform.fitness.core.ProfileState.migrateFromPrefs(this)
-        ProfileSettings.migrateFromPrefs(this)
         // FIX (audit): EngineHooks.rebuildDerived was never assigned — after imports the
         // derived aggregates/fatigue were not rebuilt until some other engine call happened.
         com.peakform.fitness.core.EngineHooks.rebuildDerived = {
@@ -89,12 +84,11 @@ class MainActivity : ComponentActivity() {
             com.peakform.fitness.engine.Fatigue.calculateMuscleLastTrained()
             com.peakform.fitness.engine.Sessions.recomputeAggregates()
         }
-        // BATCH-5B: load theme from ProfileSettings (per-profile). After load
-        // we call resolveDark(systemDark) at boot so "system" mode picks up
-        // the platform dark/light setting.
-        ThemeController.load(ProfileSettings.get(this, ProfileSettings.K_THEME))
-        ThemeController.loadDynamic(ProfileSettings.get(this, ProfileSettings.K_DYNAMIC))
-        ThemeController.resolveDark(systemDark = isSystemDarkThemeStatic())
+        // BATCH-5B: theme now lives in the active profile's per-profile
+        // SharedPreferences (`p4_ls_<id>` via ProfileSettings). The ThemeController
+        // reload() reads the active profile's p4_theme + p4_dynamic and resolves
+        // the effective dark flag against the current Android UI mode.
+        ThemeController.reload(this)
         Vocab.init(this)
         Badges.init(this)
         applyScreenshotSafeMode()
@@ -119,9 +113,16 @@ class MainActivity : ComponentActivity() {
             var migrationInfo by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(Unit) {
                 // BATCH-4B item 2/6: one-shot v18 meta migration — copy legacy
-                // global p4_onboarded / p4_health_* into every profile's Room
-                // `meta` table so existing users keep their onboarded state.
+                // global p4_onboarded / p4_health_* into every profile's
+                // per-profile SharedPreferences so existing users keep their
+                // onboarded state.
                 com.peakform.fitness.core.ProfileState.migrateFromPrefs(ctx)
+                // BATCH-5A: one-shot v22 settings migration — copy the
+                // previously-global p4_theme / p4_dynamic / p4_gym / p4_lang /
+                // p4_vocab / library prefs / notif prefs from `p4_ls` into
+                // every profile's `p4_ls_<id>` so theme + library prefs switch
+                // with the profile. Idempotent.
+                com.peakform.fitness.core.ProfileSettings.migrateFromPrefs(ctx)
                 ProState.loadAll()
                 // BATCH-4B item 6: stamp the active profile's first-launch
                 // timestamp (a new-user signal — never overwrites if present).
@@ -189,7 +190,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /** NA7: screenshot-safe mode hides content in the recents strip and screenshots.
-     *  BATCH-5A: read p4_secure from ProfileSettings (per-profile). */
+     *  BATCH-5B: routed through ProfileSettings (per-profile). */
     private fun applyScreenshotSafeMode() {
         if (ProfileSettings.get(this, ProfileSettings.K_SECURE) == "on") {
             window.setFlags(
@@ -197,12 +198,6 @@ class MainActivity : ComponentActivity() {
                 android.view.WindowManager.LayoutParams.FLAG_SECURE,
             )
         }
-    }
-
-    /** BATCH-5B: read the system dark/light setting without a Composable context. */
-    private fun isSystemDarkThemeStatic(): Boolean {
-        val mode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
-        return mode == android.content.res.Configuration.UI_MODE_NIGHT_YES
     }
 }
 
@@ -479,11 +474,9 @@ fun AppShell(
                         "feedback" -> FeedbackScreen(onClose = { go("settings") })
                         "mycycle" -> MyCycleScreen(onClose = { go("dashboard") })
                         "badges" -> BadgeGalleryScreen()
-                        // BATCH-8: 1RM Audit screen — lists exercises with stale or
-                        // missing 1RM tests and lets the user log a fresh attempt.
-                        "1rm_audit" -> com.peakform.fitness.ui.screens.OneRMAuditScreen(onClose = { go("settings") })
-                        // BATCH-12: 1RM Lab screen — estimate, save snapshots, history.
-                        "1rm_lab" -> com.peakform.fitness.ui.screens.OneRmLabScreen(onClose = { go("settings") })
+                        "onerm_audit" -> OneRMAuditScreen(onOpenSection = { go(it) })
+                        "onerm_lab" -> OneRmLabScreen(onOpenSection = { go(it) })
+                        "reference" -> ReferenceGapsScreen(onOpenSection = { go(it) })
                     }
                 }
             }

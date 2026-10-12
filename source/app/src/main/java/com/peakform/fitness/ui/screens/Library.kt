@@ -19,8 +19,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.LibraryExercise
-import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.ProState
+import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.core.ProJson
 import kotlinx.serialization.builtins.ListSerializer
@@ -82,10 +82,11 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806).
     // BATCH-4C Gap 1: honor p4_lib_expand_all pref — when "true", start with all
     // groups EXPANDED (empty collapsed set) instead of the default all-collapsed.
-    // BATCH-5A: route through ProfileSettings (per-profile SharedPreferences).
-    // collapsedGroups defaults to all-collapsed when no preference is set.
     var collapsedGroups by remember(Library.groups) {
         val expandAllPref = ProfileSettings.get(ctx, ProfileSettings.K_LIB_EXPAND_ALL) == "true"
+        // BATCH-5B: default to all-collapsed (empty expandAll pref) so the
+        // Library loads fast on large databases. "Expand-all" pref flips this
+        // to empty-set (everything expanded).
         val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
         mutableStateOf(
             try {

@@ -1,50 +1,52 @@
 package com.peakform.fitness.ui
 
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 
 /**
- * Accessibility — BATCH-13 helpers.
+ * Accessibility — BATCH-13 semantic helpers for screen-reader-friendly UI.
  *
- * - isReducedMotion(): respects the system "Remove animations" / animator
- *   scale 0 setting so users with motion sensitivity don't see animated
- *   transitions.
- * - minTapTarget(): enforces a minimum 44dp touch target on a Modifier.
- * - LocalReducedMotion: a composition local so descendants can read the
- *   current motion preference without re-querying the system.
+ * Compose already exposes most of the standard semantics; this file collects
+ * the patterns used across the app so call sites stay short and consistent.
+ *
+ * Modifier.accessibleHeading(label) marks a Text as a section heading so
+ * TalkBack announces "Heading, <label>".
+ *
+ * Modifier.accessibleToggle(label, checked) marks a toggle row so TalkBack
+ * announces the label + state + role.
+ *
+ * Modifier.accessibleAction(label) wraps a clickable surface with a clear
+ * screen-reader label so non-text buttons (icon buttons, chips) announce
+ * their purpose.
  */
 object Accessibility {
-    /** True if the user has disabled / reduced animations at the system level. */
-    fun isReducedMotion(ctx: android.content.Context): Boolean {
-        return try {
-            val resolver = ctx.contentResolver
-            // Settings.Global.ANIMATOR_DURATION_SCALE == "animator_duration_scale"
-            val scale = android.provider.Settings.Global.getFloat(
-                resolver,
-                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
-                1f,
-            )
-            scale == 0f
-        } catch (_: Exception) { false }
-    }
+    /** Section heading semantics (BATCH-13). */
+    fun Modifier.accessibleHeading(label: String): Modifier =
+        this.semantics(mergeDescendants = true) {
+            contentDescription = label
+            heading()
+        }
 
-    /** Modifier that enforces a minimum 44dp tap target (Apple HIG / Material). */
-    fun minTapTarget(): Modifier = Modifier.size(44.dp)
+    /** Toggleable semantics for toggle rows (BATCH-13). */
+    fun Modifier.accessibleToggle(label: String, checked: Boolean): Modifier =
+        this.semantics(mergeDescendants = true) {
+            contentDescription = label
+            role = Role.Switch
+            toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
+            selected = checked
+        }
+
+    /** Generic actionable element (BATCH-13) — used by icon-only buttons. */
+    fun Modifier.accessibleAction(label: String): Modifier =
+        this.semantics(mergeDescendants = true) {
+            contentDescription = label
+            role = Role.Button
+        }
 }
-
-/** Composition local exposing the current reduced-motion setting to descendants. */
-val LocalReducedMotion = staticCompositionLocalOf { false }
-
-/** Helper to wire contentDescription into a Modifier (used by FaIcon etc.). */
-fun Modifier.withContentDescription(description: String?): Modifier =
-    if (description.isNullOrBlank()) this
-    else this.semantics { contentDescription = description }

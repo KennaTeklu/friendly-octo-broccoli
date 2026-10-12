@@ -4,8 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -20,127 +18,166 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.OneRmLab
 import com.peakform.fitness.core.ProState
-import com.peakform.fitness.engine.Library
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
 
 /**
- * BATCH-12: OneRmLabScreen — interactive 1RM estimator.
+ * OneRmLabScreen — BATCH-12 1RM experimentation view.
  *
- * Inputs: weight lifted, reps performed, optional RPE.
- * Outputs: 4 estimation methods (Epley, Brzycki, Lombardi, RPE-based),
- * average + confidence interval, working weights at 65/75/85/95%.
+ * Lists every record with a tested1RM or est.1RM (mu), shows the residual
+ * spread as a confidence indicator, and exposes the batch actions
+ * (clear stale, decay, re-estimate missing) so the user can prune the
+ * calibration model without a manual export + edit + import cycle.
  *
- * Snapshots persist per-profile via OneRmLab.saveSnapshot; the history list
- * shows prior attempts.
+ * Read-only by default — every batch action opens a confirmation dialog
+ * before mutating ProState.data.exercises.
  */
 @Composable
-fun OneRmLabScreen(onClose: () -> Unit) {
+fun OneRmLabScreen(onOpenSection: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
+    val ver = remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        val l: () -> Unit = { ver.intValue++ }
+        synchronized(ProState.listeners) { ProState.listeners.add(l) }
+        onDispose { synchronized(ProState.listeners) { ProState.listeners.remove(l) } }
+    }
+    val _tick = ver.intValue
 
-    var weight by remember { mutableStateOf("135") }
-    var reps by remember { mutableStateOf("5") }
-    var rpe by remember { mutableStateOf("") }
-    var exerciseId by remember { mutableStateOf("bench_press") }
-    var result by remember { mutableStateOf<OneRmLab.EstimateResult?>(null) }
+    val rows = remember(ver.intValue) { OneRmLab.audit(ctx) }
+    var confirmClearStale by remember { mutableStateOf(false) }
+    var confirmDecay by remember { mutableStateOf(false) }
+    var confirmReEstimate by remember { mutableStateOf(false) }
+    var toast by remember { mutableStateOf<String?>(null) }
 
-    val history = remember(result) { OneRmLab.getSnapshots(ctx) }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Spacer(Modifier.height(4.dp))
+        SectionTitle("fa-flask", "1RM Lab")
+        Text(
+            "Experiment with the 1RM model — clear stale tests, apply a global decay, or seed missing estimates. " +
+                "Changes affect the active profile only.",
+            style = ProType.small, color = c.text3,
+        )
 
-    Column(Modifier.fillMaxSize().background(c.bg)) {
-        // Header
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FaIcon("fa-flask-vial", size = 18.sp, tint = c.accent)
-            Spacer(Modifier.width(10.dp))
-            Text("1RM Lab", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
-            P4Button("Close", style = BtnStyle.GHOST, onClick = onClose)
+        // ---- batch actions ----
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            P4Button("Clear stale (>6w)", icon = "fa-eraser", style = BtnStyle.DANGER, modifier = Modifier.weight(1f), minHeight = 40) {
+                confirmClearStale = true
+            }
+            P4Button("Decay ×0.95", icon = "fa-chart-line", style = BtnStyle.SECONDARY, modifier = Modifier.weight(1f), minHeight = 40) {
+                confirmDecay = true
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            P4Button("Re-estimate missing", icon = "fa-wand-magic-sparkles", style = BtnStyle.INFO, modifier = Modifier.weight(1f), minHeight = 40) {
+                confirmReEstimate = true
+            }
+            P4Button("Open Audit", icon = "fa-magnifying-glass-chart", style = BtnStyle.GHOST, modifier = Modifier.weight(1f), minHeight = 40) {
+                onOpenSection("onerm_audit")
+            }
         }
 
-        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).verticalScroll(rememberScrollState())) {
-            Text("Weight lifted (lbs)", style = ProType.small, color = c.text3)
-            ProTextField(value = weight, onValueChange = { weight = it.filter { ch -> ch.isDigit() || ch == '.' } }, placeholder = "135")
-            Spacer(Modifier.height(8.dp))
+        if (rows.isEmpty()) {
+            EmptyState(
+                icon = "fa-flask",
+                title = "No 1RM records yet",
+                message = "Log a few sessions — the Lab populates automatically as the engine builds a 1RM model.",
+            )
+        }
 
-            Text("Reps performed", style = ProType.small, color = c.text3)
-            ProTextField(value = reps, onValueChange = { reps = it.filter { ch -> ch.isDigit() } }, placeholder = "5")
-            Spacer(Modifier.height(8.dp))
-
-            Text("RPE (1–10, optional)", style = ProType.small, color = c.text3)
-            ProTextField(value = rpe, onValueChange = { rpe = it.filter { ch -> ch.isDigit() } }, placeholder = "7")
-            Spacer(Modifier.height(12.dp))
-
-            P4Button("Estimate 1RM", icon = "fa-calculator", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth()) {
-                val w = weight.toDoubleOrNull() ?: return@P4Button
-                val r = reps.toIntOrNull() ?: return@P4Button
-                if (w <= 0 || r <= 0) return@P4Button
-                val rp = rpe.toDoubleOrNull()?.takeIf { it in 1.0..10.0 }
-                val name = Library.getExerciseById(exerciseId)?.name ?: exerciseId
-                result = OneRmLab.estimate(exerciseId, name, w, r, rp)
+        rows.forEach { row ->
+            val stale = row.weeksOld >= 6
+            val borderColor = when {
+                stale -> c.warn
+                row.tested != null -> c.ok
+                else -> c.accent
             }
-            Spacer(Modifier.height(16.dp))
-
-            result?.let { res ->
-                Text("Estimate results", style = ProType.label, color = c.text, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                ResultRow("Epley", "${res.epley.toInt()} lbs", c)
-                ResultRow("Brzycki", "${res.brzycki.toInt()} lbs", c)
-                ResultRow("Lombardi", "${res.lombardi.toInt()} lbs", c)
-                res.rpeBased?.let { ResultRow("RPE-based", "${it.toInt()} lbs", c) }
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                        .background(c.tintBg).border(1.dp, c.tintLine, RoundedCornerShape(12.dp))
-                        .padding(12.dp)
-                ) {
-                    Column {
-                        Text("Average 1RM: ${res.average.toInt()} lbs", style = ProType.label, color = c.accent)
-                        Text("Confidence interval: ${res.confidenceLow.toInt()} – ${res.confidenceHigh.toInt()} lbs", style = ProType.small, color = c.text3)
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surface)
+                    .border(1.dp, borderColor, RoundedCornerShape(14.dp)).padding(14.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(row.name, style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
+                    if (stale) {
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.warn.copy(alpha = 0.16f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                            Text("STALE ${row.weeksOld}w", color = c.warn, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else if (row.tested != null) {
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.ok.copy(alpha = 0.16f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                            Text("TESTED", color = c.ok, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Text("Working weights", style = ProType.label, color = c.text, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                ResultRow("65%", "${res.workingWeight(0.65).toInt()} lbs × ${(res.average * 0.65 / res.weightLifted).toInt()} reps", c)
-                ResultRow("75%", "${res.workingWeight(0.75).toInt()} lbs × ${(res.average * 0.75 / res.weightLifted).toInt()} reps", c)
-                ResultRow("85%", "${res.workingWeight(0.85).toInt()} lbs × ${(res.average * 0.85 / res.weightLifted).toInt()} reps", c)
-                ResultRow("95%", "${res.workingWeight(0.95).toInt()} lbs × ${(res.average * 0.95 / res.weightLifted).toInt()} reps", c)
-                Spacer(Modifier.height(12.dp))
-                P4Button("Save snapshot", icon = "fa-save", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
-                    OneRmLab.saveSnapshot(ctx, OneRmLab.Snapshot(exerciseId, res.exerciseName, res))
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-
-            if (history.isNotEmpty()) {
-                Text("History (${history.size})", style = ProType.label, color = c.text, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
-                history.takeLast(10).reversed().forEach { snap ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(c.surface2)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(snap.exerciseName, style = ProType.body2, color = c.text, modifier = Modifier.weight(1f))
-                        Text("${snap.result.average.toInt()} lbs", style = ProType.small, color = c.accent)
-                        Spacer(Modifier.width(8.dp))
-                        Text(snap.result.at.take(10), style = ProType.small, color = c.text3)
-                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LabStat("Tested", if (row.tested != null) "${row.tested.toInt()} lbs" else "—", c.ok)
+                    LabStat("Est.", if (row.est != null) "${row.est.toInt()} lbs" else "—", c.accent)
+                    LabStat("Spread", String.format("%.0f", row.residualSpread), c.text3)
                 }
             }
-            Spacer(Modifier.height(24.dp))
         }
+        Spacer(Modifier.height(120.dp))
+    }
+
+    // ---- confirmations ----
+    if (confirmClearStale) {
+        SwalDialog(
+            title = "Clear stale 1RM records?",
+            text = "This drops every tested1RM older than 6 weeks. Est. 1RM (mu) values stay intact. Continue?",
+            confirmText = "Clear stale", cancelText = "Cancel",
+            onConfirm = {
+                confirmClearStale = false
+                val n = OneRmLab.clearStale(ctx, 6)
+                toast = if (n > 0) "Cleared $n stale records" else "No stale records found"
+                ver.intValue++
+            },
+            onDismiss = { confirmClearStale = false },
+        )
+    }
+    if (confirmDecay) {
+        SwalDialog(
+            title = "Apply global decay ×0.95?",
+            text = "Multiplies every Est. 1RM (mu) by 0.95. Use after a deload block where 1RMs are temporarily depressed.",
+            confirmText = "Apply decay", cancelText = "Cancel",
+            onConfirm = {
+                confirmDecay = false
+                val n = OneRmLab.decayAll(ctx, 0.95)
+                toast = if (n > 0) "Decayed $n records ×0.95" else "No est. 1RM to decay"
+                ver.intValue++
+            },
+            onDismiss = { confirmDecay = false },
+        )
+    }
+    if (confirmReEstimate) {
+        SwalDialog(
+            title = "Re-estimate missing?",
+            text = "Seeds an Est. 1RM for every exercise with a logged best-weight but no mu value (legacy gap).",
+            confirmText = "Re-estimate", cancelText = "Cancel",
+            onConfirm = {
+                confirmReEstimate = false
+                val n = OneRmLab.reEstimateMissing(ctx)
+                toast = if (n > 0) "Seeded $n missing estimates" else "No missing estimates"
+                ver.intValue++
+            },
+            onDismiss = { confirmReEstimate = false },
+        )
+    }
+    toast?.let { msg ->
+        LaunchedEffect(msg) { kotlinx.coroutines.delay(2400); toast = null }
+        ToastBanner(msg)
     }
 }
 
 @Composable
-private fun ResultRow(label: String, value: String, c: ProColors) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = ProType.body2, color = c.text2)
-        Text(value, style = ProType.body2, color = c.text, fontWeight = FontWeight.SemiBold)
+private fun LabStat(label: String, value: String, color: androidx.compose.ui.graphics.Color) {
+    val c = LocalProColors.current
+    Box(Modifier.clip(RoundedCornerShape(10.dp)).background(c.surface2).padding(horizontal = 10.dp, vertical = 6.dp)) {
+        Column {
+            Text(label, fontSize = 9.sp, color = c.text3)
+            Text(value, style = ProType.label, color = color)
+        }
     }
 }

@@ -12,48 +12,57 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.peakform.fitness.core.CoachingEngine
 import com.peakform.fitness.core.ProState
-import com.peakform.fitness.engine.Library
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
 
 /**
- * BATCH-8: QuickActionsSheet — bottom sheet with quick actions for the
- * active workout (log last-set RPE, mark all done, skip rest, tune).
+ * QuickActionsSheet — BATCH-8 quick-jump panel surfaced from the dashboard.
  *
- * This is a lightweight composable — it shows the user's current tuning
- * answers and lets them jump to the tuning sheet or post-session feel sheet.
+ * A bottom-sheet-style scrollable panel with the most-used one-tap actions:
+ * start workout, run a 1RM test, open 1RM Lab, run health screen, take a
+ * snapshot, open Recovery. Each action routes via onOpenSection so the shell
+ * handles navigation.
+ *
+ * The sheet itself is presented as a Column so callers (MainActivity, the
+ * "more" sheet) can host it inline or wrap it in a Dialog. The action list is
+ * static — there is no per-action business logic here.
  */
 @Composable
 fun QuickActionsSheet(
-    visible: Boolean,
+    onOpenSection: (String) -> Unit,
     onDismiss: () -> Unit,
-    onOpenTuning: () -> Unit,
-    onOpenPostSession: () -> Unit,
-    onLogAll: () -> Unit,
-    onSkipRest: () -> Unit,
 ) {
     val c = LocalProColors.current
-    if (!visible) return
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-            .background(c.glass2).padding(16.dp)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.glass2)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Quick actions", style = ProType.cardTitle, color = c.text)
-        Spacer(Modifier.height(12.dp))
-        P4Button("Log all sets as RPE 7", icon = "fa-bolt", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth()) { onLogAll() }
-        Spacer(Modifier.height(8.dp))
-        P4Button("Skip rest timer", icon = "fa-forward", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onSkipRest() }
-        Spacer(Modifier.height(8.dp))
-        P4Button("Tune today's session", icon = "fa-sliders", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onOpenTuning() }
-        Spacer(Modifier.height(8.dp))
-        P4Button("Post-session feel", icon = "fa-face-smile", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) { onOpenPostSession() }
-        Spacer(Modifier.height(12.dp))
-        P4Button("Close", style = BtnStyle.GHOST, modifier = Modifier.fillMaxWidth()) { onDismiss() }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Quick actions", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
+            Text("Close", style = ProType.small, color = c.accent, modifier = Modifier.clickable { onDismiss() })
+        }
+        val actions = listOf(
+            Action("Start workout", "fa-bolt", "workout", BtnStyle.PRIMARY),
+            Action("Run 1RM test", "fa-gauge-high", "workout", BtnStyle.SECONDARY),
+            Action("1RM Audit", "fa-magnifying-glass-chart", "onerm_audit", BtnStyle.INFO),
+            Action("1RM Lab", "fa-flask", "onerm_lab", BtnStyle.INFO),
+            Action("Recovery", "fa-bed", "recovery", BtnStyle.SECONDARY),
+            Action("Health screen", "fa-notes-medical", "health", BtnStyle.SECONDARY),
+            Action("Take snapshot", "fa-camera", "snapshots", BtnStyle.GHOST),
+        )
+        actions.forEach { a ->
+            P4Button(a.label, icon = a.icon, style = a.style, modifier = Modifier.fillMaxWidth(), minHeight = 42) {
+                onDismiss()
+                onOpenSection(a.route)
+            }
+        }
+        Spacer(Modifier.height(4.dp))
     }
 }
+
+private data class Action(val label: String, val icon: String, val route: String, val style: BtnStyle)

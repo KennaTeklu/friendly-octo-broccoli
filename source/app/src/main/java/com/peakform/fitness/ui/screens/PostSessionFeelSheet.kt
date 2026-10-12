@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,60 +22,79 @@ import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
 
 /**
- * BATCH-8: PostSessionFeelSheet — captures the user's subjective feedback
- * after finishing a workout (overall RPE, felt-strong, minutes trained, notes).
- * Stored per-profile via SelfAssessment.savePostSession and surfaced in the
- * Progress trends.
+ * PostSessionFeelSheet — BATCH-9 post-workout feel capture.
+ *
+ * After completing a workout, the user is asked to rate how the session went
+ * (1–5 stars) and tag how they feel (energy, soreness, motivation, sleep).
+ * The capture is persisted via SelfAssessment.record() into per-profile
+ * SharedPreferences.
  */
 @Composable
 fun PostSessionFeelSheet(
-    visible: Boolean,
     workoutId: String?,
     onDismiss: () -> Unit,
 ) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    if (!visible) return
-    var rpe by remember { mutableIntStateOf(7) }
-    var feltStrong by remember { mutableStateOf(false) }
-    var minutes by remember { mutableIntStateOf(45) }
-    var notes by remember { mutableStateOf("") }
+    var rating by remember { mutableIntStateOf(0) }
+    var energy by remember { mutableIntStateOf(0) }
+    var soreness by remember { mutableIntStateOf(0) }
+    var motivation by remember { mutableIntStateOf(0) }
+    var sleep by remember { mutableIntStateOf(0) }
+    var note by remember { mutableStateOf("") }
+    var saved by remember { mutableStateOf(false) }
 
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-            .background(c.glass2).padding(16.dp).verticalScroll(rememberScrollState())
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.glass2)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("How did it feel?", style = ProType.cardTitle, color = c.text)
-        Spacer(Modifier.height(8.dp))
-        Text("Overall RPE: $rpe / 10", style = ProType.small, color = c.text3)
-        Slider(value = rpe.toFloat(), onValueChange = { rpe = it.toInt().coerceIn(1, 10) }, valueRange = 1f..10f, steps = 8)
-        Spacer(Modifier.height(8.dp))
-
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Felt strong today?", style = ProType.body2, color = c.text, modifier = Modifier.weight(1f))
-            androidx.compose.material3.Switch(checked = feltStrong, onCheckedChange = { feltStrong = it })
+            Text("How did that feel?", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
+            Text("Close", style = ProType.small, color = c.accent, modifier = Modifier.clickable { onDismiss() })
         }
-        Spacer(Modifier.height(8.dp))
-
-        Text("Minutes trained: $minutes", style = ProType.small, color = c.text3)
-        Slider(value = minutes.toFloat(), onValueChange = { minutes = it.toInt().coerceIn(5, 240) }, valueRange = 5f..240f, steps = 46)
-        Spacer(Modifier.height(8.dp))
-
-        Text("Notes (optional)", style = ProType.small, color = c.text3)
-        ProTextField(value = notes, onValueChange = { notes = it }, placeholder = "What worked? What didn't?")
-        Spacer(Modifier.height(12.dp))
-        P4Button("Save feedback", icon = "fa-save", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth()) {
-            SelfAssessment.savePostSession(ctx, SelfAssessment.PostSessionFeel(
-                workoutId = workoutId ?: "unknown",
+        StarRow("Overall rating", rating) { rating = it }
+        StarRow("Energy", energy) { energy = it }
+        StarRow("Soreness (5 = very sore)", soreness) { soreness = it }
+        StarRow("Motivation", motivation) { motivation = it }
+        StarRow("Sleep last night", sleep) { sleep = it }
+        Text("Notes (optional)", style = ProType.small, color = c.text2)
+        ProTextField(value = note, onValueChange = { note = it.take(280) }, placeholder = "What worked? What didn't?")
+        if (saved) {
+            Text("Saved — thank you!", style = ProType.label, color = c.ok)
+        }
+        P4Button("Save", icon = "fa-save", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth(), minHeight = 42,
+            enabled = rating > 0 && energy > 0) {
+            SelfAssessment.record(ctx, SelfAssessment.Assessment(
                 at = ProState.nowIso(),
-                overallRpe = rpe,
-                feltStrong = feltStrong,
-                notes = notes,
-                minutesTrained = minutes,
+                workoutId = workoutId,
+                rating = rating,
+                energy = energy,
+                soreness = soreness,
+                motivation = motivation,
+                sleep = sleep,
+                note = note,
             ))
-            onDismiss()
+            saved = true
         }
-        Spacer(Modifier.height(8.dp))
-        P4Button("Skip", style = BtnStyle.GHOST, modifier = Modifier.fillMaxWidth()) { onDismiss() }
+    }
+}
+
+@Composable
+private fun StarRow(label: String, value: Int, onPick: (Int) -> Unit) {
+    val c = LocalProColors.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            (1..5).forEach { s ->
+                Box(Modifier.size(28.dp).clip(RoundedCornerShape(6.dp))
+                    .background(if (s <= value) c.accent else c.surface2)
+                    .border(1.dp, if (s <= value) c.accent else c.hairline2, RoundedCornerShape(6.dp))
+                    .clickable { onPick(s) },
+                    contentAlignment = Alignment.Center) {
+                    Text("★", fontSize = 14.sp, color = if (s <= value) c.onAccent else c.text3)
+                }
+            }
+        }
     }
 }

@@ -81,31 +81,30 @@ data class ProColors(
 
     val primaryButtonShadow: Brush get() = accentGradient
 
-    /** BATCH-6: tinted variants derived from the accent and the surface/base.
-     *  - tint       — accent at 12% over the surface (chip backgrounds, soft fills)
-     *  - tintStrong — accent at 22% over the surface (active tab, pressed)
-     *  - tintBg     — accent at 6% over the canvas (full-bleed tint backgrounds)
-     *  - tintLine   — accent at 32% as a hairline (selected row border)
-     *  - inkSoft    — text at 60% alpha for muted body copy that should still
-     *                 feel like ink, not a placeholder.
-     *  - ring       — accent at 48% — focus ring for accessibility-driven focus. */
-    val tint: Color get() = mix(accent, if (dark) surface else Color.White, 0.12f)
-    val tintStrong: Color get() = mix(accent, if (dark) surface else Color.White, 0.22f)
-    val tintBg: Color get() = mix(accent, if (dark) bg else Color.White, 0.06f)
-    val tintLine: Color get() = accent.copy(alpha = 0.32f)
-    val inkSoft: Color get() = text.copy(alpha = 0.60f)
-    val ring: Color get() = accent.copy(alpha = 0.48f)
+    // ---- BATCH-5B: M3-aligned semantic tokens (tint family) ----
+    // tint / tintStrong / tintBg / tintLine / inkSoft / ring map onto the
+    // Material 3 ColorScheme roles so component code that wants a "tint" or
+    // "focus ring" doesn't have to invent alpha each call site.
 
-    /** BATCH-6: card gradient — vertical accent→surface wash used on hero cards. */
+    /** Mid-opacity accent tint (chips, selected text backgrounds). */
+    val tint: Color get() = accent.copy(alpha = if (dark) 0.20f else 0.16f)
+    /** Strong accent tint (active hover backgrounds, pressed states). */
+    val tintStrong: Color get() = accent.copy(alpha = if (dark) 0.34f else 0.26f)
+    /** Subtle accent background (selected card fills, nav highlights). */
+    val tintBg: Color get() = accent.copy(alpha = if (dark) 0.10f else 0.08f)
+    /** Accent border / hairline on tint backgrounds. */
+    val tintLine: Color get() = accent.copy(alpha = if (dark) 0.40f else 0.32f)
+    /** Softer body-ink — between text2 and text3 (for de-emphasized labels). */
+    val inkSoft: Color get() = text2.copy(alpha = 0.78f)
+    /** Standard focus-ring color (4-px border for keyboard focus). */
+    val ring: Color get() = accent.copy(alpha = 0.65f)
+
+    /** Card gradient — subtle vertical blend surface → surface2 used by
+     *  GlassCard and the focus-card variants. Returns a 2-stop Brush. */
     val cardGradient: Brush
-        get() = Brush.verticalGradient(
-            listOf(
-                mix(accent, if (dark) surface else Color.White, 0.10f),
-                if (dark) surface else Color.White,
-            )
-        )
+        get() = Brush.verticalGradient(listOf(surface, surface2))
 
-    /** BATCH-6: focus ring color — for the focusRing border on inputs. */
+    /** Modifier-friendly border color for a 2-px focus ring (BATCH-5B). */
     val focusRing: Color get() = ring
 
     companion object {
@@ -120,15 +119,45 @@ data class ProColors(
             red = c.red * (1f - f), green = c.green * (1f - f), blue = c.blue * (1f - f), alpha = c.alpha,
         )
 
-        /** BATCH-6: mix two colors at a percentage. pct=0.0 → accent, 1.0 → base.
-         *  Used by tint/tintStrong/tintBg/cardGradient so all derived tints
-         *  land on the same surface they will be drawn over (dark → surface
-         *  #10141C, light → white). */
-        fun mix(accent: Color, base: Color, pct: Float): Color = Color(
-            red = accent.red * (1f - pct) + base.red * pct,
-            green = accent.green * (1f - pct) + base.green * pct,
-            blue = accent.blue * (1f - pct) + base.blue * pct,
-            alpha = accent.alpha * (1f - pct) + base.alpha * pct,
+        /**
+         * BATCH-5B mix(): blend two ProColors by a 0..1 factor. 0 returns a,
+         * 1 returns b. Used by the 3-mode theme switch (system → dark/light)
+         * so the transition between schemes is smooth instead of a hard cut.
+         */
+        fun mix(a: ProColors, b: ProColors, t: Float): ProColors {
+            val f = t.coerceIn(0f, 1f)
+            if (f == 0f) return a
+            if (f == 1f) return b
+            return ProColors(
+                dark = if (f < 0.5f) a.dark else b.dark,
+                bg = mixColor(a.bg, b.bg, f),
+                bg2 = mixColor(a.bg2, b.bg2, f),
+                surface = mixColor(a.surface, b.surface, f),
+                surface2 = mixColor(a.surface2, b.surface2, f),
+                surface3 = mixColor(a.surface3, b.surface3, f),
+                hairline = mixColor(a.hairline, b.hairline, f),
+                hairline2 = mixColor(a.hairline2, b.hairline2, f),
+                text = mixColor(a.text, b.text, f),
+                text2 = mixColor(a.text2, b.text2, f),
+                text3 = mixColor(a.text3, b.text3, f),
+                glass = mixColor(a.glass, b.glass, f),
+                glass2 = mixColor(a.glass2, b.glass2, f),
+                accent = mixColor(a.accent, b.accent, f),
+                accentSoft = mixColor(a.accentSoft, b.accentSoft, f),
+                accentLine = mixColor(a.accentLine, b.accentLine, f),
+                onAccent = mixColor(a.onAccent, b.onAccent, f),
+                ok = mixColor(a.ok, b.ok, f),
+                warn = mixColor(a.warn, b.warn, f),
+                bad = mixColor(a.bad, b.bad, f),
+                accentId = if (f < 0.5f) a.accentId else b.accentId,
+            )
+        }
+
+        private fun mixColor(a: Color, b: Color, t: Float): Color = Color(
+            red = a.red + (b.red - a.red) * t,
+            green = a.green + (b.green - a.green) * t,
+            blue = a.blue + (b.blue - a.blue) * t,
+            alpha = a.alpha + (b.alpha - a.alpha) * t,
         )
     }
 }
@@ -206,23 +235,20 @@ fun ProTheme(
         background = pro.bg, onBackground = pro.text,
         surface = pro.surface, onSurface = pro.text,
         surfaceVariant = pro.surface2, onSurfaceVariant = pro.text2,
-        surfaceTint = pro.tint,
         error = pro.bad, secondary = pro.accent, tertiary = pro.ok,
-        outline = pro.hairline2, outlineVariant = pro.hairline,
-        primaryContainer = pro.tintStrong, onPrimaryContainer = pro.text,
-        secondaryContainer = pro.tint, onSecondaryContainer = pro.text,
+        outline = pro.hairline2,
     ) else lightColorScheme(
         primary = pro.accent, onPrimary = pro.onAccent,
         background = pro.bg, onBackground = pro.text,
         surface = pro.surface, onSurface = pro.text,
         surfaceVariant = pro.surface2, onSurfaceVariant = pro.text2,
-        surfaceTint = pro.tint,
         error = pro.bad, secondary = pro.accent, tertiary = pro.ok,
-        outline = pro.hairline2, outlineVariant = pro.hairline,
-        primaryContainer = pro.tintStrong, onPrimaryContainer = pro.text,
-        secondaryContainer = pro.tint, onSecondaryContainer = pro.text,
+        outline = pro.hairline2,
     )
     CompositionLocalProvider(LocalProColors provides pro) {
+        // BATCH-5B: wire the M3 ColorScheme through ProColors so the new tint
+        // family (tint / tintStrong / tintBg / tintLine / inkSoft / ring) and
+        // the cardGradient / focusRing properties flow into M3 components.
         MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography.copy(
             bodyLarge = ProType.body,
         ), content = content)

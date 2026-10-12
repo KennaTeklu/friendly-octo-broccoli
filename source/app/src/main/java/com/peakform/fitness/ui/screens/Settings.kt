@@ -609,37 +609,25 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
     // P4E-UI-02: renamed from "Appearance" to "Change theme".
-    // BATCH-5B: 3-mode toggle (system/dark/light) — system follows the platform
-    // dark/light setting; dark and light are explicit overrides. Mode state
-    // reads from ThemeController so a swatch tap re-colors the whole app
-    // instantly. The tap writes mode + accent + p4_dynamic atomically
-    // (see ThemeController.setAccentAndDynamic).
+    // BATCH-5B: 3-mode toggle (system / dark / light) — the user can pick
+    // "follow system" so theme switches with the Android UI mode. Mode is
+    // persisted as part of the p4_theme JSON (write-through).
     val mode = ThemeController.mode
     val accentId = ThemeController.accentId
     val dynamic = ThemeController.dynamic
 
-    // 3-mode toggle row: System / Dark / Light.
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // BATCH-5B: 3-mode picker — System / Dark / Light
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         listOf(
-            "system" to "fa-desktop",
-            "dark" to "fa-moon",
-            "light" to "fa-sun",
+            ThemeController.MODE_SYSTEM to "fa-display",
+            ThemeController.MODE_DARK to "fa-moon",
+            ThemeController.MODE_LIGHT to "fa-sun",
         ).forEach { (m, ic) ->
             val active = mode == m
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                    .background(if (active) c.accentSoft else c.surface2)
-                    .border(2.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp))
-                    .clickable {
-                        ThemeController.set(m, accentId, ctx)
-                        // BATCH-5B: when "system" is selected, resolve dark
-                        // against the platform value MainActivity tracks.
-                        if (m == "system") ThemeController.resolveDark(systemDark = !ThemeController.dark)
-                        onToast("Theme updated — $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name}")
-                    }
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(2.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
+                ThemeController.set(m, accentId, ctx)
+                onToast("Theme updated — $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name}")
+            }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     com.peakform.fitness.ui.FaIcon(ic, size = 13.sp, tint = if (active) c.accent else c.text2)
                     Spacer(Modifier.width(6.dp))
@@ -707,8 +695,6 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     val accentName = if (dynamic) "Material You" else (ACCENTS.firstOrNull { it.id == accentId }?.name ?: "")
     Text(accentName, fontSize = 12.sp, color = c.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
     Spacer(Modifier.height(12.dp))
-    // BATCH-5A: route per-profile ProPrefs keys through ProfileSettings so
-    // they land on the active profile's SharedPreferences file.
     ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProfileSettings.get(LocalContext.current, ProfileSettings.K_GYM) == "on") { on ->
         ProfileSettings.put(ctx, ProfileSettings.K_GYM, if (on) "on" else "off")
         onToast(if (on) "Gym Mode ON — huge buttons, no waiting on animations." else "Gym Mode off.")
@@ -1017,8 +1003,9 @@ private fun computeLifeStageGuidance(age: Int?, gender: String, postpartumMonths
         "Skipping warm-ups", "Progressive strength, conditioning, skills", 1.0)
 }
 
-/** Library management card — p4LibMgmtCard — buttons to open Studio, export library, import library,
- *  1RM Audit, and Reset to default library (BATCH-5A + BATCH-8). */
+/** Library management card — p4LibMgmtCard — buttons to open Studio, export
+ *  library, import library, audit 1RM records, and reset the library to
+ *  defaults (BATCH-8/14). */
 @Composable
 fun LibraryMgmtCardBody(
     onOpenSection: (String) -> Unit,
@@ -1027,16 +1014,12 @@ fun LibraryMgmtCardBody(
 ) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    var showResetConfirm by remember { mutableStateOf(false) }
+    var auditReport by remember { mutableStateOf<List<String>?>(null) }
+    var resetToast by remember { mutableStateOf<String?>(null) }
     Text("Add your own exercises, edit defaults, or restore the original list.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(10.dp))
     P4Button("Library Studio", icon = "fa-flask-vial", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
         onOpenSection("studio")
-    }
-    Spacer(Modifier.height(8.dp))
-    // BATCH-8: 1RM Audit entry — opens the new OneRMAuditScreen.
-    P4Button("1RM Audit", icon = "fa-magnifying-glass", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth()) {
-        onOpenSection("1rm_audit")
     }
     Spacer(Modifier.height(8.dp))
     P4Button("Export library", icon = "fa-file-export", style = BtnStyle.SUCCESS, modifier = Modifier.fillMaxWidth()) {
@@ -1046,29 +1029,30 @@ fun LibraryMgmtCardBody(
     P4Button("Import library", icon = "fa-folder-open", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
         onImportLibrary()
     }
+    // BATCH-8/14: 1RM Audit + Library Reset buttons — quick paths to the
+    // OneRmLab audit view and the "reset library to defaults" action.
     Spacer(Modifier.height(8.dp))
-    // BATCH-5A: Reset to default library — confirmation dialog so a fat-finger
-    // tap doesn't wipe the user's custom exercises.
-    P4Button("Reset to default library", icon = "fa-rotate-left", style = BtnStyle.DANGER, modifier = Modifier.fillMaxWidth()) {
-        showResetConfirm = true
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        P4Button("1RM Audit", icon = "fa-magnifying-glass-chart", style = BtnStyle.SECONDARY, modifier = Modifier.weight(1f), minHeight = 40) {
+            // Open the OneRMAudit screen (registered in MainActivity routing).
+            onOpenSection("onerm_audit")
+        }
+        P4Button("Reset library", icon = "fa-rotate-left", style = BtnStyle.DANGER, modifier = Modifier.weight(1f), minHeight = 40) {
+            com.peakform.fitness.engine.Library.resetToDefault(ctx)
+            resetToast = "Library reset to defaults — custom exercises removed"
+        }
     }
-    if (showResetConfirm) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showResetConfirm = false },
-            containerColor = c.glass2,
-            shape = RoundedCornerShape(24.dp),
-            title = { Text("Reset to default library?", style = ProType.cardTitle, color = c.text) },
-            text = { Text("This removes every custom exercise you've added and restores the original 1,413-entry library. Your workout history is preserved.", style = ProType.body2, color = c.text2) },
-            confirmButton = {
-                P4Button("Reset", icon = "fa-trash", style = BtnStyle.DANGER) {
-                    com.peakform.fitness.engine.Library.resetToDefault(ctx)
-                    showResetConfirm = false
-                }
-            },
-            dismissButton = {
-                P4Button("Cancel", style = BtnStyle.GHOST) { showResetConfirm = false }
-            },
-        )
+    auditReport?.let { lines ->
+        Spacer(Modifier.height(8.dp))
+        GlassCard(padding = PaddingValues(10.dp)) {
+            Text("1RM Audit", style = ProType.label, color = c.text)
+            Spacer(Modifier.height(4.dp))
+            lines.forEach { Text(it, style = ProType.small, color = c.text2) }
+        }
+    }
+    resetToast?.let { msg ->
+        LaunchedEffect(msg) { kotlinx.coroutines.delay(2400); resetToast = null }
+        ToastBanner(msg)
     }
 }
 
@@ -1171,7 +1155,7 @@ fun NotificationsCardBody(onToast: (String) -> Unit) {
         NotifOpt("period_notice", "Show period phase notices (My Cycle — coming soon)"),
     )
     opts.forEach { o ->
-        val checked = ProfileSettings.getNotif(ctx, o.key)
+        val checked = ProfileSettings.getNotif(ctx, o.key, defaultOn = true)
         ToggleRow(o.label, checked = checked) { on ->
             ProfileSettings.setNotif(ctx, o.key, on)
             onToast(if (on) "Showing ${o.key.replace('_', ' ')}" else "Hiding ${o.key.replace('_', ' ')}")
@@ -1314,6 +1298,9 @@ private fun ResetFlowDialog(onCancel: () -> Unit, onDone: (String) -> Unit, ctx:
                     try {
                         ProStore(ctx).wipeAllData()
                         val preserve = setOf("deviceId", "p4_theme", "p4_gym", "p4_lang", "p4_vocab", "p4_onboarded", "p4_power_settings", "p4_app_id", "p4_license")
+                        // BATCH-5B: also strip the per-profile SharedPreferences keys so
+                        // a reset doesn't leave behind per-profile library prefs, etc.
+                        ProfileState.keys(ctx).filter { it !in preserve }.forEach { ProfileState.remove(ctx, it) }
                         ProPrefs.all(ctx).keys.filter { it !in preserve }.forEach { ProPrefs.remove(ctx, it) }
                     } catch (_: Exception) {}
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {

@@ -1,127 +1,129 @@
 package com.peakform.fitness.core
 
 import android.content.Context
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
+import com.peakform.fitness.ProLog
+import com.peakform.fitness.engine.Stats
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 /**
- * ProgressSummary — reorganized progress analytics (BATCH-9).
+ * ProgressSummary — BATCH-10 monthly summary + trend arrow aggregation.
  *
- * Reorganizes the existing radar / chart code so the radar chart sits at the
- * TOP of the Progress screen with a comparison polygon (current vs. 4 weeks
- * ago), followed by a monthly summary card and trend arrows per fitness
- * component.
+ * Used by the Progress screen's "Monthly Summary" card and the trend arrows
+ * next to each metric. Pulls from the active profile's workout history
+ * (ProState.data.workouts) so the summary is correct per-profile.
  *
- * computeTrends() walks the 11 fitness components and computes a per-component
- * trend arrow (UP / FLAT / DOWN) comparing the last 4 weeks to the prior 4.
- * monthlySummary() returns a per-month volume/load aggregate for charting.
+ * All numbers are pre-formatted for the UI; the UI layer only handles
+ * presentation (color, alignment, etc.).
  */
 object ProgressSummary {
-    /** 11 fitness components tracked for the radar + trends. */
-    val COMPONENTS: List<String> = listOf(
-        "strength", "power", "hypertrophy", "endurance", "speed",
-        "agility", "balance", "coordination", "flexibility", "mobility", "stability",
+
+    data class MonthlyRow(
+        val monthLabel: String,        // "Jan 2025"
+        val workouts: Int,
+        val volume: Double,
+        val avgRpe: Double?,
+        val trend: String,             // "up" | "down" | "flat"
     )
 
-    enum class Trend { UP, FLAT, DOWN }
-
-    @Serializable
-    data class ComponentTrend(
-        val component: String,
-        val currentScore: Double,
-        val fourWeeksAgoScore: Double,
-        val trend: Trend,
+    data class MetricTrend(
+        val label: String,
+        val current: Double,
+        val previous: Double,
+        val arrow: String,            // "↑" "↓" "→"
+        val delta: Double,
     )
 
-    @Serializable
-    data class MonthlySummary(
-        val monthIso: String,             // YYYY-MM
-        val workoutCount: Int,
-        val totalVolumeLbs: Double,
-        val avgRpe: Double,
-        val topLiftLbs: Double,
-    )
+    private val UTC = TimeZone.getTimeZone("UTC")
+    private val monthFmt = SimpleDateFormat("yyyy-MM", Locale.US).apply { timeZone = UTC }
+    private val labelFmt = SimpleDateFormat("MMM yyyy", Locale.US).apply { timeZone = UTC }
 
-    /** Compute a trend per component from the user's workout history.
-     *  Each workout contributes a per-component score derived from the
-     *  exercises' fitnessComponents weights × volume. Returns 11 entries. */
-    fun computeTrends(ctx: Context): List<ComponentTrend> {
-        val now = System.currentTimeMillis()
-        val fourWeeksMs = 28L * 24 * 3600 * 1000L
-        val recentStart = now - fourWeeksMs
-        val priorStart = now - 2 * fourWeeksMs
-
-        val workouts = ProState.data.workouts.filter { it.isCompleted }
-        val recent = workouts.filter { ProState.utcDayMillis(it.date) >= recentStart }
-        val prior = workouts.filter {
-            val t = ProState.utcDayMillis(it.date)
-            t in priorStart until recentStart
-        }
-
-        return COMPONENTS.map { comp ->
-            val curScore = scoreFor(recent, comp)
-            val prevScore = scoreFor(prior, comp)
-            val trend = when {
-                curScore > prevScore * 1.05 -> Trend.UP
-                curScore < prevScore * 0.95 -> Trend.DOWN
-                else -> Trend.FLAT
+    /** Build the trailing-6-months summary (newest → oldest). */
+    fun monthly(ctx: Context): List<MonthlyRow> {
+        try {
+            val workouts = ProState.data.workouts.filter { it.isCompleted }
+            if (workouts.isEmpty()) return emptyList()
+            // bucket by yyyy-MM
+            val byMonth = workouts.groupBy { w ->
+                val d = try { SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = UTC }.parse(w.date) } catch (_: Exception) { null }
+                    ?: Date()
+                monthFmt.format(d)
             }
-            ComponentTrend(comp, curScore, prevScore, trend)
+            val now = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+            val rows = mutableListOf<MonthlyRow>()
+            var prevVol = -1.0
+            for (i in 5 downTo 0) {
+                val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                    set(Calendar.YEAR, now.get(Calendar.YEAR))
+                    set(Calendar.MONTH, now.get(Calendar.MONTH) - i)
+                    set(Calendar.DAY_OF_MONTH, 1)
+                }
+                val key = monthFmt.format(cal.time)
+                val list = byMonth[key] ?: emptyList()
+                val vol = list.sumOf { it.summary?.totalVolume ?: 0.0 }
+                val rpe = list.flatMap { it.exercises }.mapNotNull { ex -> ex.actual?.firstRPE }.let { rs ->
+                    if (rs.isEmpty()) null else rs.average()
+                }
+                val trend = when {
+                    prevVol < 0 -> "flat"
+                    vol > prevVol * 1.05 -> "up"
+                    vol < prevVol * 0.95 -> "down"
+                    else -> "flat"
+                }
+                rows += MonthlyRow(
+                    monthLabel = labelFmt.format(cal.time),
+                    workouts = list.size,
+                    volume = vol,
+                    avgRpe = rpe,
+                    trend = trend,
+                )
+                prevVol = vol
+            }
+            return rows.reversed()  // newest first
+        } catch (e: Exception) {
+            ProLog.w("PROGSUM", "monthly failed: ${e.message}")
+            return emptyList()
         }
     }
 
-    private fun scoreFor(workouts: List<WorkoutRecord>, component: String): Double {
-        var score = 0.0
-        for (w in workouts) {
-            for (ex in w.exercises) {
-                if (ex.actual == null || ex.skipped) continue
-                if (ex.fitnessComponents.contains(component)) {
-                    val sets = ex.actual.sets
-                    val reps = ex.actual.reps.sumOf { it.toInt() }.coerceAtLeast(if (ex.actual.reps.isNotEmpty()) 0 else 0)
-                    val volume = (ex.actual.weight) * reps * sets
-                    score += volume
+    /** Per-metric trend arrows comparing the most-recent 4 weeks vs the prior 4. */
+    fun metricTrends(): List<MetricTrend> {
+        val out = mutableListOf<MetricTrend>()
+        try {
+            val workouts = ProState.data.workouts.filter { it.isCompleted }.sortedBy { it.date }
+            val now = System.currentTimeMillis()
+            val recent = workouts.filter { ProState.utcDayMillis(it.date) >= now - 28L * 86400000 }
+            val prior = workouts.filter {
+                val ms = ProState.utcDayMillis(it.date)
+                ms in (now - 56L * 86400000)..(now - 28L * 86400000)
+            }
+            fun trend(label: String, cur: Double, prev: Double): MetricTrend {
+                val delta = if (prev > 0) cur - prev else 0.0
+                val arrow = when {
+                    prev <= 0 -> "→"
+                    delta > prev * 0.05 -> "↑"
+                    delta < -prev * 0.05 -> "↓"
+                    else -> "→"
                 }
+                return MetricTrend(label, cur, prev, arrow, delta)
             }
+            out += trend("Volume", recent.sumOf { it.summary?.totalVolume ?: 0.0 }, prior.sumOf { it.summary?.totalVolume ?: 0.0 })
+            out += trend("Workouts", recent.size.toDouble(), prior.size.toDouble())
+            val recentRpe = recent.flatMap { it.exercises }.mapNotNull { it.actual?.firstRPE }
+            val priorRpe = prior.flatMap { it.exercises }.mapNotNull { it.actual?.firstRPE }
+            out += trend("Avg RPE",
+                if (recentRpe.isEmpty()) 0.0 else recentRpe.average(),
+                if (priorRpe.isEmpty()) 0.0 else priorRpe.average(),
+            )
+            // longevity delta
+            val longevityNow = Stats.calculateLongevityScore().total.toDouble()
+            out += trend("Longevity", longevityNow, longevityNow) // single-shot — no historical snapshot
+        } catch (e: Exception) {
+            ProLog.w("PROGSUM", "metricTrends failed: ${e.message}")
         }
-        return score
-    }
-
-    /** Monthly summary for the last `months` months (default 6). */
-    fun monthlySummary(ctx: Context, months: Int = 6): List<MonthlySummary> {
-        val workouts = ProState.data.workouts.filter { it.isCompleted }
-        val now = java.util.Calendar.getInstance()
-        val out = mutableListOf<MonthlySummary>()
-        val fmt = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US)
-        for (i in 0 until months) {
-            val cal = now.clone() as java.util.Calendar
-            cal.add(java.util.Calendar.MONTH, -i)
-            val monthIso = fmt.format(cal.time)
-            val monthStart = cal.timeInMillis
-            cal.add(java.util.Calendar.MONTH, 1)
-            val monthEnd = cal.timeInMillis
-            val inMonth = workouts.filter {
-                val t = ProState.utcDayMillis(it.date)
-                t in monthStart until monthEnd
-            }
-            var volume = 0.0
-            var rpeSum = 0.0
-            var rpeN = 0
-            var top = 0.0
-            for (w in inMonth) {
-                for (ex in w.exercises) {
-                    if (ex.actual == null || ex.skipped) continue
-                    val w_ = ex.actual.weight
-                    val reps = ex.actual.reps.sumOf { it.toInt() }
-                    val sets = ex.actual.sets
-                    volume += w_ * reps * sets
-                    if (w_ > top) top = w_
-                    val rpeList = ex.actual.rpeList
-                    if (rpeList.isNotEmpty()) { rpeSum += rpeList.average(); rpeN++ }
-                }
-            }
-            out.add(MonthlySummary(monthIso, inMonth.size, volume, if (rpeN > 0) rpeSum / rpeN else 0.0, top))
-        }
-        return out.reversed()
+        return out
     }
 }

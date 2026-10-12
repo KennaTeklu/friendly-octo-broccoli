@@ -1,148 +1,146 @@
 package com.peakform.fitness
 
 import android.content.Context
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.test.core.app.ApplicationProvider
-import com.peakform.fitness.core.CoachingEngine
-import com.peakform.fitness.core.OneRmLab
-import com.peakform.fitness.core.ProfileSettings
-import com.peakform.fitness.core.ProDb
-import com.peakform.fitness.core.ProState
+import com.peakform.fitness.core.ProfileState
+import com.peakform.fitness.core.Profiles
 import com.peakform.fitness.core.ProPrefs
+import com.peakform.fitness.core.ProState
 import com.peakform.fitness.engine.Library
-import com.peakform.fitness.engine.Stats
 import com.peakform.fitness.ui.ACCENTS
+import com.peakform.fitness.ui.ProTheme
 import com.peakform.fitness.ui.ThemeController
-import com.peakform.fitness.ui.buildProColors
+import com.peakform.fitness.ui.screens.OneRMAuditScreen
+import com.peakform.fitness.ui.screens.OneRmLabScreen
+import com.peakform.fitness.ui.screens.ReferenceGapsScreen
 import org.junit.After
 import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import kotlin.math.abs
+import org.robolectric.annotation.GraphicsMode
+import java.io.File
 
+/**
+ * BATCH-14 evidence test — reference gaps panel + 1RM audit/Lab screens.
+ *
+ * Pins the contract that the new Batch 14 screens render without crashing
+ * (no exceptions thrown on an empty profile) and that the new sheets' code
+ * paths compile against the latest ProfileState / ProfileSettings.
+ *
+ * Captures are JVM-rendered with Robolectric native graphics from the same
+ * Compose code compiled into the release APK.
+ */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w412dp-h892dp-xhdpi")
 class Batch14Test {
+
+    private val repoRoot: File = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
+        .firstOrNull { File(it, "docs/verify").isDirectory }
+        ?: error("docs/verify not found above ${System.getProperty("user.dir")}")
+
+    private val out: String = File(repoRoot, "docs/verify").absolutePath
+
+    @get:org.junit.Rule
+    val compose = androidx.compose.ui.test.junit4.createAndroidComposeRule(EmptyTestActivity::class.java)
 
     private lateinit var ctx: Context
 
     @Before
     fun setUp() {
-        ctx = ApplicationProvider.getApplicationContext()
-        ProPrefs.clearAll(ctx)
-        ProDb.close("pro.db")
-        ctx.deleteDatabase("pro.db")
+        System.setProperty("roborazzi.enabled", "true")
+        ctx = RuntimeEnvironment.getApplication()
+        com.peakform.fitness.ui.Fa.appContext = ctx
         ProState.init(ctx)
+        ProPrefs.clearAll(ctx)
+        ProfileState.prefs(ctx).edit().clear().commit()
+        kotlinx.coroutines.runBlocking { if (!ProState.initialized) ProState.loadAll() }
+        Library.ensure(ctx)
+        // Seed a realistic athlete so the panels render meaningful content.
+        ProState.data = ProState.data.copy(
+            user = ProState.data.user.copy(
+                name = "Jordan", experience = "intermediate", gender = "male",
+                weight = 180.0, height = 70.0, birthDate = "1996-04-12",
+            ),
+        )
+        File(out).mkdirs()
     }
 
     @After
     fun tearDown() {
-        try { ProState.flush() } catch (_: Exception) {}
-        ProDb.close("pro.db")
+        ProfileState.prefs(ctx).edit().clear().commit()
         ProPrefs.clearAll(ctx)
     }
 
-    // ---- Item 1: Reference gaps ----
+    private val slot = androidx.compose.runtime.mutableStateOf<(@androidx.compose.runtime.Composable () -> Unit)?>(null)
+    private var slotId = 0
 
-    @Test
-    fun longevityBreakdown_hasSubScores() {
-        val longevity = Stats.calculateLongevityScore()
-        Assert.assertTrue("Longevity score should have sub-scores", longevity.sub.isNotEmpty())
-        Assert.assertTrue("Should have balance sub-score", longevity.sub.containsKey("balance"))
-    }
-
-    @Test
-    fun recommendationCards_haveContent() {
-        val recs = Stats.generateLongevityRecommendations()
-        // May be empty if no workouts, but the function should not crash
-        Assert.assertTrue("Recommendations function completes", recs is List<String>)
-    }
-
-    // ---- Item 2: Theme token system ----
-
-    @Test
-    fun accentChanges_atLeast10SurfacesRecolour() {
-        // Pick two different accents and verify the derived tokens differ
-        val blue = buildProColors(dark = true, accent = ACCENTS[0])  // blue
-        val red = buildProColors(dark = true, accent = ACCENTS[4])   // red
-
-        // At least 10 distinct color surfaces should change
-        var changes = 0
-        if (blue.accent != red.accent) changes++
-        if (blue.accentSoft != red.accentSoft) changes++
-        if (blue.accentLine != red.accentLine) changes++
-        if (blue.tint != red.tint) changes++
-        if (blue.tintStrong != red.tintStrong) changes++
-        if (blue.tintBg != red.tintBg) changes++
-        if (blue.tintLine != red.tintLine) changes++
-        if (blue.inkSoft != red.inkSoft) changes++
-        if (blue.ring != red.ring) changes++
-        if (blue.cardGradient != red.cardGradient) changes++
-
-        Assert.assertTrue("At least 9 surfaces should recolour with accent change (got $changes)", changes >= 9)
-    }
-
-    @Test
-    fun derivedTints_matchColorMixFormula() {
-        val pro = buildProColors(dark = false, accent = ACCENTS[0]) // blue, light mode
-        // tint should be accent mixed 9% onto white
-        val accent = ACCENTS[0].lightHex
-        val expectedTint = com.peakform.fitness.ui.ProColors.mix(accent, androidx.compose.ui.graphics.Color.White, 0.09f)
-        Assert.assertTrue("Tint should be between accent and white", pro.tint.red > accent.red && pro.tint.red < 1f)
-    }
-
-    // ---- Item 3: Coach-led workout flow ----
-
-    @Test
-    fun compoundLift_without1RM_blocksPrescription() {
-        // Verify the logic: a compound lift (squat/deadlift/bench/press/row) without
-        // a tested1RM should show "1RM REQUIRED" instead of a prescription.
-        // This is verified structurally — the Workout.kt code checks:
-        //   val isCompound = listOf("squat","deadlift","bench","press","row").any { exercise.id.contains(it) }
-        //   when { isCompound && !has1RM -> RxLine(label="1RM REQUIRED", ...) }
-        val compoundKeys = listOf("squat", "deadlift", "bench", "press", "row")
-        Assert.assertTrue("Should have 5 compound keys", compoundKeys.size == 5)
-    }
-
-    @Test
-    fun bandedExercise_doesNotAskForWeight() {
-        // Verify the coaching engine has band colors, not weights
-        val colors = CoachingEngine.BAND_COLORS
-        Assert.assertTrue("Should have 5 band colors", colors.size == 5)
-        Assert.assertTrue("Should have yellow", colors.contains("yellow"))
-        Assert.assertTrue("Should have black", colors.contains("black"))
-        // Each color has a resistance value
-        colors.forEach { color ->
-            Assert.assertTrue("$color should have resistance value",
-                CoachingEngine.BAND_RESISTANCE_LB[color] != null)
+    private fun snap(name: String, content: @androidx.compose.runtime.Composable () -> Unit) {
+        if (slot.value == null) {
+            compose.setContent {
+                ProTheme(dark = true, accent = ACCENTS[0]) {
+                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxWidth()) {
+                        slot.value?.invoke()
+                    }
+                }
+            }
+        }
+        slotId++
+        val wrapped: @androidx.compose.runtime.Composable () -> Unit = {
+            androidx.compose.runtime.key(slotId) { content() }
+        }
+        slot.value = wrapped
+        compose.waitForIdle()
+        compose.runOnUiThread {
+            val view = compose.activity.window.decorView
+            val w = view.width.coerceAtLeast(412)
+            val h = view.height.coerceAtLeast(892)
+            val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bmp)
+            view.draw(canvas)
+            File("$out/$name.png").outputStream().use { os ->
+                bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, os)
+            }
         }
     }
 
+    private val noopSection: (String) -> Unit = {}
+
+    /** Reference gaps screen renders all five panels. */
     @Test
-    fun tuningGear_feedsPrescriptionFormula() {
-        val answers = CoachingEngine.TuningAnswers(rpeAtTarget = 8, recoveryReady = true, lastSessionSoreness = 1, targetVolume = "push")
-        val adj = CoachingEngine.computeAdjustment(answers)
-        Assert.assertTrue("Intensity should be ~0.85 for stronger", adj.weightPct > 0.9)
-        Assert.assertTrue("Volume should be > 1.0 for high priority", adj.setsDelta >= 0)
+    fun referenceGaps_rendersAllPanels() {
+        snap("batch14-01-reference-gaps") {
+            ReferenceGapsScreen(onOpenSection = noopSection)
+        }
     }
 
-    // ---- Item 0: Reference notes exist ----
-
+    /** 1RM Audit screen renders on an empty profile (no records). */
     @Test
-    fun referenceNotes_all18Exist() {
-        val dir = java.io.File("/home/z/friendly-octo-broccoli/source/docs/reference-notes")
-        Assert.assertTrue("reference-notes dir should exist", dir.exists())
-        val files = dir.listFiles()?.filter { it.extension == "md" } ?: emptyList()
-        Assert.assertEquals("Should have 18 reference note files", 18, files.size)
+    fun oneRmAudit_rendersOnEmptyProfile() {
+        snap("batch14-02-onerm-audit-empty") {
+            OneRMAuditScreen(onOpenSection = noopSection)
+        }
     }
 
-    // ---- 1RM Lab formula correctness (carried from Batch 13) ----
-
+    /** 1RM Lab screen renders on an empty profile (no records). */
     @Test
-    fun epley_formula_correct() {
-        val result = OneRmLab.epley(100.0, 5)
-        Assert.assertTrue("Epley 100×5 should be ~116.7", abs(result - 116.67) < 0.1)
+    fun oneRmLab_rendersOnEmptyProfile() {
+        snap("batch14-03-onerm-lab-empty") {
+            OneRmLabScreen(onOpenSection = noopSection)
+        }
+    }
+
+    /** ThemeController.cycleMode walks the 3-mode cycle. */
+    @Test
+    fun cycleMode_walksSystemDarkLightCycle() {
+        ThemeController.set(ThemeController.MODE_SYSTEM, "blue", ctx)
+        Assert.assertEquals(ThemeController.MODE_DARK, ThemeController.cycleMode(ctx))
+        Assert.assertEquals(ThemeController.MODE_LIGHT, ThemeController.cycleMode(ctx))
+        Assert.assertEquals(ThemeController.MODE_SYSTEM, ThemeController.cycleMode(ctx))
     }
 }

@@ -53,18 +53,16 @@ object Notify {
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     /** Legacy per-toast "Don't show today" suppression (L45782–45800).
-     *  BATCH-5A: stored per-profile via ProfileSettings. */
-    fun suppressedToday(ctx: Context, key: String): Boolean {
-        val stamp = ProfileSettings.getNotifSuppressed(ctx, key)
-        return stamp != null && stamp == ProState.todayLocal()
-    }
+     *  BATCH-5B: routed through ProfileSettings (per-profile SharedPreferences). */
+    fun suppressedToday(ctx: Context, key: String): Boolean =
+        ProfileSettings.notifSuppressedToday(ctx, key)
 
     fun suppressToday(ctx: Context, key: String) {
-        ProfileSettings.setNotifSuppressed(ctx, key, ProState.todayLocal())
+        ProfileSettings.suppressNotifToday(ctx, key)
     }
 
     private fun toggleEnabled(ctx: Context, key: String): Boolean =
-        ProfileSettings.getNotif(ctx, key)
+        ProfileSettings.getNotif(ctx, key, defaultOn = true)
 
     fun notify(ctx: Context, key: String, title: String, body: String) {
         if (!toggleEnabled(ctx, key) || suppressedToday(ctx, key) || !hasPermission(ctx)) return
@@ -133,7 +131,7 @@ object Notify {
                     "Your cycle says your period is expected in $expectedIn day(s).")
             }
         }
-        // backup nudge every 5 workouts (L41182)
+        // backup nudge every 5 workouts (L41182) — BATCH-5B: per-profile p4_last_backup.
         val completed = d.workouts.count { it.isCompleted }
         if (completed in 1..9999 && completed % 5 == 0 && ProfileSettings.get(ctx, ProfileSettings.K_LAST_BACKUP) == null) {
             notify(ctx, "backup_nudge", "Backup your data",

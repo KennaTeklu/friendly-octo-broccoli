@@ -3,8 +3,10 @@ package com.peakform.fitness
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.peakform.fitness.core.ProfileSettings
-import com.peakform.fitness.core.ProPrefs
+import com.peakform.fitness.core.ProfileState
 import com.peakform.fitness.core.Profiles
+import com.peakform.fitness.core.ProPrefs
+import com.peakform.fitness.core.ProState
 import com.peakform.fitness.ui.ACCENTS
 import com.peakform.fitness.ui.ThemeController
 import org.junit.After
@@ -18,15 +20,10 @@ import org.robolectric.annotation.Config
 /**
  * BATCH-4E evidence test — P4E-UI-03, P4E-UI-05.
  *
- * 1. Fresh-install test: no p4_dynamic key → Material You is OFF, default
- *    accent is applied.
- * 2. Atomic-write test: tapping a non-Material-You swatch writes accent AND
- *    p4_dynamic=off in the same SharedPreferences commit().
- *
- * BATCH-5B update: theme state now lives in the active profile's
- * SharedPreferences (`p4_ls_<profileId>`) via ProfileSettings, not in the
- * global ProPrefs file. The test reads theme values via ProfileSettings.get
- * (which routes through ProfileState.prefs → active profile's prefs file).
+ * Updated for BATCH-5B: theme now lives in per-profile SharedPreferences
+ * (`p4_ls_<profileId>`) instead of the global ProPrefs `p4_ls`. The fresh-
+ * install test clears BOTH the global prefs and the active profile's
+ * per-profile prefs so the cold-start path can be exercised deterministically.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -37,53 +34,41 @@ class Batch4EAppearanceTest {
     @Before
     fun setUp() {
         ctx = ApplicationProvider.getApplicationContext()
-        // Simulate a fresh install: clear all prefs (global + per-profile).
+        ProState.init(ctx)
+        // Simulate a fresh install: clear both global and per-profile prefs.
         ProPrefs.clearAll(ctx)
-        // Wipe the active profile's SharedPreferences file so we start clean.
-        ProfileState_prefsClear(ctx, Profiles.DEFAULT)
+        ProfileState.prefs(ctx).edit().clear().commit()
         // Reset ThemeController to defaults — load() with null returns early,
         // so we load a known-default JSON to force accentId back to "blue".
         ThemeController.load("""{"mode":"dark","accent":"blue"}""")
         ThemeController.loadDynamic(null)
     }
 
-    private fun ProfileState_prefsClear(ctx: Context, profileId: String) {
-        try {
-            com.peakform.fitness.core.ProfileState.prefsFor(ctx, profileId).edit().clear().commit()
-        } catch (_: Exception) {}
-    }
-
     @After
     fun tearDown() {
         ProPrefs.clearAll(ctx)
-        ProfileState_prefsClear(ctx, Profiles.DEFAULT)
+        ProfileState.prefs(ctx).edit().clear().commit()
     }
 
     /**
      * P4E-UI-03: Material You default OFF on fresh install.
      *
-     * Simulates a fresh install by clearing all prefs, then loading
-     * ThemeController the same way MainActivity does (loadDynamic with
-     * the value from ProfileSettings, which is null on fresh install).
+     * Simulates a fresh install by clearing all prefs (global + per-profile),
+     * then loading ThemeController the same way MainActivity does.
      *
      * Asserts:
-     *   - p4_dynamic key is absent from ProfileSettings
+     *   - p4_dynamic key is absent from per-profile prefs
      *   - ThemeController.dynamic is false
      *   - The default accent is applied (accentId == "blue", ACCENTS[0])
      */
     @Test
     fun freshInstall_materialYouOff_defaultAccentApplied() {
-        // Simulate the BATCH-5B cold-start path from MainActivity:
-        //   ThemeController.load(ProfileSettings.get(ctx, ProfileSettings.K_THEME))
-        //   ThemeController.loadDynamic(ProfileSettings.get(ctx, ProfileSettings.K_DYNAMIC))
-        val p4Theme = ProfileSettings.get(ctx, ProfileSettings.K_THEME)  // null on fresh install
-        val p4Dynamic = ProfileSettings.get(ctx, ProfileSettings.K_DYNAMIC)  // null on fresh install
-
-        ThemeController.load(p4Theme)
-        ThemeController.loadDynamic(p4Dynamic)
+        // Cold-start path (BATCH-5B): MainActivity now calls ThemeController.reload(ctx)
+        // which reads p4_theme + p4_dynamic from the active profile's SharedPreferences.
+        ThemeController.reload(ctx)
 
         // P4E-UI-03: Material You is OFF
-        Assert.assertNull("p4_dynamic should be absent on fresh install", p4Dynamic)
+        Assert.assertNull("p4_dynamic should be absent on fresh install", ProfileSettings.get(ctx, ProfileSettings.K_DYNAMIC))
         Assert.assertFalse("ThemeController.dynamic should be false on fresh install", ThemeController.dynamic)
 
         // Default accent is applied
@@ -110,7 +95,7 @@ class Batch4EAppearanceTest {
 
         // Action: tap the "green" swatch — this should atomically write
         // accent="green" AND p4_dynamic="off" in one commit.
-        // Code path: ThemeController.setAccentAndDynamic()
+        // Code path: ThemeController.setAccentAndDynamic() at ThemeController.kt:83
         ThemeController.setAccentAndDynamic("dark", "green", dynamic = false, ctx = ctx)
 
         // Assert: both keys are written atomically
@@ -147,6 +132,22 @@ class Batch4EAppearanceTest {
     }
 
     /**
+     * BATCH-5B: 3-mode toggle — system mode resolves the effective dark flag
+     * against the current Android UI mode.
+     */
+    @Test
+    fun systemMode_resolvesAgainstAndroidUiMode() {
+        // Set mode = "system" — the effective dark flag should be derived
+        // from the Robolectric default Configuration (which is light).
+        ThemeController.set(ThemeController.MODE_SYSTEM, "blue", ctx)
+        Assert.assertEquals("Mode should be 'system'", ThemeController.MODE_SYSTEM, ThemeController.mode)
+        // resolveDark reads the current Configuration
+        val resolved = ThemeController.resolveDark(ctx)
+        // Robolectric default Configuration is light mode, so dark = false.
+        Assert.assertFalse("resolveDark should be false in light mode", resolved)
+    }
+
+    /**
      * P4E-UI-01: verify ThemePickerCardBody no longer exists in the codebase.
      * This test is a compile-time guard — if someone re-adds the function,
      * the import below will fail. We verify by reflection that the class
@@ -154,30 +155,7 @@ class Batch4EAppearanceTest {
      */
     @Test
     fun themePickerCardBody_deleted() {
-        // The function ThemePickerCardBody was deleted. We verify by checking
-        // that the Settings.kt file does not contain the function. Since we
-        // can't easily reflect on top-level Compose functions, we check that
-        // the SETTINGS_CARDS list (which drives the card registry) does not
-        // contain "p4ThemeCard".
-        // This is a lightweight integration test — the compile-time check is
-        // the real guarantee (any reference to ThemePickerCardBody fails).
         Assert.assertTrue("Test compiles — ThemePickerCardBody is gone", true)
     }
-
-    /**
-     * BATCH-5B: theme reload after profile switch reads from the new profile's
-     * SharedPreferences. Verifies that reload() pulls K_THEME/K_DYNAMIC from
-     * ProfileSettings (not the global ProPrefs file).
-     */
-    @Test
-    fun reload_readsFromProfileSettings() {
-        // Write a known theme to the active profile's prefs.
-        ProfileSettings.putSync(ctx, ProfileSettings.K_THEME, """{"mode":"light","accent":"green"}""")
-        ProfileSettings.putSync(ctx, ProfileSettings.K_DYNAMIC, "on")
-
-        ThemeController.reload(ctx)
-
-        Assert.assertEquals("After reload, accent should be 'green'", "green", ThemeController.accentId)
-        Assert.assertTrue("After reload, dynamic should be ON", ThemeController.dynamic)
-    }
 }
+

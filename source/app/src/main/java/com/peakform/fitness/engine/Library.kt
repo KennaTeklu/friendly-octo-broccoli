@@ -232,16 +232,26 @@ object Library {
 
     fun customExercisesSnapshot(): List<LibraryExercise> = customExercises.toList()
 
-    /** BATCH-5A: clear custom exercises and remove the persisted custom-exercise
-     *  blob from per-profile storage, restoring the factory default library. */
+    /**
+     * BATCH-5B: reset the library to its default state — drop all custom
+     * exercises the user added via Studio, clear the persisted custom store,
+     * and re-load the default groups. The default library (1,413 movements +
+     * bodyweight set) stays untouched.
+     *
+     * Used by Settings → Library management → Reset library (BATCH-8/14).
+     */
     fun resetToDefault(ctx: Context) {
-        customExercises.clear()
         try {
-            com.peakform.fitness.core.ProfileSettings.remove(ctx, com.peakform.fitness.core.Studio.CUST_KEY)
-            // also clear the legacy global mirror so a re-import doesn't resurrect them
-            com.peakform.fitness.core.ProPrefs.remove(ctx, com.peakform.fitness.core.Studio.CUST_KEY)
-        } catch (_: Exception) {}
-        ProLog.i("LIBRARY", "reset to default — custom exercises cleared")
+            customExercises.clear()
+            // Clear the persisted custom store so a cold start does not bring
+            // the user's removed exercises back.
+            ctx.deleteSharedPreferences("p4_custom_ex")
+            // Re-inject nothing — the in-memory library still holds the
+            // default groups loaded at ensure().
+            reinjectCustom(ctx)
+        } catch (e: Exception) {
+            com.peakform.fitness.ProLog.w("LIBRARY", "resetToDefault failed: ${e.message}")
+        }
     }
 
     /**

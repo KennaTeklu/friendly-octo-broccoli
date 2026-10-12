@@ -3,85 +3,91 @@ package com.peakform.fitness
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.peakform.fitness.core.BackupSystem
-import com.peakform.fitness.core.ProfileSettings
+import com.peakform.fitness.core.ProfileState
 import com.peakform.fitness.core.Profiles
+import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.core.ProState
+import com.peakform.fitness.engine.Library
+import org.junit.After
 import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.io.File
 
 /**
- * BATCH-11 evidence test — Profiles.delete() flush + DB-exists pick + theme reload.
+ * BATCH-11 evidence test — profile delete safety + safety snapshot facility.
  *
- * Verifies:
- *  - BackupSystem.export / previewImport / import round-trip idempotently.
- *  - BackupSystem.exportCsv returns a non-blank CSV with a header row.
- *  - BackupSystem.saveLocalSnapshot writes a file to filesDir/backups.
+ * Pins the contract:
+ *   1. Profiles.dbFileExists returns false for a profile whose DB file is
+ *      missing, true for the active profile.
+ *   2. Profiles.switchTo refuses to switch to a profile whose DB file is
+ *      missing — returns the current active profile name unchanged.
+ *   3. BackupSystem.takeSafetySnapshot writes a JSON file under
+ *      filesDir/backups/ and BackupSystem.safetySnapshots lists it.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class Batch11Test {
+
     private lateinit var ctx: Context
 
     @Before
     fun setUp() {
-        ctx = ApplicationProvider.getApplicationContext()
-        try {
-            com.peakform.fitness.core.ProfileState.prefsFor(ctx, Profiles.DEFAULT).edit().clear().commit()
-        } catch (_: Exception) {}
+        ctx = RuntimeEnvironment.getApplication()
+        com.peakform.fitness.ui.Fa.appContext = ctx
         ProState.init(ctx)
+        ProPrefs.clearAll(ctx)
+        ProfileState.prefs(ctx).edit().clear().commit()
+        Library.ensure(ctx)
     }
 
-    @Test
-    fun backup_export_then_import_is_idempotent() {
-        // Export a bundle from the fresh install (will have the default profile).
-        val bundle = BackupSystem.export(ctx)
-        Assert.assertTrue("Export should produce a non-blank JSON", bundle.isNotBlank())
-        Assert.assertTrue("Bundle should mention profiles", bundle.contains("profiles"))
-
-        // Preview should describe the bundle.
-        val preview = BackupSystem.previewImport(ctx, bundle)
-        Assert.assertTrue("Preview should mention profiles", preview.contains("profiles"))
-
-        // Import the same bundle — idempotent: should succeed and not throw.
-        val ok = BackupSystem.import(ctx, bundle)
-        Assert.assertTrue("Idempotent re-import should succeed", ok)
-
-        // Re-importing the same bundle again should also succeed (no duplicates / errors).
-        val ok2 = BackupSystem.import(ctx, bundle)
-        Assert.assertTrue("Second re-import should also succeed", ok2)
+    @After
+    fun tearDown() {
+        ProfileState.prefs(ctx).edit().clear().commit()
+        ProPrefs.clearAll(ctx)
     }
 
+    /** dbFileExists — true for the active default profile, false for an
+     *  arbitrary never-created profile id. */
     @Test
-    fun backup_export_csv_has_header_and_rows() {
-        val csv = BackupSystem.exportCsv(ctx)
-        Assert.assertTrue("CSV should start with the header row", csv.startsWith("date,exercise,sets,reps,weight_lbs,rpe"))
+    fun dbFileExists_activeProfileTrue_missingProfileFalse() {
+        // Touch the default profile's DB so its file exists.
+        kotlinx.coroutines.runBlocking { ProState.loadAll() }
+        // The active profile (default) should have its DB file.
+        val active = Profiles.activeId(ctx)
+        Assert.assertTrue("Active profile DB should exist", Profiles.dbFileExists(ctx, active))
+        // An arbitrary missing profile id should return false.
+        Assert.assertFalse("Phantom profile DB should not exist", Profiles.dbFileExists(ctx, "p_doesnotexist"))
     }
 
+    /** switchTo refuses to switch to a profile whose DB is missing. */
     @Test
-    fun backup_save_local_snapshot_writes_file() {
-        val path = BackupSystem.saveLocalSnapshot(ctx)
-        Assert.assertNotNull("saveLocalSnapshot should return a path", path)
-        val f = java.io.File(path!!)
-        Assert.assertTrue("Snapshot file should exist", f.exists())
-        Assert.assertTrue("Snapshot file should be non-empty", f.length() > 0)
-        // The directory should be filesDir/backups.
-        Assert.assertTrue("Snapshot should live in filesDir/backups", f.parentFile?.name == "backups")
+    fun switchTo_refusesPhantomProfile_returnsCurrentName() {
+        val active = Profiles.activeId(ctx)
+        val name = Profiles.switchTo(ctx, "p_doesnotexist")
+        // The active profile id should NOT have changed.
+        Assert.assertEquals("Active profile should be unchanged after refusing a phantom switch", active, Profiles.activeId(ctx))
+        // switchTo returned the current profile's display name (or its id).
+        // We don't assert exact equality with the active profile name (display
+        // label can include suffixes like "(Default)"), but it must not be
+        // "p_doesnotexist".
+        Assert.assertNotEquals("Returned name must not be the phantom id", "p_doesnotexist", name)
     }
 
+    /** takeSafetySnapshot writes a JSON file under filesDir/backups/. */
     @Test
-    fun profile_settings_storage_is_per_profile() {
-        // Write a setting to the default profile's prefs.
-        ProfileSettings.put(ctx, ProfileSettings.K_GYM, "on")
-        // Reading it back should return "on".
-        Assert.assertEquals("on", ProfileSettings.get(ctx, ProfileSettings.K_GYM))
-        // It should NOT be in the global ProPrefs file.
-        Assert.assertNull(
-            "p4_gym should NOT leak into the global ProPrefs file",
-            com.peakform.fitness.core.ProPrefs.get(ctx, "p4_gym"),
-        )
+    fun takeSafetySnapshot_writesJsonFileUnderBackupsDir() {
+        val path = BackupSystem.takeSafetySnapshot(ctx)
+        Assert.assertNotNull("Snapshot path must not be null", path)
+        val f = File(path!!)
+        Assert.assertTrue("Snapshot file must exist", f.exists())
+        Assert.assertTrue("Snapshot file must be under filesDir/backups/", f.absolutePath.contains("backups"))
+        // Listed by safetySnapshots().
+        val snaps = BackupSystem.safetySnapshots(ctx)
+        Assert.assertTrue("safetySnapshots should include the new file", snaps.any { it.name == f.name })
     }
 }

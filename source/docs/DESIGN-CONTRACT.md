@@ -1,89 +1,155 @@
-# DESIGN-CONTRACT.md — Theme Token System
+# Pro Design Contract
 
-## Source
-Extracted from `reference/styles/base.css` (171 KB). Every `:root` custom property is a token.
+This document is the canonical extraction of the design tokens shipped in the
+PeakForm `source/` Android app, captured at **versionCode 28 / versionName 1.9.0**.
 
-## Core tokens (dark mode — `:root`, `:root[data-mode="dark"]`)
+The tokens below are mirrored 1:1 from the reference HTML app's `base.css`
+(`/home/z/friendly-octo-broccoli/reference/`) so the native port and the web
+app share the same visual language.
 
-| Token | Value | Native equivalent |
-|---|---|---|
-| `--p4-bg` | `#07090D` | `ProColors.bg` |
-| `--p4-bg-2` | `#0B0E14` | `ProColors.bg2` |
-| `--p4-surface` | `#10141C` | `ProColors.surface` |
-| `--p4-surface-2` | `#151B25` | `ProColors.surface2` |
-| `--p4-surface-3` | `#1B2230` | `ProColors.surface3` |
-| `--p4-hairline` | `rgba(148,163,184,.14)` | `ProColors.hairline` |
-| `--p4-hairline-2` | `rgba(148,163,184,.26)` | `ProColors.hairline2` |
-| `--p4-text` | `#F2F4F8` | `ProColors.text` |
-| `--p4-text-2` | `#B7BDC9` | `ProColors.text2` |
-| `--p4-text-3` | `#8A919E` | `ProColors.text3` |
-| `--p4-glass` | `rgba(16,20,28,.72)` | `ProColors.glass` |
-| `--p4-glass-2` | `rgba(11,14,20,.86)` | `ProColors.glass2` |
-| `--p4-accent` | `#4E9BFF` (blue default) | `ProColors.accent` |
-| `--p4-accent-soft` | `rgba(78,155,255,.14)` | `ProColors.accentSoft` |
-| `--p4-accent-line` | `rgba(78,155,255,.38)` | `ProColors.accentLine` |
-| `--p4-on-accent` | `#071018` | `ProColors.onAccent` |
-| `--p4-ring` | `rgba(78,155,255,.45)` | `ProColors.ring` |
-| `--p4-ok` | `#34D399` | `ProColors.ok` |
-| `--p4-warn` | `#FBBF24` | `ProColors.warn` |
-| `--p4-bad` | `#F87171` | `ProColors.bad` |
+## Theme tokens
 
-## Core tokens (light mode — `:root[data-mode="light"]`)
+The native app supports **three modes** (BATCH-5B): `system` (follows the
+Android UI mode), `dark`, and `light`. The user picks the mode in
+**Settings → Change theme**; the choice is persisted per-profile under
+`p4_ls_<profileId>` (SharedPreferences key `p4_theme`) so theme switches with
+the profile.
 
-| Token | Value | Native equivalent |
-|---|---|---|
-| `--p4-bg` | `#F4F6F9` | `ProColors.bg` |
-| `--p4-bg-2` | `#FFFFFF` | `ProColors.bg2` |
-| `--p4-surface` | `#FFFFFF` | `ProColors.surface` |
-| `--p4-surface-2` | `#F2F4F8` | `ProColors.surface2` |
-| `--p4-surface-3` | `#E8ECF2` | `ProColors.surface3` |
-| `--p4-hairline` | `rgba(15,23,42,.10)` | `ProColors.hairline` |
-| `--p4-hairline-2` | `rgba(15,23,42,.18)` | `ProColors.hairline2` |
-| `--p4-text` | `#10141C` | `ProColors.text` |
-| `--p4-text-2` | `#3D4451` | `ProColors.text2` |
-| `--p4-text-3` | `#6A7280` | `ProColors.text3` |
-| `--p4-glass` | `rgba(255,255,255,.80)` | `ProColors.glass` |
-| `--p4-glass-2` | `rgba(255,255,255,.94)` | `ProColors.glass2` |
+### Dark mode (default)
 
-## Derived tint tokens (color-mix equivalent)
+| Token          | Hex        | Usage                                            |
+|----------------|------------|--------------------------------------------------|
+| `--bg`         | `#07090D`  | App background canvas                            |
+| `--bg2`        | `#0B0E14`  | Alternating row background                       |
+| `--surface`    | `#10141C`  | Card surface                                     |
+| `--surface2`   | `#151B25`  | Card surface (elevated)                           |
+| `--surface3`   | `#1B2230`  | Card surface (highest elevation)                 |
+| `--hairline`   | `#2494A3B8` (alpha) | Hairline border on cards                |
+| `--hairline2`  | `#4294A3B8` (alpha) | Stronger hairline border               |
+| `--text`       | `#F2F4F8`  | Primary text                                     |
+| `--text2`      | `#B7BDC9`  | Secondary text                                   |
+| `--text3`      | `#8A919E`  | Tertiary text (labels, captions)                |
+| `--glass`      | `#B810141C` (alpha) | Glass / blur overlay                  |
+| `--glass2`    | `#DB0B0E14` (alpha) | Stronger glass overlay                |
+| `--ok`        | `#34D399`  | Success / positive                              |
+| `--warn`      | `#FBBF24`  | Warning / caution                                |
+| `--bad`       | `#F87171`  | Error / destructive                             |
 
-| Token | CSS formula | Dark native | Light native |
-|---|---|---|---|
-| `--p4-tint` | `color-mix(accent 9%, white)` | `mix(accent, surface, 0.14)` | `mix(accent, white, 0.09)` |
-| `--p4-tint-strong` | `color-mix(accent 17%, white)` | `mix(accent, surface, 0.20)` | `mix(accent, white, 0.17)` |
-| `--p4-tint-bg` | `color-mix(accent 6%, #F7F9FC)` | `mix(accent, bg, 0.06)` | `mix(accent, #F7F9FC, 0.06)` |
-| `--p4-tint-line` | `color-mix(accent 24%, white)` | `mix(accent, surface, 0.30)` | `mix(accent, white, 0.24)` |
-| `--p4-ink-soft` | `color-mix(accent 62%, #0F172A)` | `mix(accent, #0F172A, 0.62)` | `mix(accent, #0F172A, 0.62)` |
+### Light mode
 
-## 16 accent definitions
+| Token          | Hex        | Usage                                            |
+|----------------|------------|--------------------------------------------------|
+| `--bg`         | `#F4F6F9`  | App background canvas                            |
+| `--bg2`        | `#FFFFFF`  | Alternating row background                       |
+| `--surface`    | `#FFFFFF`  | Card surface                                     |
+| `--surface2`   | `#F2F4F8`  | Card surface (elevated)                          |
+| `--surface3`   | `#E8ECF2`  | Card surface (highest elevation)                 |
+| `--hairline`   | `#1A0F172A` (alpha) | Hairline border                       |
+| `--hairline2`  | `#2E0F172A` (alpha) | Stronger hairline border              |
+| `--text`       | `#10141C`  | Primary text                                     |
+| `--text2`      | `#3D4451`  | Secondary text                                   |
+| `--text3`      | `#6A7280`  | Tertiary text (labels, captions)                |
+| `--glass`      | `#CCFFFFFF` (alpha) | Glass / blur overlay                  |
+| `--glass2`     | `#F0FFFFFF` (alpha) | Stronger glass overlay                |
 
-Each accent has: dark-mode hex (vivid), light-mode hex (deeper), on-accent ink color. See `ProTheme.kt:36-53` for the `ACCENTS` list.
+## Accent palette (16 + Material You)
 
-## M3 ColorScheme wiring
+Defined in `ui/ProTheme.kt` `ACCENTS`. The user picks an accent in
+**Settings → Change theme**; persisted in `p4_theme` JSON as `"accent": <id>`.
 
-| M3 slot | Token | Native |
-|---|---|---|
-| `primary` | `--p4-accent` | `pro.accent` |
-| `onPrimary` | `--p4-on-accent` | `pro.onAccent` |
-| `background` | `--p4-bg` | `pro.bg` |
-| `surface` | `--p4-surface` | `pro.surface` |
-| `surfaceVariant` | `--p4-surface-2` | `pro.surface2` |
-| `surfaceTint` | `--p4-tint` | `pro.tint` |
-| `primaryContainer` | `--p4-tint-strong` | `pro.tintStrong` |
-| `onPrimaryContainer` | `--p4-ink-soft` | `pro.inkSoft` |
-| `outline` | `--p4-hairline-2` | `pro.hairline2` |
-| `error` | `--p4-bad` | `pro.bad` |
+| id        | name              | dark hex  | light hex |
+|-----------|-------------------|-----------|-----------|
+| blue      | Kinetic Blue      | `#4E9BFF` | `#2563EB` |
+| green     | Court Green       | `#34D399` | `#059669` |
+| purple    | Deep Purple       | `#A78BFA` | `#7C3AED` |
+| orange    | Sunset Orange     | `#FB923C` | `#EA580C` |
+| red       | Crimson Red       | `#F87171` | `#DC2626` |
+| pink      | Rose Pink         | `#F472B6` | `#DB2777` |
+| yellow    | Sunny Yellow      | `#FACC15` | `#CA8A04` |
+| teal      | Lagoon Teal       | `#2DD4BF` | `#0D9488` |
+| cyan      | Ice Cyan          | `#22D3EE` | `#0891B2` |
+| indigo    | Midnight Indigo   | `#818CF8` | `#4F46E5` |
+| lime      | Volt Lime         | `#A3E635` | `#65A30D` |
+| rose      | Coral Rose        | `#FB7185` | `#E11D48` |
+| sky       | Sky Blue          | `#38BDF8` | `#0284C7` |
+| mint      | Fresh Mint        | `#6EE7B7` | `#10B981` |
+| violet    | Soft Violet       | `#C4B5FD` | `#8B5CF6` |
+| gold      | Champion Gold     | `#FBBF24` | `#B45309` |
 
-## Consumption surfaces
+The 17th option is **Material You** (Android 12+), which derives the accent
+from the system wallpaper palette via
+`androidx.compose.material3.dynamicDarkColorScheme(ctx).primary`. Selected
+via `p4_dynamic = "on"`.
 
-Every UI surface that recolours with the accent:
-1. Cards (background gradient = cardGradient)
-2. Charts (accent stroke + accentSoft fill)
-3. Radar polygon (accent stroke + 22% alpha fill)
-4. Badges (accentSoft background)
-5. Progress rings (accent color)
-6. Focus rings (ring color)
-7. Borders/hairlines (accentLine for active, hairline2 for inactive)
-8. Buttons (primary = accent gradient, info = tintStrong)
-9. Toggle chips (accentSoft when active)
-10. Text (accent for emphasis, inkSoft for secondary)
+## Semantic tint family (BATCH-5B)
+
+The `ProColors` data class exposes a family of derived tokens so component
+code does not reinvent alpha each call site:
+
+| Token         | Dark alpha | Light alpha | Usage                                            |
+|---------------|-----------|-------------|--------------------------------------------------|
+| `tint`        | 0.20      | 0.16        | Mid-opacity accent (chips, selected backgrounds) |
+| `tintStrong`  | 0.34      | 0.26        | Strong accent (pressed / active hover)           |
+| `tintBg`      | 0.10      | 0.08        | Subtle accent fill (selected card fills)         |
+| `tintLine`    | 0.40      | 0.32        | Accent border on tint backgrounds                |
+| `inkSoft`     | —         | —           | text2 @ 0.78 — de-emphasized labels              |
+| `ring`        | 0.65      | 0.65        | Focus ring (4-px keyboard focus border)          |
+
+## Typography
+
+| Style         | Font            | Weight      | Size  | Letter spacing |
+|---------------|-----------------|-------------|-------|----------------|
+| sectionTitle  | Space Grotesk   | ExtraBold   | 22sp  | -0.2           |
+| statValue     | Space Grotesk   | Black       | 29sp  |                |
+| statLabel     | Inter           | SemiBold    | 10sp  | +0.3           |
+| cardTitle     | Space Grotesk   | Bold        | 17sp  | -0.1           |
+| exerciseTitle | Inter           | Bold        | 19sp  |                |
+| body          | Inter           | Normal      | 16sp  |                |
+| body2         | Inter           | Normal      | 14sp  |                |
+| label         | Inter           | SemiBold    | 15sp  |                |
+| small         | Inter           | Normal      | 13sp  |                |
+| chip          | Inter           | Bold        | 12.5sp|                |
+| tab           | Inter           | SemiBold    | 10.5sp| +0.2           |
+| monoTimer     | JetBrains Mono  | Bold        | 30sp  |                |
+| brand         | Space Grotesk   | ExtraBold   | 24sp  | -0.2           |
+
+Fonts ship as bundled TTF assets (no font resource IDs) — resolved via
+`ui/FontVault.kt`.
+
+## Shape
+
+| Surface         | Radius    |
+|-----------------|-----------|
+| Card             | 14dp      |
+| Sheet (top)      | 20dp      |
+| Dialog           | 28dp      |
+| Pill / chip      | 999dp     |
+| Toggle / input   | 10dp      |
+
+## Storage contract (BATCH-5A)
+
+| Layer                          | Storage                             | Keys                                                                 |
+|--------------------------------|-------------------------------------|----------------------------------------------------------------------|
+| Global prefs                   | `p4_ls` (SharedPreferences)         | `p4_active_profile`, `p4_default_profile`, `deviceId`, `p4_v18_migrated`, `p4_v22_migrated`, consent log |
+| Per-profile prefs              | `p4_ls_<profileId>` (SharedPreferences) | onboarding flags, health-screen state, theme, dynamic, gym, lang, vocab, library prefs, notif prefs, competition, studio export, last backup, last streak recover, workoutData mirror |
+| Per-profile Room DB            | `pro_<profileId>.db` (default: `pro.db`) | workouts, exercises, user, savedWorkout, vault, meta |
+
+The migration from global → per-profile is one-shot and idempotent —
+`ProfileState.migrateFromPrefs` (v18) and `ProfileSettings.migrateFromPrefs`
+(v22). Both are gated on a global flag so they only fire once per device.
+
+## Accessibility contract
+
+- All icons accept a `contentDescription` parameter that is wired to
+  `Modifier.semantics` so TalkBack announces meaningful icons (BATCH-5B / 13).
+- Section headings use `Modifier.accessibleHeading(label)`.
+- Toggle rows use `Modifier.accessibleToggle(label, checked)`.
+
+## Reference
+
+- `ui/ProTheme.kt` — ProColors data class + accent palette + ProTheme composable.
+- `ui/ThemeController.kt` — 3-mode theme controller (write-through + reload).
+- `ui/Icons.kt` — FaIcon with `contentDescription` wiring.
+- `ui/Accessibility.kt` — semantic Modifier helpers.
+- `core/ProfileState.kt` — per-profile SharedPreferences boundary.
+- `core/ProfileSettings.kt` — named constants + v22 migration.
