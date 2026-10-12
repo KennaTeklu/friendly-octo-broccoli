@@ -49,8 +49,8 @@ object StreakFire {
      * Recovery action port of bumpStreakAfterShare (L59630): stamp lastStreakRecoverAt and
      * insert a synthetic streak_recover workout so the calculator yields ≥1.
      *
-     * BATCH-12: routed through ProfileSettings so the recovery timestamp is
-     * per-profile — profile A's recovery doesn't lock out profile B.
+     * BATCH-12: lastStreakRecoverAt is now per-profile (ProfileSettings.STREAK_RECOVER_AT)
+     * so a recovery on profile A doesn't block a recovery on profile B.
      */
     fun performRecovery(): WorkoutRecord {
         val today = ProState.todayLocal()
@@ -65,15 +65,15 @@ object StreakFire {
         ProState.data = ProState.data.copy(workouts = (ProState.data.workouts + rec).sortedBy { it.date })
         ProState.saveWorkoutData()
         val ctx = com.peakform.fitness.ui.Fa.appContext
-        if (ctx != null) ProfileSettings.setStreakRecoverAt(ctx, ProState.nowIso())
+        if (ctx != null) ProfileSettings.put(ctx, ProfileSettings.STREAK_RECOVER_AT, ProState.nowIso())
         ProState.notifyChanged()
         return rec
     }
 
-    /** One honor recovery per calendar day (legacy guard). */
+    /** One honor recovery per calendar day (legacy guard). BATCH-12: per-profile. */
     fun recoveryUsedToday(): Boolean {
         val ctx = com.peakform.fitness.ui.Fa.appContext ?: return false
-        val last = ProfileSettings.lastStreakRecoverAt(ctx) ?: return false
+        val last = ProfileSettings.get(ctx, ProfileSettings.STREAK_RECOVER_AT) ?: return false
         return last.take(10) == ProState.todayLocal()
     }
 }

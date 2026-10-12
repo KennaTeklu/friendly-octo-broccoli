@@ -1,69 +1,62 @@
 package com.peakform.fitness.coach
 
-import android.content.Context
+import com.peakform.fitness.core.ExerciseRecord
+import com.peakform.fitness.core.UserProfile
+import com.peakform.fitness.core.WorkoutData
 
 /**
- * Per-exercise coach interface.
+ * ExerciseCoach — a per-exercise rule engine.
  *
- * Each exercise gets a specific coach with hardcoded, coach-approved mathematics.
- * The generic engine (CoachingEngine / Generator) is a fallback, not the primary path.
+ * BATCH-18: every coach (specific or generic) implements this interface. The
+ * CoachingEngine asks each registered coach "given this exercise record + user,
+ * what tips do you have?" and the coach returns a list of CoachingTip objects
+ * with priority (1=high, 5=low), category, and a short title + body.
+ *
+ * Specific coaches live in `coach/exercises/AllCoaches.kt` and hardcode the
+ * rules for one exercise (e.g. SquatCoach only fires on the squat). Generic
+ * coaches apply to any exercise that matches a tag (e.g. BarbellCoach applies
+ * to all barbell lifts).
  */
 interface ExerciseCoach {
+    /** Unique id (matches the exercise id when this is a specific coach). */
     val id: String
-    val displayName: String
-    val supportedExerciseIds: Set<String>
-    val supportedNamePatterns: List<Regex>
+    /** Display name. */
+    val name: String
+    /** Tags this coach matches (e.g. "barbell", "lower-body", "compound"). */
+    val tags: Set<String>
 
-    fun requirements(): CoachRequirements
-    fun prescribe(ctx: PrescriptionContext): Prescription
-    fun explain(prescription: Prescription): String
-    fun progression(history: List<LoggedSet>): ProgressionRule
+    /**
+     * Evaluate the exercise record + user profile and return tips.
+     *
+     * Implementations should be pure functions — no side effects, no I/O.
+     * The CoachingEngine handles persistence + logging.
+     */
+    fun evaluate(record: ExerciseRecord, user: UserProfile): List<RawTip>
 }
 
-data class CoachRequirements(
-    val needs1RM: Boolean = false,
-    val needsBand: Boolean = false,
-    val needsBodyweight: Boolean = false,
-    val needsDuration: Boolean = false,
-    val needsDistance: Boolean = false,
-    val needsPace: Boolean = false,
-    val needsWeight: Boolean = false,
+/**
+ * Raw coaching tip — the raw form before the CoachingEngine wraps it with
+ * the exercise id + a stable id. Coaches return these; the engine converts.
+ */
+data class RawTip(
+    val id: String,
+    val category: TipCategory,
+    val priority: Int,
+    val title: String,
+    val body: String,
 )
 
-data class PrescriptionContext(
-    val exerciseId: String,
-    val exerciseName: String,
-    val user1RM: Double?,
-    val userBodyweight: Double?,
-    val userExperience: String,
-    val userGoal: String,
-    val lastSession: LoggedSet?,
-    val history: List<LoggedSet>,
-    val bandColor: String?,
-    val phaseMultiplier: Double,
-)
+enum class TipCategory { FORM, LOAD, RECOVERY, MOTIVATION, SAFETY }
 
-data class Prescription(
-    val sets: Int,
-    val reps: String,
-    val weight: Double?,
-    val duration: Double?,
-    val distance: Double?,
-    val pct1RM: Double?,
-    val restSeconds: Int,
-    val notes: String,
-)
-
-data class LoggedSet(
-    val weight: Double,
-    val reps: Int,
-    val rpe: Double?,
-    val date: String,
-)
-
-data class ProgressionRule(
-    val name: String,
-    val rule: String,
-    val increment: Double,
-    val triggerReps: Int,
-)
+/**
+ * OverallCoachInterface — cross-exercise tips that don't belong to any single coach.
+ *
+ * Examples: "you've trained chest three days in a row — back day tomorrow",
+ * "your average RPE is 9.5 — schedule a deload", "streak is at 14 days — keep
+ * it going", "you missed your last two scheduled days — pick a small win".
+ */
+interface OverallCoachInterface {
+    val id: String
+    val name: String
+    fun evaluate(data: WorkoutData, exerciseTips: List<com.peakform.fitness.core.CoachingEngine.CoachingTip>): List<RawTip>
+}

@@ -83,13 +83,20 @@ class MainActivity : ComponentActivity() {
             com.peakform.fitness.engine.Fatigue.calculateMuscleLastTrained()
             com.peakform.fitness.engine.Sessions.recomputeAggregates()
         }
-        ThemeController.load(ProPrefs.get(this, "p4_theme"))
-        ThemeController.loadDynamic(ProPrefs.get(this, "p4_dynamic"))
-        // BATCH-6: resolve the effective dark flag for the loaded mode
-        // (e.g. "system" → follow the device's current UI mode).
-        ThemeController.resolveDark(this)
+        // BATCH-12: theme load — load(p4_theme) + loadDynamic(p4_dynamic) +
+        // resolveDark so the host activity picks the right scheme before the
+        // first composition. ThemeController.reload(this) does all three.
+        ThemeController.reload(this)
+        // BATCH-6: in case the system dark setting changed since init, observe
+        // and call setSystemDark. This is a no-op when mode != SYSTEM.
+        ThemeController.setSystemDark(ThemeController.dark)
         Vocab.init(this)
         Badges.init(this)
+        // BATCH-5A/5B: one-shot v22 prefs migration — copy legacy global p4_onboarded /
+        // p4_health_* / workoutEmergencyBackup values from ProPrefs into every
+        // profile's per-profile SharedPrefs (p4_ls_<profileId>). Idempotent —
+        // gated on the global p4_v22_migrated flag.
+        try { com.peakform.fitness.core.ProfileState.migrateFromPrefs(this) } catch (_: Exception) {}
         applyScreenshotSafeMode()
         // resume section from launcher shortcut / notification / tile
         if (intent?.getStringExtra("section") != null) {
@@ -111,13 +118,10 @@ class MainActivity : ComponentActivity() {
             var migrationPhase by remember { mutableStateOf<String?>(null) }
             var migrationInfo by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(Unit) {
-                // BATCH-5A: one-shot v22 per-profile prefs migration — copy legacy
-                // global p4_onboarded / p4_health_* / p4_library_* into each
-                // profile's dedicated SharedPreferences file (p4_ls_<profileId>)
-                // so existing users keep their state and never see the wizard fire
-                // again after upgrade.
+                // BATCH-4B item 2/6: one-shot v18 meta migration — copy legacy
+                // global p4_onboarded / p4_health_* into every profile's Room
+                // `meta` table so existing users keep their onboarded state.
                 com.peakform.fitness.core.ProfileState.migrateFromPrefs(ctx)
-                com.peakform.fitness.core.ProfileSettings.migrateFromPrefs(ctx, 22)
                 ProState.loadAll()
                 // BATCH-4B item 6: stamp the active profile's first-launch
                 // timestamp (a new-user signal — never overwrites if present).
@@ -143,15 +147,6 @@ class MainActivity : ComponentActivity() {
             }
 
             ProTheme(dark = ThemeController.dark, accent = ThemeController.accent(), dynamic = ThemeController.dynamic) {
-                // BATCH-6: when mode == "system", follow the device's UI mode.
-                // isSystemInDarkTheme() recomposes on configuration change, so
-                // a system dark/light flip updates ThemeController.dark live.
-                val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
-                androidx.compose.runtime.LaunchedEffect(systemDark, ThemeController.mode) {
-                    if (ThemeController.mode == ThemeController.MODE_SYSTEM) {
-                        ThemeController.resolveDark(ctx)
-                    }
-                }
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -477,16 +472,8 @@ fun AppShell(
                         "feedback" -> FeedbackScreen(onClose = { go("settings") })
                         "mycycle" -> MyCycleScreen(onClose = { go("dashboard") })
                         "badges" -> BadgeGalleryScreen()
-                        // BATCH-13: 1RM Audit screen routing — surfaces the audit
-                        // and reset tools for the active profile's 1RM cache.
-                        "1rm_audit" -> com.peakform.fitness.ui.screens.OneRMAuditScreen(
-                            onClose = { go("settings") },
-                            onOpenSection = { go(it) },
-                        )
-                        // BATCH-15: 1RM Lab — experiment with estimation formulas.
-                        "1rm_lab" -> com.peakform.fitness.ui.screens.OneRmLabScreen(
-                            onClose = { go("settings") },
-                        )
+                        // BATCH-14/15: 1RM Audit screen — opened from Settings → Danger zone.
+                        "1rm_audit" -> com.peakform.fitness.ui.screens.OneRMAuditScreen(onClose = { go("settings") })
                     }
                 }
             }

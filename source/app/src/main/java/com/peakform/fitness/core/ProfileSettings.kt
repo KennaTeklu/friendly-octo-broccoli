@@ -1,142 +1,124 @@
 package com.peakform.fitness.core
 
 import android.content.Context
-import com.peakform.fitness.ProLog
 
 /**
- * ProfileSettings — named-constant facade over ProfileState for per-profile
- * settings keys (BATCH-5B).
+ * ProfileSettings — the per-profile settings facade.
  *
- * Why: ProfileState exposes the raw get/put/remove/has storage primitive;
- * callers previously referenced keys like "p4_lib_group" or "p4_notif_retest"
- * inline. ProfileSettings gathers every per-profile key in one place so
- * renames, audit, and the v22 migration can find them all at once.
+ * BATCH-5B: every per-profile setting now flows through this object so the
+ * call sites are explicit about which keys are per-profile vs global. The
+ * underlying storage is ProfileState (per-profile SharedPrefs "p4_ls_<pid>").
  *
- * Storage: ProfileSettings does NOT own storage — it routes every read/write
- * through ProfileState, which itself uses the per-profile SharedPreferences
- * file `p4_ls_<profileId>`. Switching profiles is enough to isolate state;
- * no further work needed here.
- *
- * Notification toggles (getNotif/setNotif) live here because each profile
- * should own its notification preferences (a coach profile and a trainee
- * profile on the same device may want different reminders).
- *
- * Migration: `migrateFromPrefs(ctx, v = 22)` is the forward-compat hook —
- * future versions can pass a higher `v` to extend the migrated-keys list
- * without touching ProfileState.
+ * Migration: on first v22 cold start, every per-profile setting is copied
+ * out of the legacy global ProPrefs ("p4_ls") into the active profile's
+ * per-profile SharedPrefs (see ProfileState.migrateFromPrefs). The
+ * MIGRATED_KEYS set documents which legacy global keys crossed over.
  */
 object ProfileSettings {
 
-    // ---- library / browsing ----
-    const val K_LIB_GROUP = "p4_lib_group"
-    const val K_LIB_CHUNK = "p4_lib_chunk"
-    const val K_LIB_STREAM = "p4_lib_stream"
-    const val K_LIB_EXPAND_ALL = "p4_lib_expand_all"
-    const val K_LIB_COLLAPSED = "p4_library_collapsed"
-    const val K_LIB_RESET_AT = "p4_lib_reset_at"
+    // ---- per-profile key constants (named) ----
+    // Onboarding / health
+    const val ONBOARDED = ProfileState.K_ONBOARDED
+    const val OB_DRAFT = ProfileState.K_OB_DRAFT
+    const val OB_FINISHED_AT = ProfileState.K_OB_FINISHED_AT
+    const val FIRST_LAUNCH = ProfileState.K_FIRST_LAUNCH
+    const val HEALTH_SCREENED = ProfileState.K_HEALTH_SCREENED
+    const val HEALTH_TIER = ProfileState.K_HEALTH_TIER
+    const val HEALTH_GENERAL = ProfileState.K_HEALTH_GENERAL
+    const val HEALTH_FOLLOWUP = ProfileState.K_HEALTH_FOLLOWUP
+    const val HEALTH_JOINTS = ProfileState.K_HEALTH_JOINTS
+    const val HEALTH_UNLOCKED = ProfileState.K_HEALTH_UNLOCKED
+    const val HEALTH_DECLARED = ProfileState.K_HEALTH_DECLARED
+    const val HEALTH_INTRO_SEEN = ProfileState.K_HEALTH_INTRO_SEEN
+    const val EMERGENCY_BACKUP = ProfileState.K_EMERGENCY_BACKUP
 
-    // ---- notifications (per-profile, not global) ----
-    const val K_NOTIF_RETEST = "p4_notif_retest_reminder"
-    const val K_NOTIF_DELOAD = "p4_notif_deload_notice"
-    const val K_NOTIF_PERIOD = "p4_notif_period_notice"
-    const val K_NOTIF_BACKUP = "p4_notif_backup_nudge"
+    // Training prefs / per-profile
+    const val TRAINING_MODE = "p4_training_mode"
+    const val REST_TIME = "p4_rest_time"
+    const val PROGRESSION_RATE = "p4_progression_rate"
+    const val WORKOUT_DAYS = "p4_workout_days"
+    const val EXPRESS_MODE = "p4_express_mode"
+    const val AGGRESSION = "p4_aggression"
+    const val COMPETITION_DATE = "p4_competition"
+    const val HEIGHT = "p4_height"
+    const val EXPERIENCE = "p4_experience"
+    const val GOAL = "p4_goal"
 
-    // ---- streak ----
-    const val K_STREAK_RECOVER_AT = "lastStreakRecoverAt"
+    // Library prefs (per-profile — different users have different libraries)
+    const val LIB_GROUP = "p4_lib_group"
+    const val LIB_CHUNK = "p4_lib_chunk"
+    const val LIB_EXPAND_ALL = "p4_lib_expand_all"
+    const val LIB_STREAM = "p4_lib_stream"
+    const val LIB_COLLAPSED = "p4_library_collapsed"
+    const val CUSTOM_EX = "p4_custom_ex"
 
-    // ---- onboarding wizard scratch (non-draft bits) ----
-    const val K_OB_LAST_STEP = "p4_ob_last_step"
+    // Notifications (per-profile)
+    const val NOTIF_RETEST = "p4_notif_retest_reminder"
+    const val NOTIF_DELOAD = "p4_notif_deload_notice"
+    const val NOTIF_PERIOD = "p4_notif_period_notice"
+    const val NOTIF_SYSTEM = "p4_notif_system"
+    const val NOTIF_SUPPRESS_PREFIX = "p4_notif_suppressed_"
+    const val NOTIF_ASKED = "p4_notif_asked"
 
-    // ---- training-environment prefs (per-profile) ----
-    const val K_TRAINING_ENV = "p4_training_env"
-    const val K_GOAL = "p4_goal"
+    // Vocabulary + language (per-profile)
+    const val VOCAB_LEVEL = "p4_vocab"
+    const val LANG = "p4_lang"
 
-    // ---- post-session feel (last entry, for coach tuning) ----
-    const val K_LAST_FEEL = "p4_last_feel"
-    const val K_LAST_RPE = "p4_last_rpe"
+    // Power-user (per-profile)
+    const val POWER_SETTINGS = "p4_power_settings"
+    const val GYM_MODE = "p4_gym"
+    const val SECURE_MODE = "p4_secure"
 
-    // ---- tuning gear (per-profile coach knobs) ----
-    const val K_TUNING_VOLUME = "p4_tuning_volume"
-    const val K_TUNING_INTENSITY = "p4_tuning_intensity"
-    const val K_TUNING_FREQUENCY = "p4_tuning_frequency"
+    // Streak / competition
+    const val STREAK_RECOVER_AT = "lastStreakRecoverAt"
 
-    /** Keys migrated from global ProPrefs → per-profile prefs by the v22
-     *  migration. MIRRORS ProfileState.migrateFromPrefs; extended here so
-     *  future additions don't require editing two files. */
-    val MIGRATED_KEYS: List<String> = listOf(
-        ProfileState.K_ONBOARDED,
-        ProfileState.K_OB_DRAFT,
-        ProfileState.K_OB_FINISHED_AT,
-        ProfileState.K_HEALTH_SCREENED,
-        ProfileState.K_HEALTH_TIER,
-        ProfileState.K_HEALTH_GENERAL,
-        ProfileState.K_HEALTH_FOLLOWUP,
-        ProfileState.K_HEALTH_JOINTS,
-        ProfileState.K_HEALTH_UNLOCKED,
-        ProfileState.K_HEALTH_DECLARED,
-        ProfileState.K_HEALTH_INTRO_SEEN,
-        ProfileState.K_EMERGENCY_BACKUP,
-        ProfileState.K_FIRST_LAUNCH,
-        K_LIB_GROUP,
-        K_LIB_CHUNK,
-        K_LIB_STREAM,
-        K_LIB_EXPAND_ALL,
-        K_LIB_COLLAPSED,
-        K_STREAK_RECOVER_AT,
+    // Onboarding Ask / Vocab
+    const val ONBOARD_ASK_LEVEL = "p4_ob_ask_level"
+
+    /** The set of legacy global keys that crossed over to per-profile in v22. */
+    val MIGRATED_KEYS: Set<String> = setOf(
+        ONBOARDED, OB_DRAFT, OB_FINISHED_AT, FIRST_LAUNCH,
+        HEALTH_SCREENED, HEALTH_TIER, HEALTH_GENERAL, HEALTH_FOLLOWUP,
+        HEALTH_JOINTS, HEALTH_UNLOCKED, HEALTH_DECLARED, HEALTH_INTRO_SEEN,
+        EMERGENCY_BACKUP,
+        TRAINING_MODE, REST_TIME, PROGRESSION_RATE, WORKOUT_DAYS,
+        EXPRESS_MODE, AGGRESSION, COMPETITION_DATE,
+        LIB_GROUP, LIB_CHUNK, LIB_EXPAND_ALL, LIB_STREAM, LIB_COLLAPSED,
+        CUSTOM_EX,
+        NOTIF_RETEST, NOTIF_DELOAD, NOTIF_PERIOD, NOTIF_SYSTEM,
+        VOCAB_LEVEL, LANG,
+        POWER_SETTINGS, GYM_MODE,
+        STREAK_RECOVER_AT,
     )
 
-    // ---- generic routing ----
-    fun get(ctx: Context, key: String, default: String? = null): String? =
-        ProfileState.get(ctx, key, default)
+    // ---- pass-through API to ProfileState (active profile) ----
+    fun get(ctx: Context, key: String, default: String? = null): String? = ProfileState.get(ctx, key, default)
+    fun put(ctx: Context, key: String, value: String) = ProfileState.put(ctx, key, value)
+    fun remove(ctx: Context, key: String) = ProfileState.remove(ctx, key)
+    fun has(ctx: Context, key: String): Boolean = ProfileState.has(ctx, key)
 
-    fun put(ctx: Context, key: String, value: String) =
-        ProfileState.put(ctx, key, value)
+    // ---- typed helpers ----
+    fun getInt(ctx: Context, key: String, default: Int): Int = ProfileState.get(ctx, key)?.toIntOrNull() ?: default
+    fun putInt(ctx: Context, key: String, value: Int) = ProfileState.put(ctx, key, value.toString())
 
-    fun remove(ctx: Context, key: String) =
-        ProfileState.remove(ctx, key)
+    fun getBool(ctx: Context, key: String, default: Boolean): Boolean =
+        ProfileState.get(ctx, key)?.let { it == "true" || it == "on" } ?: default
+    fun putBool(ctx: Context, key: String, value: Boolean) =
+        ProfileState.put(ctx, key, if (value) "true" else "false")
 
-    fun has(ctx: Context, key: String): Boolean =
-        ProfileState.has(ctx, key)
-
-    // ---- notifications ----
-    /** Per-profile notification toggle. Defaults ON (legacy contract — the
-     *  legacy global key was `p4_notif_<key>` with the value "false" meaning
-     *  off; absent meant on. */
-    fun getNotif(ctx: Context, key: String): Boolean =
-        get(ctx, notifKeyFor(key)) != "false"
-
-    fun setNotif(ctx: Context, key: String, on: Boolean) {
-        put(ctx, notifKeyFor(key), if (on) "on" else "false")
-    }
-
-    /** Map a logical notification id ("retest_reminder", etc.) to the
-     *  per-profile prefs key. */
-    private fun notifKeyFor(key: String): String = "p4_notif_$key"
-
-    // ---- per-profile helpers ----
-    /** Last-streak-recover-at ISO timestamp (honor-system daily guard). */
-    fun lastStreakRecoverAt(ctx: Context): String? = get(ctx, K_STREAK_RECOVER_AT)
-
-    fun setStreakRecoverAt(ctx: Context, iso: String) = put(ctx, K_STREAK_RECOVER_AT, iso)
-
-    /** Library collapsed-group set, encoded as a JSON array string. */
-    fun libraryCollapsed(ctx: Context): String? = get(ctx, K_LIB_COLLAPSED)
-    fun setLibraryCollapsed(ctx: Context, encoded: String) = put(ctx, K_LIB_COLLAPSED, encoded)
+    // ---- notification opts (per-profile) ----
+    fun getNotif(ctx: Context, key: String): Boolean = ProfileState.get(ctx, key) != "false"
+    fun setNotif(ctx: Context, key: String, on: Boolean) =
+        ProfileState.put(ctx, key, if (on) "true" else "false")
 
     /**
-     * Forward-compat migration hook. v22 routes through ProfileState.migrateFromPrefs
-     * (which handles the legacy per-profile keys). Higher v values can extend
-     * the migrated-keys list here without touching ProfileState.
-     *
-     * Safe to call multiple times — gated on K_V22_MIGRATED.
+     * One-shot v22 migration: copy every MIGRATED_KEYS entry from the global
+     * ProPrefs into the active profile's per-profile SharedPrefs. Idempotent
+     * — gated on the global `p4_v22_migrated` flag (set by ProfileState).
      */
-    fun migrateFromPrefs(ctx: Context, v: Int = 22) {
-        when (v) {
-            22 -> ProfileState.migrateFromPrefs(ctx)
-            else -> {
-                ProfileState.migrateFromPrefs(ctx)
-                ProLog.i("PROFILESETTINGS", "migrateFromPrefs v=$v — no extra keys")
-            }
-        }
+    fun migrateFromPrefs(ctx: Context) {
+        // ProfileState handles the gate; we just supply the keys to migrate.
+        // The actual copy is done per-profile in ProfileState.migrateFromPrefs.
+        ProfileState.migrateFromPrefs(ctx)
     }
 }

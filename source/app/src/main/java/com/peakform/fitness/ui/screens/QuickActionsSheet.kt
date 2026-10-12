@@ -8,88 +8,70 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.peakform.fitness.core.CoachingEngine
-import com.peakform.fitness.core.ProState
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
 
 /**
  * QuickActionsSheet — BATCH-15.
  *
- * A bottom-sheet-style surface surfacing the four most common in-workout
- * actions: log a set, switch exercise, open the timer, finish workout.
- * The sheet itself is a Composable; the host (WorkoutScreen) decides
- * whether to render it inside a ModalBottomSheet or inline.
+ * The bottom-dock "more" sheet already exists (MoreSheet in MainActivity),
+ * but the new QuickActionsSheet is a focused subset: the four most-used
+ * actions (resume / theme toggle / export / 1RM audit) surfaced as a
+ * horizontal pill row so the user can one-tap them from the dashboard.
  *
- * Reads CoachingEngine.noteFor(ctx) so the user sees the coach's current
- * prescription hint at the top of the sheet.
+ * Renders inside any AlertDialog / ModalBottomSheet content slot.
  */
 @Composable
 fun QuickActionsSheet(
-    visible: Boolean,
     onDismiss: () -> Unit,
-    onLogSet: () -> Unit,
-    onSwitchExercise: () -> Unit,
-    onOpenTimer: () -> Unit,
-    onFinishWorkout: () -> Unit,
+    onResume: () -> Unit,
+    onToggleTheme: () -> Unit,
+    onExport: () -> Unit,
+    onOneRmAudit: () -> Unit,
 ) {
-    if (!visible) return
     val c = LocalProColors.current
-    val ctx = LocalContext.current
-    val note = remember { CoachingEngine.noteFor(ctx) }
-
     Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-            .background(c.glass2)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(36.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(c.hairline2))
-            Spacer(Modifier.weight(1f))
-            FaIcon("fa-xmark", size = 16.sp, tint = c.text2, modifier = Modifier.clickable { onDismiss() })
+            FaIcon("fa-bolt", size = 16.sp, tint = c.accent)
+            Spacer(Modifier.width(8.dp))
+            Text("Quick actions", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
+            FaIcon("fa-xmark", size = 14.sp, tint = c.text3, modifier = Modifier.clickable { onDismiss() })
         }
-        Text("Quick actions", style = ProType.cardTitle, color = c.text)
-        // coach's note
-        GlassCard(padding = PaddingValues(10.dp)) {
-            Text(note.headline, style = ProType.label, color = c.accent)
-            Text(note.body, style = ProType.small, color = c.text2)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            QuickAction("fa-play", "Resume", c.accent, Modifier.weight(1f)) { onResume() }
+            QuickAction("fa-circle-half-stroke", "Theme", c.accent, Modifier.weight(1f)) { onToggleTheme() }
+            QuickAction("fa-file-export", "Export", c.accent, Modifier.weight(1f)) { onExport() }
+            QuickAction("fa-magnifying-glass-chart", "1RM Audit", c.accent, Modifier.weight(1f)) { onOneRmAudit() }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            QuickActionTile("fa-pen-to-square", "Log set", Modifier.weight(1f)) { onLogSet() }
-            QuickActionTile("fa-arrow-right-arrow-left", "Switch", Modifier.weight(1f)) { onSwitchExercise() }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            QuickActionTile("fa-stopwatch", "Timer", Modifier.weight(1f)) { onOpenTimer() }
-            QuickActionTile("fa-flag-checkered", "Finish", Modifier.weight(1f)) { onFinishWorkout() }
-        }
+        Spacer(Modifier.height(16.dp))
+        Text("Swipe down to dismiss", style = ProType.small, color = c.text3)
     }
 }
 
 @Composable
-private fun QuickActionTile(icon: String, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun QuickAction(icon: String, label: String, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val c = LocalProColors.current
     Column(
         modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(c.surface2)
-            .border(1.dp, c.hairline, RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.surface)
+            .border(1.dp, c.hairline, RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(vertical = 14.dp),
+            .padding(horizontal = 8.dp, vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        FaIcon(icon, size = 18.sp, tint = c.accent)
+        FaIcon(icon, size = 18.sp, tint = color)
         Spacer(Modifier.height(6.dp))
-        Text(label, style = ProType.small, color = c.text2, fontWeight = FontWeight.SemiBold)
+        Text(label, fontSize = 11.sp, color = c.text2, fontWeight = FontWeight.SemiBold)
     }
 }

@@ -1,45 +1,59 @@
 package com.peakform.fitness.core
 
 import android.content.Context
+import kotlinx.serialization.Serializable
 
 /**
- * SelfAssessment — BATCH-14: lightweight daily readiness self-check.
+ * SelfAssessment — the post-session RPE / feel / readiness survey.
  *
- * Scope: a 3-question self-assessment (sleep, soreness, motivation) the user
- * can fill in from the dashboard or the post-session sheet. Produces a single
- * 0..100 readiness score that supplements the engine-computed recovery.
+ * BATCH-14: the Workout screen surfaces a compact self-assessment after each
+ * session so the coach engine can adjust the next prescription. Responses are
+ * per-profile (ProfileSettings) so the engine sees only the active profile's
+ * recent answers.
  *
- * Storage: per-profile via ProfileSettings (K_LAST_FEEL is reused; this adds
- * K_LAST_RPE + 3 daily-assessment keys under the same namespace).
+ * Fields:
+ *  - rpe (1–10) — Borg CR-10 perceived exertion
+ *  - readiness (1–5) — how recovered the user feels before the next session
+ *  - soreness (0–3) — localized muscle soreness scale
+ *  - sleepHours (0–12) — last night's sleep
+ *  - mood (1–5) — subjective mood entering the session
+ *  - notes — free text
  */
-object SelfAssessment {
+@Serializable
+data class SelfAssessment(
+    val rpe: Int = 0,
+    val readiness: Int = 0,
+    val soreness: Int = 0,
+    val sleepHours: Double = 0.0,
+    val mood: Int = 0,
+    val notes: String = "",
+    val timestamp: String = "",
+) {
+    companion object {
+        const val STORAGE_KEY = "p4_self_assessment_last"
 
-    data class Assessment(
-        val sleep: Int,        // 0..10 (10 = best)
-        val soreness: Int,     // 0..10 (10 = no soreness)
-        val motivation: Int,    // 0..10 (10 = pumped)
-        val takenAt: String,
-    )
+        fun load(ctx: Context): SelfAssessment? = try {
+            ProfileSettings.get(ctx, STORAGE_KEY)?.let {
+                ProJson.json.decodeFromString(serializer(), it)
+            }
+        } catch (_: Exception) { null }
 
-    fun read(ctx: Context): Assessment? {
-        val sleep = ProfileSettings.get(ctx, "p4_sa_sleep")?.toIntOrNull() ?: return null
-        val soreness = ProfileSettings.get(ctx, "p4_sa_soreness")?.toIntOrNull() ?: return null
-        val motivation = ProfileSettings.get(ctx, "p4_sa_motivation")?.toIntOrNull() ?: return null
-        val takenAt = ProfileSettings.get(ctx, "p4_sa_taken_at") ?: ProState.nowIso()
-        return Assessment(sleep, soreness, motivation, takenAt)
-    }
+        fun save(ctx: Context, a: SelfAssessment) {
+            ProfileSettings.put(ctx, STORAGE_KEY, ProJson.json.encodeToString(serializer(), a))
+        }
 
-    fun save(ctx: Context, a: Assessment) {
-        ProfileSettings.put(ctx, "p4_sa_sleep", a.sleep.coerceIn(0, 10).toString())
-        ProfileSettings.put(ctx, "p4_sa_soreness", a.soreness.coerceIn(0, 10).toString())
-        ProfileSettings.put(ctx, "p4_sa_motivation", a.motivation.coerceIn(0, 10).toString())
-        ProfileSettings.put(ctx, "p4_sa_taken_at", ProState.nowIso())
-    }
-
-    /** Composite 0..100 readiness score from the last assessment. */
-    fun readiness(ctx: Context): Int {
-        val a = read(ctx) ?: return 50
-        val raw = (a.sleep + a.soreness + a.motivation) / 3.0
-        return (raw * 10).toInt().coerceIn(0, 100)
+        /** Heuristic: the next session's recommended load multiplier
+         *  based on the last self-assessment. 1.0 = same load, 1.05 = +5%, 0.95 = -5%. */
+        fun recommendedLoadMultiplier(a: SelfAssessment?): Double {
+            if (a == null || a.rpe == 0) return 1.0
+            // Average RPE >8 → back off 5%; <6 → push 5%; else hold.
+            return when {
+                a.rpe >= 9 -> 0.92
+                a.rpe >= 8 -> 0.97
+                a.rpe <= 5 -> 1.05
+                a.rpe <= 6 -> 1.02
+                else -> 1.0
+            }
+        }
     }
 }

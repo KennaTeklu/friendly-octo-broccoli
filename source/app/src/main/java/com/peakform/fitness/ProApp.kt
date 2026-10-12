@@ -79,6 +79,10 @@ class ProApp : Application() {
             prev?.uncaughtException(t, e)
         }
         ProLog.i("APP", "Pro native starting (pid=${android.os.Process.myPid()})")
+        // BATCH-18: register all 29 specific + 8 generic coaches at app start.
+        try { com.peakform.fitness.coach.exercises.AllCoaches.registerAll() } catch (e: Exception) {
+            ProLog.w("APP", "coach registry init failed: ${e.message}")
+        }
         // N6: periodic reminder scan (retest / deload / period / backup) - survives reboot
         try {
             com.peakform.fitness.core.Notify.ensureChannels(this)

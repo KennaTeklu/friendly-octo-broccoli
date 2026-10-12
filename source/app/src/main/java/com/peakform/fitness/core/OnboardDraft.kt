@@ -62,9 +62,9 @@ data class OnboardDraft(
                 gender = gender,
             ))
             ProState.saveWorkoutData()
-            // theme + vocab (BATCH-12: ThemeController.set() persists atomically
-            // — no separate ProPrefs.put needed here).
+            // theme + vocab
             ThemeController.set(mode, accentId, ctx)
+            ProPrefs.put(ctx, "p4_theme", ThemeController.currentJson())
             Vocab.setLevel(ctx, level)
             // consents recorded in one action (L56559–56563)
             Consent.record(ctx, "terms", "Onboarding completed — Terms accepted")

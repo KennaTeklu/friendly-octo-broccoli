@@ -1,195 +1,184 @@
 package com.peakform.fitness.core
 
-import android.content.Context
-import com.peakform.fitness.ProLog
 import kotlin.math.abs
-import kotlin.math.roundToInt
+import kotlin.math.min
 
 /**
- * GapClosures — BATCH-21.
+ * GapClosures — BATCH-18C.
  *
- * A grab-bag of small "gap-closure" helpers identified in the reference-app
- * audit (BATCH-19). Each is independent and self-contained; they live together
- * so the audit can find them under one file.
+ * A collection of small, focused helpers that close specific UX / data gaps
+ * surfaced by the v2.0 architecture audit. Each closure is its own class so
+ * the test battery can target it individually.
  *
- *   - GenderFilter: filter the exercise library by gender suitability.
- *   - FuzzySearch: lightweight Levenshtein-distance search for the library.
- *   - RpeColor: tint for an RPE value (1..10).
- *   - CompetitionDate: countdown + phase label for a competition date.
- *   - ExpandedMessageBank: more variety in coach messages (per mood).
- *   - ExerciseAudit: per-exercise gap analysis for the audit screen.
- *   - EwmaPerExercise: exponentially-weighted moving average of volume per
- *     exercise, for trend detection.
- *   - CouplingMatrixWriteback: persist a user-edited coupling matrix override.
- *   - TestResultSync: mirror a 1RM test result into the exercise record.
- *   - VersionCheck: compare two versionName strings (1.5.1 < 1.9.1 etc.).
- *
- * Storage: read/write through ProfileSettings where per-profile state is
- * needed (CouplingMatrixWriteback). Everything else is stateless.
+ *  - GenderFilter     — filter the exercise library by gender suitability
+ *  - FuzzySearch      — Levenshtein-distance-based exercise name search
+ *  - RpeColor         — RPE 1-10 → Tailwind color token
+ *  - CompetitionDate  — countdown days + taper-week flag
+ *  - SkillFactorBucket — categorize an exercise as Easy/Medium/Hard
+ *  - AgeBucket        — under-16 / 16-64 / 65+ bucket from birth date
+ *  - PostpartumFlag   — flag a profile as postpartum (0-6 months)
+ *  - VolumeBucket     — light/moderate/heavy from total tonnage
  */
 object GapClosures {
 
-    // ---- GenderFilter ----
-    fun genderFilter(gender: String, suitability: String): Boolean = when (gender.lowercase()) {
-        "male" -> suitability == "both" || suitability == "male"
-        "female" -> suitability == "both" || suitability == "female"
-        else -> true
-    }
+    // ---------------- GenderFilter ----------------
 
-    // ---- FuzzySearch (Levenshtein ≤ 2 OR contains) ----
-    fun fuzzyMatch(query: String, candidate: String): Boolean {
-        if (query.isBlank()) return true
-        val q = query.lowercase().trim()
-        val c = candidate.lowercase()
-        if (c.contains(q)) return true
-        return levenshtein(q, c) <= 2
-    }
-
-    private fun levenshtein(a: String, b: String): Int {
-        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
-        for (i in 0..a.length) dp[i][0] = i
-        for (j in 0..b.length) dp[0][j] = j
-        for (i in 1..a.length) for (j in 1..b.length) {
-            val cost = if (a[i - 1] == b[j - 1]) 0 else 1
-            dp[i][j] = minOf(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
+    object GenderFilter {
+        /** Returns true if the exercise is suitable for the given gender. */
+        fun accepts(ex: LibraryExercise, gender: String): Boolean {
+            // genderSuitability ∈ {both, male, female, unspecified}
+            val suit = ex.genderSuitability.ifBlank { "both" }
+            return suit == "both" || suit == gender
         }
-        return dp[a.length][b.length]
+
+        /** Apply the filter to a list — keeps only the exercises suitable for gender. */
+        fun apply(list: List<LibraryExercise>, gender: String): List<LibraryExercise> =
+            list.filter { accepts(it, gender) }
     }
 
-    // ---- RpeColor (returns a 0..360 hue for HSL conversion) ----
-    fun rpeColor(rpe: Int): String = when {
-        rpe >= 9 -> "red"
-        rpe >= 7 -> "orange"
-        rpe >= 5 -> "yellow"
-        rpe >= 3 -> "green"
-        else -> "blue"
-    }
+    // ---------------- FuzzySearch ----------------
 
-    // ---- CompetitionDate ----
-    data class CompPhase(val daysOut: Int, val phase: String)
-
-    fun competitionDate(iso: String): CompPhase? {
-        val ms = ProState.utcDayMillis(iso).takeIf { it > 0 } ?: return null
-        val days = ((ms - System.currentTimeMillis()) / (24L * 3600 * 1000)).toInt()
-        val phase = when {
-            days < 0 -> "Past"
-            days <= 7 -> "Peaking"
-            days <= 28 -> "Building"
-            days <= 84 -> "Base"
-            else -> "Off-season"
-        }
-        return CompPhase(days, phase)
-    }
-
-    // ---- ExpandedMessageBank ----
-    object ExpandedMessageBank {
-        fun forTone(tone: String): List<String> = when (tone) {
-            "ease" -> listOf(
-                "Pull back today — you've been pushing hard.",
-                "Recovery is part of the work. Ease off 10%.",
-                "Listen to your body: a deload week is fine.",
-            )
-            "push" -> listOf(
-                "You've got fuel in the tank — push it today.",
-                "Fresh and ready? Add a set or two.",
-                "Today's the day to chase a PR.",
-            )
-            "hold" -> listOf(
-                "Steady as she goes — the plan is working.",
-                "Trust the program. Same as last week.",
-                "Consistency beats intensity today.",
-            )
-            else -> listOf(
-                "Show up. That's the win.",
-                "One rep at a time.",
-                "Form first, weight second.",
-            )
-        }
-    }
-
-    // ---- ExerciseAudit ----
-    data class ExerciseAuditRow(
-        val id: String,
-        val name: String,
-        val tested1RM: Double?,
-        val est1RM: Double?,
-        val lastPerformed: String?,
-        val weeksSinceTest: Int,
-        val confidence: String,
-    )
-
-    fun exerciseAudit(): List<ExerciseAuditRow> {
-        return ProState.data.exercises.entries.map { (id, rec) ->
-            ExerciseAuditRow(
-                id = id,
-                name = com.peakform.fitness.engine.Library.getExerciseById(id)?.name ?: id,
-                tested1RM = rec.tested1RM,
-                est1RM = rec.mu,
-                lastPerformed = rec.lastPerformed,
-                weeksSinceTest = OneRmLab.weeksSinceTest(rec.testDate),
-                confidence = OneRmLab.confidenceLabel(rec.sigma2),
-            )
-        }.sortedByDescending { it.tested1RM ?: it.est1RM ?: 0.0 }
-    }
-
-    // ---- EwmaPerExercise ----
-    /** EWMA of weekly volume per exercise. alpha = 0.4 (recent weeks weigh more). */
-    fun ewmaPerExercise(alpha: Double = 0.4): Map<String, Double> {
-        val byExe = mutableMapOf<String, MutableList<Pair<Long, Double>>>()
-        ProState.data.workouts.filter { it.isCompleted }.forEach { w ->
-            val dayMs = ProState.utcDayMillis(w.date)
-            w.exercises.forEach { ex ->
-                val a = ex.actual
-                val vol: Double = when {
-                    a == null -> 0.0
-                    a.volume != null -> a.volume
-                    else -> a.weight * a.sets
+    object FuzzySearch {
+        /** Levenshtein distance — classic DP, O(n*m). */
+        fun distance(a: String, b: String): Int {
+            val la = a.lowercase()
+            val lb = b.lowercase()
+            val n = la.length; val m = lb.length
+            if (n == 0) return m; if (m == 0) return n
+            val prev = IntArray(m + 1) { it }
+            val curr = IntArray(m + 1)
+            for (i in 1..n) {
+                curr[0] = i
+                for (j in 1..m) {
+                    val cost = if (la[i - 1] == lb[j - 1]) 0 else 1
+                    curr[j] = minOf(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
                 }
-                if (vol > 0) byExe.getOrPut(ex.id) { mutableListOf() }.add(dayMs to vol)
+                prev.indices.forEach { prev[it] = curr[it] }
+            }
+            return prev[m]
+        }
+
+        /** Score 0..1 — 1 = perfect match, 0 = no similarity. */
+        fun score(query: String, target: String): Double {
+            if (query.isBlank() && target.isBlank()) return 1.0
+            val maxLen = maxOf(query.length, target.length)
+            if (maxLen == 0) return 1.0
+            return 1.0 - distance(query, target).toDouble() / maxLen
+        }
+
+        /** Search a list — returns items sorted by score (best first). */
+        fun search(query: String, list: List<LibraryExercise>, threshold: Double = 0.3): List<LibraryExercise> =
+            list.map { it to score(query, it.name) }
+                .filter { it.second >= threshold }
+                .sortedByDescending { it.second }
+                .map { it.first }
+
+        /** Convenience — also matches muscle tags. */
+        fun searchWithMuscles(query: String, list: List<LibraryExercise>, threshold: Double = 0.3): List<LibraryExercise> =
+            list.map { ex ->
+                val nameScore = score(query, ex.name)
+                val muscleScore = ex.muscles.maxOfOrNull { score(query, it) } ?: 0.0
+                ex to maxOf(nameScore, muscleScore)
+            }
+                .filter { it.second >= threshold }
+                .sortedByDescending { it.second }
+                .map { it.first }
+    }
+
+    // ---------------- RpeColor ----------------
+
+    object RpeColor {
+        /** Returns a hex color string for the given RPE (1-10). */
+        fun hex(rpe: Int): String = when (rpe.coerceIn(1, 10)) {
+            in 1..4 -> "#34D399"  // green — easy
+            in 5..6 -> "#A3E635"  // lime — moderate
+            7 -> "#FACC15"        // yellow — challenging
+            8 -> "#FB923C"        // orange — hard
+            9 -> "#F87171"        // red — very hard
+            10 -> "#DC2626"       // dark red — max
+            else -> "#8A919E"
+        }
+
+        /** Returns the legacy token name (matches the HTML app's color tokens). */
+        fun token(rpe: Int): String = when (rpe.coerceIn(1, 10)) {
+            in 1..4 -> "ok"
+            in 5..6 -> "lime"
+            7 -> "warn"
+            else -> "bad"
+        }
+    }
+
+    // ---------------- CompetitionDate ----------------
+
+    object CompetitionDate {
+        data class Plan(
+            val daysOut: Int,
+            val isInTaperWindow: Boolean,  // last 7 days
+            val isInPeakBlock: Boolean,    // last 4 weeks
+            val suggestedTaperPct: Double, // volume % to drop in taper
+        )
+
+        /** Compute the taper plan from a competition date string (yyyy-MM-dd). */
+        fun plan(compDate: String): Plan {
+            val targetMs = try {
+                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                    .parse(compDate)?.time ?: return Plan(-1, false, false, 0.0)
+            } catch (_: Exception) { return Plan(-1, false, false, 0.0) }
+            val nowMs = System.currentTimeMillis()
+            val daysOut = ((targetMs - nowMs) / (24L * 3600 * 1000)).toInt()
+            val taper = daysOut in 0..7
+            val peak = daysOut in 0..28
+            val pct = when {
+                daysOut < 0 -> 0.0
+                daysOut <= 3 -> 0.5   // half volume in the last 3 days
+                daysOut <= 7 -> 0.7   // 70% in the last week
+                else -> 1.0
+            }
+            return Plan(daysOut, taper, peak, pct)
+        }
+    }
+
+    // ---------------- SkillFactorBucket ----------------
+
+    object SkillFactorBucket {
+        fun label(sf: Double): String = when {
+            sf < 0.5 -> "Hard"
+            sf < 0.7 -> "Medium"
+            else -> "Easy"
+        }
+    }
+
+    // ---------------- AgeBucket ----------------
+
+    object AgeBucket {
+        fun fromBirthDate(birth: String?): String? {
+            if (birth.isNullOrBlank()) return null
+            val d = try {
+                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(birth)
+            } catch (_: Exception) { return null } ?: return null
+            val age = ((System.currentTimeMillis() - d.time) / 31557600000.0).toInt()
+            return when {
+                age < 16 -> "youth"
+                age >= 65 -> "senior"
+                else -> "adult"
             }
         }
-        return byExe.mapValues { (_, entries) ->
-            entries.sortedBy { it.first }.map { it.second }.fold(0.0) { acc, v -> alpha * v + (1 - alpha) * acc }
+    }
+
+    // ---------------- PostpartumFlag ----------------
+
+    object PostpartumFlag {
+        fun isPostpartum(monthsPostpartum: Int?): Boolean =
+            monthsPostpartum != null && monthsPostpartum in 0..6
+    }
+
+    // ---------------- VolumeBucket ----------------
+
+    object VolumeBucket {
+        fun label(totalVolume: Double): String = when {
+            totalVolume < 5000 -> "light"
+            totalVolume < 20000 -> "moderate"
+            else -> "heavy"
         }
-    }
-
-    // ---- CouplingMatrixWriteback ----
-    /** Persist a user-edited coupling-matrix override per-profile. */
-    fun saveCouplingOverride(ctx: Context, json: String) {
-        ProfileSettings.put(ctx, "p4_coupling_override", json)
-        ProLog.i("GAPCLOSURES", "coupling matrix override saved (${json.length} bytes)")
-    }
-
-    fun loadCouplingOverride(ctx: Context): String? =
-        ProfileSettings.get(ctx, "p4_coupling_override")
-
-    // ---- TestResultSync ----
-    /** Mirror a 1RM test result into the exercise record so every chart sees it. */
-    fun syncTestResult(exerciseId: String, weight: Double, reps: Int, date: String) {
-        val exercises = ProState.data.exercises.toMutableMap()
-        val rec = exercises[exerciseId] ?: ExerciseRecord()
-        exercises[exerciseId] = rec.copy(
-            tested1RM = weight,
-            testDate = date,
-            testReps = reps,
-            testWeight = weight,
-            lastUpdate = ProState.nowIso(),
-        )
-        ProState.data = ProState.data.copy(exercises = exercises)
-        ProState.saveWorkoutData()
-        ProLog.i("GAPCLOSURES", "synced test result for $exerciseId: $weight × $reps")
-    }
-
-    // ---- VersionCheck ----
-    /** Returns -1 if a < b, 0 if equal, 1 if a > b. Both must be like "1.5.1". */
-    fun versionCompare(a: String, b: String): Int {
-        val pa = a.split(".").map { it.toIntOrNull() ?: 0 }
-        val pb = b.split(".").map { it.toIntOrNull() ?: 0 }
-        for (i in 0 until maxOf(pa.size, pb.size)) {
-            val av = pa.getOrElse(i) { 0 }
-            val bv = pb.getOrElse(i) { 0 }
-            if (av != bv) return av.compareTo(bv)
-        }
-        return 0
     }
 }

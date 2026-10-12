@@ -142,31 +142,22 @@ object Profiles {
         val (profiles, _, ask) = ProfileRegistry.read(ctx)
         val remaining = profiles.filter { it.id != profileId }
         val wasActive = activeId(ctx) == profileId
-        // BATCH-5A: pick a new active whose DB actually exists on disk.
-        // If the active profile is being deleted, fall back to the default if
-        // its DB exists, else the first remaining profile whose DB exists,
-        // else DEFAULT (will be created lazily on next open).
+        // BATCH-5A: pick a new active whose DB actually exists (not just the
+        // first remaining profile, which may have been created but never opened).
         val newActive = if (wasActive) {
             remaining.firstOrNull { p ->
-                try { ctx.getDatabasePath(dbNameFor(ctx, p.id)).exists() } catch (_: Exception) { false }
+                runCatching { ctx.getDatabasePath(dbNameFor(ctx, p.id)) }.getOrNull()?.exists() == true
             }?.id ?: DEFAULT
         } else activeId(ctx)
         ProfileRegistry.write(ctx, remaining, newActive, ask)
+        if (wasActive) ProPrefs.put(ctx, ACTIVE_KEY, newActive)
+        // BATCH-5A: flush the active store BEFORE closing — the in-flight save
+        // coroutines must finish so the deleted profile's pending writes land
+        // before the handle is dropped.
         if (wasActive) {
-            // BATCH-5A: flush BEFORE close so any in-flight save completes.
-            // The new active's store will be opened by reopenStore() below.
-            if (newActive != profileId) {
-                ProState.flush()
-                ProPrefs.put(ctx, ACTIVE_KEY, newActive)
-                ProState.reopenStore(ctx)
-                kotlinx.coroutines.runBlocking { ProState.loadAll() }
-                com.peakform.fitness.ui.ThemeController.reload(ctx)
-                com.peakform.fitness.ui.ThemeController.resolveDark(ctx)
-                ProfileState.stampFirstLaunch(ctx)
-                ProState.notifyChanged()
-            }
+            try { ProState.flush() } catch (_: Exception) {}
         }
-        // P4D-CRASH-04 + BATCH-5A: close the DB handle BEFORE unlinking the file.
+        // P4D-CRASH-04: close the DB handle BEFORE unlinking the file.
         try {
             val dbName = dbNameFor(ctx, profileId)
             ProDb.close(dbName)
@@ -175,6 +166,16 @@ object Profiles {
             File(dbFile.path + "-wal").delete()
             File(dbFile.path + "-shm").delete()
         } catch (_: Exception) {}
+        // BATCH-5A: drop the cached SharedPrefs instance for the deleted profile.
+        ProfileState.invalidate(profileId)
+        // BATCH-5A: reopen + loadAll + theme reload for the new active.
+        if (wasActive) {
+            ProState.reopenStore(ctx)
+            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) { ProState.loadAll() }
+            com.peakform.fitness.ui.ThemeController.reload(ctx)
+            ProfileState.stampFirstLaunch(ctx)
+            ProState.notifyChanged()
+        }
         ProLog.i("PROFILE", "deleted $profileId")
     }
 
@@ -187,30 +188,25 @@ object Profiles {
 
     /**
      * Live switch: returns the display name for the toast.
-     * BATCH-4B item 3 + BATCH-5A: after the switch, callers should land on Dashboard.
-     *
-     * Sequence (all on Dispatchers.IO via runBlocking so callers off the main
-     * thread get a synchronous switch):
-     *   1. flush()         — drain every in-flight save so the old profile's DB
-     *                        is not written to after close.
-     *   2. setActive()     — write p4_active_profile.
-     *   3. reopenStore()   — drop the old handle, open the new profile's DB.
-     *   4. loadAll()       — hydrate from the new DB.
-     *   5. ThemeController.reload()   — re-read theme prefs (per-profile story
-     *                                   reserved for a future batch; today theme
-     *                                   lives in the global file).
-     *   6. resolveDark()   — refresh the dark flag for the (possibly new) mode.
-     *   7. stampFirstLaunch() — idempotent per-profile timestamp.
-     *   8. notifyChanged() — drive recomposition.
+     * BATCH-5A: flush → reopen → loadAll → ThemeController.reload →
+     * resolveDark → stampFirstLaunch → notifyChanged, all on Dispatchers.IO
+     * via runBlocking so the switch is atomic from the caller's POV.
+     * BATCH-4B item 3: after the switch, callers should land on Dashboard.
      */
     fun switchTo(ctx: Context, profileId: String): String {
         kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
             ProState.flush()
             setActive(ctx, profileId)
+            // BATCH-5A: drop the cached SharedPrefs instance for the OLD profile
+            // so the new profile's prefs are loaded fresh on the next access.
+            ProfileState.invalidate(profileId)
             ProState.reopenStore(ctx)
             ProState.loadAll()
+            // BATCH-6: reload theme (mode + accent + dynamic) + resolve system dark.
             com.peakform.fitness.ui.ThemeController.reload(ctx)
             com.peakform.fitness.ui.ThemeController.resolveDark(ctx)
+            // BATCH-4B item 6: stamp the (possibly new) profile's first-launch
+            // timestamp as part of the multi-signal new-user detection.
             ProfileState.stampFirstLaunch(ctx)
             ProState.notifyChanged()
         }

@@ -1,67 +1,65 @@
 package com.peakform.fitness.coach
 
-import com.peakform.fitness.coach.exercises.*
+import com.peakform.fitness.core.ExerciseRecord
+import com.peakform.fitness.core.UserProfile
 
 /**
- * CoachRegistry — resolves an exercise to its specific coach.
+ * CoachRegistry — the lookup table from exercise id → ExerciseCoach.
  *
- * Resolution order:
- *   1. exact exerciseId match in any coach's supportedExerciseIds
- *   2. name pattern match (coach's supportedNamePatterns)
- *   3. muscle group fallback coach
- *   4. GenericCoach (logs a warning; should never hit in prod)
+ * BATCH-18: the CoachingEngine uses this to find a coach for a given exercise.
+ * The registry is populated at app start by AllCoaches.registerAll().
+ *
+ * Specific coaches are keyed by their exercise id (e.g. "back_squat" → SquatCoach).
+ * Generic coaches are tagged ("barbell" → BarbellCoach) and apply to any exercise
+ * whose tags intersect the coach's tags.
  */
 object CoachRegistry {
-    private val coaches: List<ExerciseCoach> = listOf(
-        // Compound barbell
-        BenchPressCoach, BackSquatCoach, DeadliftCoach, OverheadPressCoach,
-        BarbellRowCoach, FrontSquatCoach, RomanianDeadliftCoach,
-        // Compound dumbbell / machine
-        DumbbellBenchPressCoach, DumbbellRowCoach, LegPressCoach, LatPulldownCoach,
-        // Bodyweight
-        PullUpCoach, PushUpCoach, DipCoach,
-        // Banded
-        BandedLateralRaiseCoach, BandedFacePullCoach, BandedPullApartCoach,
-        // Time-based
-        PlankCoach, SidePlankCoach, DeadHangCoach,
-        // Isolation
-        DumbbellCurlCoach, TricepPushdownCoach, LegCurlCoach, LegExtensionCoach,
-        // Cardio
-        RunningCoach, CyclingCoach, RowingCoach,
-        // Fallback coaches (broad coverage)
-        GenericBarbellCoach, GenericDumbbellCoach, GenericBodyweightCoach,
-        GenericBandedCoach, GenericTimeBasedCoach, GenericIsolationCoach,
-        GenericCardioCoach, GenericMobilityCoach,
-    )
+    private val specific = mutableMapOf<String, ExerciseCoach>()
+    private val generic = mutableListOf<Pair<Set<String>, ExerciseCoach>>()
 
-    fun coachFor(exerciseId: String, name: String, group: String = ""): ExerciseCoach {
-        // 1. exact ID match
-        coaches.firstOrNull { exerciseId in it.supportedExerciseIds }?.let { return it }
-        // 2. name pattern match
-        coaches.firstOrNull { coach ->
-            coach.supportedNamePatterns.any { it.containsMatchIn(name) || it.containsMatchIn(name.lowercase()) }
-        }?.let { return it }
-        // 3. muscle group / equipment fallback
-        val fallback = fallbackCoach(name, group)
-        return fallback
-    }
-
-    private fun fallbackCoach(name: String, group: String): ExerciseCoach {
-        val lower = name.lowercase()
-        return when {
-            lower.contains("plank") || lower.contains("hang") || lower.contains("hold") || lower.contains("bridge") -> GenericTimeBasedCoach
-            lower.contains("band") || lower.contains("resistance band") -> GenericBandedCoach
-            lower.contains("barbell") || lower.contains("squat") || lower.contains("deadlift") || lower.contains("press") || lower.contains("row") -> GenericBarbellCoach
-            lower.contains("dumbbell") || lower.contains("curl") || lower.contains("extension") || lower.contains("raise") -> GenericDumbbellCoach
-            lower.contains("pull-up") || lower.contains("push-up") || lower.contains("dip") || lower.contains("chin-up") || lower.contains("bodyweight") -> GenericBodyweightCoach
-            lower.contains("run") || lower.contains("jog") || lower.contains("sprint") || lower.contains("bike") || lower.contains("cycl") || lower.contains("row") && lower.contains("machine") -> GenericCardioCoach
-            lower.contains("stretch") || lower.contains("mobility") || lower.contains("foam") || lower.contains("roll") -> GenericMobilityCoach
-            lower.contains("cable") || lower.contains("machine") || lower.contains("pulldown") || lower.contains("pushdown") -> GenericIsolationCoach
-            group.contains("cardio") || group.contains("athletic") -> GenericCardioCoach
-            group.contains("stretch") || group.contains("mobility") -> GenericMobilityCoach
-            else -> GenericIsolationCoach
+    fun register(coach: ExerciseCoach) {
+        if (coach.id.startsWith("generic_")) {
+            generic.add(coach.tags to coach)
+        } else {
+            specific[coach.id] = coach
         }
     }
 
-    fun allCoaches(): List<ExerciseCoach> = coaches
+    fun forExercise(exerciseId: String): ExerciseCoach? = specific[exerciseId]
+
+    /** All coaches that match the given tags (used for generic coaches). */
+    fun forTags(tags: Set<String>): List<ExerciseCoach> = generic
+        .filter { (coachTags, _) -> coachTags.intersect(tags).isNotEmpty() }
+        .map { it.second }
+
+    /** All registered coaches — used by CoachCoverageTest to assert 29+8 = 37. */
+    fun all(): List<ExerciseCoach> = specific.values.toList() + generic.map { it.second }
+
+    /** Specific coach count (target: 29). */
+    fun specificCount(): Int = specific.size
+
+    /** Generic coach count (target: 8). */
+    fun genericCount(): Int = generic.size
+
+    /** Clear the registry — used by tests. */
+    fun clear() {
+        specific.clear()
+        generic.clear()
+    }
+
+    /**
+     * Convenience: evaluate a record through BOTH the specific coach (if any)
+     * AND any matching generic coaches. Used by the CoachingEngine.
+     */
+    fun evaluateAll(
+        exerciseId: String,
+        tags: Set<String>,
+        record: ExerciseRecord,
+        user: UserProfile,
+    ): List<RawTip> {
+        val out = mutableListOf<RawTip>()
+        specific[exerciseId]?.let { out.addAll(it.evaluate(record, user)) }
+        forTags(tags).forEach { out.addAll(it.evaluate(record, user)) }
+        return out
+    }
 }

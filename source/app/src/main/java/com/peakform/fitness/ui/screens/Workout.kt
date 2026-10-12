@@ -17,7 +17,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.Color
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.WorkoutExercise
 import com.peakform.fitness.core.WorkoutRecord
@@ -44,6 +43,7 @@ fun WorkoutScreen(
 ) {
     val c = LocalProColors.current
     val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val ver = remember { mutableIntStateOf(0) }
     DisposableEffect(Unit) {
         val l: () -> Unit = { ver.intValue++ }
@@ -68,9 +68,10 @@ fun WorkoutScreen(
     // BATCH-2: regenerate confirm (top + bottom buttons share the same flow) + replace confirm
     var confirmRegenerate by remember { mutableStateOf(false) }
     var confirmReplace by remember { mutableStateOf<Int?>(null) }
-    // BATCH-13: tuning sheet (gear icon) + post-session feel sheet (after complete)
+    // BATCH-16: tuning + post-session feel + coach-led prescription visibility
     var showTuning by remember { mutableStateOf(false) }
     var showPostFeel by remember { mutableStateOf(false) }
+    var showCoachTips by remember { mutableStateOf(false) }
 
     val workout = ProState.currentWorkout
     Column(
@@ -83,25 +84,62 @@ fun WorkoutScreen(
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Today's Workout", style = ProType.sectionTitle, color = c.text, modifier = Modifier.weight(1f))
-            // BATCH-13: tuning gear — opens the TuningSheet so the user can nudge
-            // the coach ±20% on volume / intensity / frequency.
-            P4Button("", icon = "fa-sliders", style = BtnStyle.GHOST, minHeight = 34, onClick = { showTuning = true })
+            // BATCH-16: tuning gear — opens the per-profile tuning sheet.
+            P4Button("", icon = "fa-sliders", style = BtnStyle.GHOST, minHeight = 32, onClick = { showTuning = true })
+            // BATCH-16: coach-led prescription toggle — surfaces top coaching tips inline.
+            P4Button("", icon = "fa-whistle", style = BtnStyle.GHOST, minHeight = 32, onClick = { showCoachTips = !showCoachTips })
             // BATCH-2: top regenerate button (regenerateWorkoutBtn, same flow as bottom)
             if (workout != null && workout.exercises.isNotEmpty()) {
                 P4Button("Regenerate", icon = "fa-rotate", style = BtnStyle.GHOST, minHeight = 34, onClick = { confirmRegenerate = true })
             }
         }
 
-        // BATCH-13: coach-led prescription card — surfaces the CoachingEngine's
-        // note for the active profile, plus a 1RM context block for the first
-        // compound exercise without a tested 1RM (shows "1RM REQUIRED").
-        CoachPrescriptionCard(workout = workout)
-
-        // BATCH-13: 1RM context + target chips — show the 1RM cache for the
-        // first compound exercise, with target % chips (60/70/80/90%). For
-        // banded exercises, show the band color picker.
+        // BATCH-16: 1RM context block — summary of the active profile's calibrated lifts.
         if (workout != null && workout.exercises.isNotEmpty()) {
-            OneRmContextBlock(workout = workout)
+            val tracked = ProState.data.exercises.values.count { (it.mu ?: 0.0) > 0 || (it.tested1RM ?: 0.0) > 0 }
+            val top1Rm = ProState.data.exercises.entries
+                .mapNotNull { (_, rec) -> (rec.tested1RM ?: rec.mu)?.takeIf { it > 0 }?.let { it } }
+                .maxOrNull()
+            if (tracked > 0) {
+                GlassCard(padding = PaddingValues(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        com.peakform.fitness.ui.FaIcon("fa-trophy", size = 14.sp, tint = c.ok)
+                        Spacer(Modifier.width(8.dp))
+                        Text("$tracked lifts calibrated", style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
+                        if (top1Rm != null) Text("Top 1RM: ${top1Rm.toInt()} lbs", style = ProType.small, color = c.accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Audit →", style = ProType.small, color = c.accent, modifier = Modifier.clickable { onOpenSection("1rm_audit") })
+                    }
+                }
+            }
+        }
+
+        // BATCH-16: coach-led prescription block — top 3 tips from the CoachingEngine.
+        if (showCoachTips && workout != null) {
+            val plan = remember(workout.id, ver.intValue) {
+                com.peakform.fitness.core.CoachingEngine.evaluate(ctx, workout.exercises.firstOrNull()?.id)
+            }
+            GlassCard(padding = PaddingValues(12.dp)) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        com.peakform.fitness.ui.FaIcon("fa-whistle", size = 14.sp, tint = c.accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Coach's notes", style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
+                        Text(plan.summary, style = ProType.small, color = c.text3)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    plan.tips.take(3).forEach { tip ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                            com.peakform.fitness.ui.FaIcon("fa-angle-right", size = 10.sp, tint = c.accent)
+                            Spacer(Modifier.width(6.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(tip.title, style = ProType.body2, color = c.text)
+                                Text(tip.body, style = ProType.small, color = c.text3)
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // chips row
@@ -382,12 +420,34 @@ fun WorkoutScreen(
         com.peakform.fitness.ui.ShareSheet(workout = workout, onDismiss = { showShare = false })
     }
 
-    // BATCH-13: tuning sheet (gear icon at the top opens this)
-    TuningSheet(visible = showTuning, onDismiss = { showTuning = false })
+    // ---- BATCH-16: tuning sheet (per-profile aggression / rest / progression) ----
+    if (showTuning) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTuning = false },
+            containerColor = c.glass2,
+            shape = RoundedCornerShape(24.dp),
+            title = {},
+            text = { TuningSheet(onDismiss = { showTuning = false }, onPostSessionFeel = {
+                showTuning = false
+                showPostFeel = true
+            }) },
+            confirmButton = {},
+            dismissButton = {},
+        )
+    }
 
-    // BATCH-13: post-session feel sheet — opens after a completed workout
-    // so the user can rate the session and adjust the coach for next time.
-    PostSessionFeelSheet(visible = showPostFeel, onDismiss = { showPostFeel = false })
+    // ---- BATCH-16: post-session feel sheet (RPE / readiness / mood survey) ----
+    if (showPostFeel) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPostFeel = false },
+            containerColor = c.glass2,
+            shape = RoundedCornerShape(24.dp),
+            title = {},
+            text = { PostSessionFeelSheet(onDismiss = { showPostFeel = false }, onSave = { /* applied */ }) },
+            confirmButton = {},
+            dismissButton = {},
+        )
+    }
 
     // ---- PR toast ----
     prToast?.let { msg ->
@@ -711,139 +771,5 @@ fun PlateToggleChip(label: String, active: Boolean, tint: androidx.compose.ui.gr
             .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
         Text(label, fontSize = 11.sp, color = if (active) tint else c.text2, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-    }
-}
-
-// ---- BATCH-13: coach-led prescription + 1RM context ----
-
-/**
- * CoachPrescriptionCard — surfaces the CoachingEngine's note for the active
- * profile above the workout list. The card is read-only; it just shows what
- * the coach would say given the user's last feel + RPE + tuning.
- */
-@Composable
-fun CoachPrescriptionCard(workout: WorkoutRecord?) {
-    val c = LocalProColors.current
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val note = remember(workout?.id) { com.peakform.fitness.core.CoachingEngine.noteFor(ctx) }
-    val accent = when (note.tone) {
-        "ease" -> c.warn
-        "push" -> c.ok
-        "hold" -> c.accent
-        else -> c.text3
-    }
-    GlassCard(padding = PaddingValues(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(36.dp).clip(RoundedCornerShape(999.dp))
-                    .background(accent.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                FaIcon("fa-user-tie", size = 14.sp, tint = accent)
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(note.headline, style = ProType.label, color = accent)
-                Text(note.body, style = ProType.small, color = c.text2)
-            }
-        }
-    }
-}
-
-/**
- * OneRmContextBlock — for each compound exercise in the workout, show its
- * tested / estimated 1RM and a row of target % chips (60 / 70 / 80 / 90 %).
- * If a compound exercise has no tested 1RM, show "1RM REQUIRED" so the user
- * knows to run a test before progressing. For banded exercises, show a
- * band-color picker.
- */
-@Composable
-fun OneRmContextBlock(workout: WorkoutRecord) {
-    val c = LocalProColors.current
-    val compoundIds = remember(workout.id) {
-        // Compound = barbell / dumbbell, multi-joint, primary muscle is one of the big 6.
-        val bigSix = setOf("quadriceps", "glutes", "hamstrings", "chest", "back", "shoulders")
-        workout.exercises.filter { ex ->
-            val lib = Library.getExerciseById(ex.id)
-            lib != null && (lib.equipment in setOf("barbell", "dumbbell")) &&
-                bigSix.any { lib.muscles.any { m -> m.equals(it, ignoreCase = true) } }
-        }.take(3)
-    }
-    if (compoundIds.isEmpty()) return
-    GlassCard(padding = PaddingValues(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            FaIcon("fa-trophy", size = 14.sp, tint = c.accent)
-            Spacer(Modifier.width(8.dp))
-            Text("1RM context", style = ProType.label, color = c.text)
-        }
-        Spacer(Modifier.height(8.dp))
-        compoundIds.forEach { ex ->
-            val rec = ProState.data.exercises[ex.id]
-            val tested = rec?.tested1RM
-            val est = rec?.mu
-            val isBanded = Library.getExerciseById(ex.id)?.equipment?.contains("band") == true
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                Text(ex.name, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
-                if (isBanded) {
-                    // Banded input: show a small color picker (red / black / green / blue).
-                    BandedColorPicker(ex.id)
-                } else if (tested != null && tested > 0) {
-                    Text("🏆 ${tested.toInt()} lbs", style = ProType.small, color = c.ok)
-                    Spacer(Modifier.width(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf(0.6, 0.7, 0.8, 0.9).forEach { pct ->
-                            val target = (tested * pct).toInt()
-                            TargetChip("${(pct * 100).toInt()}%", "$target")
-                        }
-                    }
-                } else if (est != null && est > 0) {
-                    Text("Est. ${est.toInt()} lbs", style = ProType.small, color = c.accent)
-                } else {
-                    Box(
-                        Modifier.clip(RoundedCornerShape(999.dp))
-                            .background(c.bad.copy(alpha = 0.15f))
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                    ) {
-                        Text("1RM REQUIRED", fontSize = 9.sp, color = c.bad, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TargetChip(label: String, value: String) {
-    val c = LocalProColors.current
-    Box(
-        Modifier.clip(RoundedCornerShape(999.dp))
-            .background(c.accentSoft)
-            .border(1.dp, c.accentLine, RoundedCornerShape(999.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-    ) {
-        Text("$label · $value", fontSize = 9.sp, color = c.accent, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun BandedColorPicker(exerciseId: String) {
-    val c = LocalProColors.current
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val colors = listOf("red" to Color(0xFFE54B4B), "black" to Color(0xFF222222), "green" to Color(0xFF34D399), "blue" to Color(0xFF4E9BFF))
-    val selected = remember(exerciseId) {
-        com.peakform.fitness.core.ProfileSettings.get(ctx, "p4_band_$exerciseId") ?: "red"
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        colors.forEach { (name, color) ->
-            val active = selected == name
-            Box(
-                Modifier.size(14.dp).clip(RoundedCornerShape(999.dp))
-                    .background(color)
-                    .border(if (active) 2.dp else 0.dp, c.text, RoundedCornerShape(999.dp))
-                    .clickable {
-                        com.peakform.fitness.core.ProfileSettings.put(ctx, "p4_band_$exerciseId", name)
-                    },
-            )
-        }
     }
 }

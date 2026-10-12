@@ -10,6 +10,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -68,16 +70,18 @@ object Fa {
 @Composable
 fun FaIcon(cls: String, modifier: Modifier = Modifier, size: TextUnit = 16.sp, tint: Color = LocalProColors.current.text, contentDescription: String? = null) {
     val ch = remember(cls) { Fa.glyph(cls) }
-    // BATCH-14: when contentDescription is provided, attach it to the
-    // semantics tree so TalkBack announces the icon. When null, the icon is
-    // decorative (a Text label nearby describes it) — leave semantics empty
-    // so TalkBack doesn't double-announce.
-    val semanticsModifier = if (contentDescription != null) {
-        modifier.then(Modifier.semantics { this.contentDescription = contentDescription })
+    // BATCH-13: wire contentDescription to Modifier.semantics so screen readers
+    // announce the icon's purpose. When contentDescription is null, the icon is
+    // decorative and we mark it as invisible to accessibility services.
+    val a11yModifier = if (contentDescription != null) {
+        Modifier.semantics {
+            this.contentDescription = contentDescription
+            this.role = androidx.compose.ui.semantics.Role.Image
+        }
     } else {
-        modifier
+        Modifier
     }
-    Box(semanticsModifier) {
+    Box(modifier.then(a11yModifier)) {
         if (ch != null) {
             Text(
                 text = ch,
