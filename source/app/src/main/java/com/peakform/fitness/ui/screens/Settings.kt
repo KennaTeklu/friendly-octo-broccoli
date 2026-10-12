@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.*
+import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.engine.Library
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
@@ -608,13 +609,17 @@ fun AppearanceCardBody(onToast: (String) -> Unit) {
 private fun appearanceInner(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    // BATCH-5 Item 2: three modes — "system" (follow OS), "dark", "light".
-    // Default is "system" for users with no prior choice.
+    // P4E-UI-02: renamed from "Appearance" to "Change theme".
+    // P4E-UI-05: read straight from ThemeController so the picker can never
+    // lag behind the source of truth, and so a swatch tap re-colors the whole
+    // app instantly. The tap writes accent + p4_dynamic atomically (see
+    // ThemeController.setAccentAndDynamic).
     val mode = ThemeController.mode
     val accentId = ThemeController.accentId
     val dynamic = ThemeController.dynamic
 
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // BATCH-5A: three-way mode toggle — system / dark / light.
         listOf("system" to "fa-circle-half-stroke", "dark" to "fa-moon", "light" to "fa-sun").forEach { (m, ic) ->
             val active = mode == m
             Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(2.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
@@ -688,8 +693,8 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     val accentName = if (dynamic) "Material You" else (ACCENTS.firstOrNull { it.id == accentId }?.name ?: "")
     Text(accentName, fontSize = 12.sp, color = c.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
     Spacer(Modifier.height(12.dp))
-    ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProfileSettings.get(LocalContext.current, "p4_gym") == "on") { on ->
-        ProfileSettings.put(ctx, "p4_gym", if (on) "on" else "off")
+    ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProfileSettings.get(LocalContext.current, ProfileSettings.K_GYM) == "on") { on ->
+        ProfileSettings.put(ctx, ProfileSettings.K_GYM, if (on) "on" else "off")
         onToast(if (on) "Gym Mode ON — huge buttons, no waiting on animations." else "Gym Mode off.")
     }
     // P4E-UI-07: the Material You toggle stays alongside the tile. The tile
@@ -714,14 +719,14 @@ fun ReadingCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
     val levels = Library.readingLevels
-    var level by remember { mutableIntStateOf(ProfileSettings.get(ctx, "p4_vocab")?.toIntOrNull() ?: 5) }
+    var level by remember { mutableIntStateOf(ProfileSettings.get(ctx, ProfileSettings.K_VOCAB)?.toIntOrNull() ?: 5) }
     Text("The app speaks at your level — from super simple (1) to fancy English (10).", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(8.dp))
     levels.forEach { l ->
         val active = level == l.id
         Row(Modifier.fillMaxWidth().clickable {
             level = l.id
-            ProfileSettings.put(ctx, "p4_vocab", l.id.toString())
+            ProfileSettings.put(ctx, ProfileSettings.K_VOCAB, l.id.toString())
             onToast("Words set to Level ${l.id} — ${l.name}")
         }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(18.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (active) c.accent else c.surface3).border(1.dp, c.hairline2, androidx.compose.foundation.shape.CircleShape))
@@ -771,14 +776,14 @@ fun VocabularyCardBody(
 fun LanguageCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    var lang by remember { mutableStateOf(ProfileSettings.get(ctx, "p4_lang") ?: "auto") }
+    var lang by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LANG) ?: "auto") }
     Text("Also works with your system translation — labels and buttons are structured for clean translation.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(8.dp))
     Library.langs.forEach { l ->
         val active = lang == l.code
         Row(Modifier.fillMaxWidth().clickable {
             lang = l.code
-            ProfileSettings.put(ctx, "p4_lang", l.code)
+            ProfileSettings.put(ctx, ProfileSettings.K_LANG, l.code)
             onToast("Language set to ${l.name}.")
         }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(15.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (active) c.accent else c.surface3))
@@ -805,7 +810,7 @@ fun LookLangCardBody(onToast: (String) -> Unit) {
 @Composable
 fun PowerCardBody(onToast: (String) -> Unit) {
     val ctx = LocalContext.current
-    val raw = ProfileSettings.get(ctx, "p4_power_settings")
+    val raw = ProfileSettings.get(ctx, ProfileSettings.K_POWER_SETTINGS)
     val power = remember(raw) {
         try {
             val o = ProJson.json.parseToJsonElement(raw ?: "{}") as JsonObject
@@ -818,7 +823,7 @@ fun PowerCardBody(onToast: (String) -> Unit) {
     }
     fun save(autoRest: Boolean, haptics: Boolean, swipe: Boolean) {
         val json = """{"autoRest":$autoRest,"haptics":$haptics,"swipe":$swipe,"dock":true}"""
-        ProfileSettings.put(ctx, "p4_power_settings", json)
+        ProfileSettings.put(ctx, ProfileSettings.K_POWER_SETTINGS, json)
     }
     ToggleRow("Auto rest timer after logging effort", checked = power.first) { on ->
         save(on, power.second, power.third); onToast(if (on) "Enabled — saved" else "Disabled — saved")
@@ -1033,7 +1038,7 @@ fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
     val dayNames = listOf("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
     var express by remember { mutableStateOf(user.settings.expressMode) }
     var aggression by remember { mutableStateOf(user.settings.aggression) }
-    var competition by remember { mutableStateOf(ProfileSettings.get(ctx, "p4_competition") ?: user.competition?.date ?: "") }
+    var competition by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_COMPETITION) ?: user.competition?.date ?: "") }
 
     Text("Height (inches)", style = ProType.small, color = c.text3)
     ProTextField(value = height, onValueChange = { height = it.filter { ch -> ch.isDigit() } }, placeholder = "e.g. 70")
@@ -1101,7 +1106,7 @@ fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
                 aggression = aggression.coerceIn(0.6, 1.4),
             ),
         ))
-        ProfileSettings.put(ctx, "p4_competition", competition)
+        ProfileSettings.put(ctx, ProfileSettings.K_COMPETITION, competition)
         ProState.saveWorkoutData()
         onToast("Training preferences saved")
     }
@@ -1125,8 +1130,8 @@ fun NotificationsCardBody(onToast: (String) -> Unit) {
         }
     }
     Spacer(Modifier.height(6.dp))
-    ToggleRow("Deliver as system notifications", "Background reminders via Android (not just in-app)", checked = ProfileSettings.get(ctx, "p4_notif_system") != "false") { on ->
-        ProfileSettings.put(ctx, "p4_notif_system", if (on) "true" else "false")
+    ToggleRow("Deliver as system notifications", "Background reminders via Android (not just in-app)", checked = ProfileSettings.get(ctx, ProfileSettings.K_NOTIF_SYSTEM) != "false") { on ->
+        ProfileSettings.put(ctx, ProfileSettings.K_NOTIF_SYSTEM, if (on) "true" else "false")
         onToast(if (on) "System notifications on — reminders arrive even with Pro closed." else "System notifications off.")
     }
     Text("Each reminder also has a \"Don't show today\" option when it appears.", style = ProType.small, color = c.text3)
@@ -1161,10 +1166,10 @@ fun StreamGroupCardBody(onToast: (String) -> Unit) {
             "component" to "Component",
         )
     }
-    var groupByKey by remember { mutableStateOf(ProfileSettings.get(ctx, "p4_lib_group") ?: "muscleGroup") }
-    var chunkSize by remember { mutableIntStateOf(ProfileSettings.get(ctx, "p4_lib_chunk")?.toIntOrNull() ?: 20) }
-    var expandAll by remember { mutableStateOf(ProfileSettings.get(ctx, "p4_lib_expand_all") == "true") }
-    var streamingOn by remember { mutableStateOf(ProfileSettings.get(ctx, "p4_lib_stream") != "false") }
+    var groupByKey by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LIB_GROUP) ?: "muscleGroup") }
+    var chunkSize by remember { mutableIntStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LIB_CHUNK)?.toIntOrNull() ?: 20) }
+    var expandAll by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LIB_EXPAND_ALL) == "true") }
+    var streamingOn by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LIB_STREAM) != "false") }
 
     Text("Default group-by mode for the Library screen. Streaming loads exercises in chunks to keep the screen fast.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(8.dp))
@@ -1174,7 +1179,7 @@ fun StreamGroupCardBody(onToast: (String) -> Unit) {
             val active = groupByKey == key
             Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (active) c.accentSoft else c.surface2).border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp)).clickable {
                 groupByKey = key
-                ProfileSettings.put(ctx, "p4_lib_group", key)
+                ProfileSettings.put(ctx, ProfileSettings.K_LIB_GROUP, key)
                 onToast("Default group-by: $label")
             }.padding(horizontal = 10.dp, vertical = 7.dp)) {
                 Text(label, fontSize = 11.sp, color = if (active) c.accent else c.text2)
@@ -1185,19 +1190,19 @@ fun StreamGroupCardBody(onToast: (String) -> Unit) {
     Text("Streaming chunk size: $chunkSize exercises per batch", style = ProType.small, color = c.text3)
     Slider(
         value = chunkSize.toFloat(),
-        onValueChange = { chunkSize = it.toInt(); ProfileSettings.put(ctx, "p4_lib_chunk", chunkSize.toString()) },
+        onValueChange = { chunkSize = it.toInt(); ProfileSettings.put(ctx, ProfileSettings.K_LIB_CHUNK, chunkSize.toString()) },
         valueRange = 10f..60f,
         steps = 10,
     )
     Spacer(Modifier.height(6.dp))
     ToggleRow("Stream exercises (load in chunks)", "Faster Library screen on large databases", checked = streamingOn) { on ->
         streamingOn = on
-        ProfileSettings.put(ctx, "p4_lib_stream", if (on) "true" else "false")
+        ProfileSettings.put(ctx, ProfileSettings.K_LIB_STREAM, if (on) "true" else "false")
         onToast(if (on) "Streaming on" else "Streaming off — all cards load at once")
     }
     ToggleRow("Expand all groups on open", "Skip the per-group tap-to-expand step", checked = expandAll) { on ->
         expandAll = on
-        ProfileSettings.put(ctx, "p4_lib_expand_all", if (on) "true" else "false")
+        ProfileSettings.put(ctx, ProfileSettings.K_LIB_EXPAND_ALL, if (on) "true" else "false")
         onToast(if (on) "Expand-all on" else "Expand-all off")
     }
 }
@@ -1349,8 +1354,8 @@ fun PrivacyCardBody(onToast: (String) -> Unit) {
     val ctx = LocalContext.current
     Text("Pro has no internet permission. Your data never leaves this device except when you export it.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(10.dp))
-    ToggleRow("Screenshot-safe mode", "Hide content in screenshots and the recents strip (takes effect next launch)", checked = ProfileSettings.get(ctx, "p4_secure") == "on") { on ->
-        ProfileSettings.put(ctx, "p4_secure", if (on) "on" else "off")
+    ToggleRow("Screenshot-safe mode", "Hide content in screenshots and the recents strip (takes effect next launch)", checked = ProfileSettings.get(ctx, ProfileSettings.K_SECURE) == "on") { on ->
+        ProfileSettings.put(ctx, ProfileSettings.K_SECURE, if (on) "on" else "off")
         onToast(if (on) "Screenshot-safe mode on — restart to apply." else "Screenshot-safe mode off.")
     }
     ToggleRow("Predictive back gesture", "Preview the previous screen when swiping back (Android 14+)", checked = true) { _ ->

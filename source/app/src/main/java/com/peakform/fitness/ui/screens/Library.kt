@@ -70,7 +70,7 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         "component" to "Component",
     )
     val initialGroupBy = remember {
-        val prefKey = ProfileSettings.get(ctx, "p4_lib_group") ?: "muscleGroup"
+        val prefKey = ProfileSettings.get(ctx, ProfileSettings.K_LIB_GROUP) ?: "muscleGroup"
         val idx = groupings.indexOfFirst { it.first == prefKey }
         if (idx >= 0) idx else 0
     }
@@ -78,14 +78,15 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     var openDetail by remember { mutableStateOf<LibraryExercise?>(null) }
     var wikiFor by remember { mutableStateOf<String?>(null) }
     var componentFilter by remember { mutableStateOf<String?>(null) }
-    // BATCH-5 Item 4: Library opens all-collapsed every time. Changing group-by
-    // mode resets to collapsed. The persisted p4_library_collapsed pref is no
-    // longer read on entry — every open starts fresh with all groups collapsed.
-    // The Expand/Collapse buttons show smartly: only "Expand all" when all
-    // collapsed, only "Collapse all" when all expanded, both when mixed.
+
+    // BATCH-5A: collapsed state defaults to ALL-COLLAPSED. Previously the init
+    // read p4_library_collapsed + p4_lib_expand_all from prefs at first compose;
+    // those reads now go through ProfileSettings (per-profile SharedPreferences),
+    // and the default-on-empty behavior is "every group collapsed" so the user
+    // sees a clean overview instead of a giant list.
     var collapsedGroups by remember(Library.groups) { mutableStateOf(Library.groups.keys.toSet()) }
     fun persistCollapse() {
-        ProfileSettings.put(ctx, "p4_library_collapsed",
+        ProfileSettings.put(ctx, ProfileSettings.K_LIBRARY_COLLAPSED,
             ProJson.json.encodeToString(ListSerializer(String.serializer()), collapsedGroups.toList()))
     }
 
@@ -153,9 +154,9 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         }
     }
 
-    // BATCH-5 Item 4: helper to change group-by mode AND reset to all-collapsed.
-    // Changing group-by mode resets to collapsed — the user re-explores from
-    // the top every time they switch grouping.
+    // BATCH-5A: changeGroupBy() — switching group-by mode resets the collapse
+    // state to ALL-COLLAPSED for the freshly-grouped list (so the user sees a
+    // clean overview of the new grouping) and persists the new collapse set.
     fun changeGroupBy(idx: Int) {
         groupBy = idx
         collapsedGroups = grouped.map { it.first }.toSet()
@@ -168,9 +169,9 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     // (200 / 60 legacy caps). Search always bumps to 200 to avoid hiding matches.
     val cap = run {
         if (search.isNotBlank()) return@run 200
-        val streamingOn = ProfileSettings.get(ctx, "p4_lib_stream") != "false"
+        val streamingOn = ProfileSettings.get(ctx, ProfileSettings.K_LIB_STREAM) != "false"
         if (streamingOn) {
-            ProfileSettings.get(ctx, "p4_lib_chunk")?.toIntOrNull()?.coerceIn(10, 60) ?: 20
+            ProfileSettings.get(ctx, ProfileSettings.K_LIB_CHUNK)?.toIntOrNull()?.coerceIn(10, 60) ?: 20
         } else {
             60
         }
@@ -219,8 +220,9 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
             }
         }
         item(key = "hdr_expand_collapse", contentType = "header") {
-            // BATCH-5 Item 4: smart button visibility — only "Expand all" when all
-            // collapsed, only "Collapse all" when all expanded, both when mixed.
+            // BATCH-5A: only show Expand All / Collapse All when there is
+            // something to do (avoid a no-op button). allCollapsed → only
+            // Expand All is hidden; allExpanded → only Collapse All is hidden.
             val allCollapsed = collapsedGroups.containsAll(grouped.map { it.first })
             val allExpanded = grouped.all { it.first !in collapsedGroups }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -230,7 +232,7 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
                     }
                 }
                 if (!allExpanded) {
-                    P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(if (allCollapsed) 1f else 1f)) {
+                    P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
                         collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
                     }
                 }

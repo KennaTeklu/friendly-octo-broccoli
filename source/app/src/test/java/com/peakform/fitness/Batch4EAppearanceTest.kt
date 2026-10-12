@@ -2,8 +2,8 @@ package com.peakform.fitness
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.core.ProfileSettings
+import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.ui.ACCENTS
 import com.peakform.fitness.ui.ThemeController
 import org.junit.After
@@ -31,15 +31,8 @@ class Batch4EAppearanceTest {
     @Before
     fun setUp() {
         ctx = ApplicationProvider.getApplicationContext()
-        // Simulate a fresh install: clear all prefs + Room DB so
-        // ProfileSettings has a clean slate.
+        // Simulate a fresh install: clear all prefs.
         ProPrefs.clearAll(ctx)
-        com.peakform.fitness.core.ProDb.close("pro.db")
-        ctx.deleteDatabase("pro.db")
-        ctx.deleteDatabase("pro.db-wal")
-        ctx.deleteDatabase("pro.db-shm")
-        // Reset ProState by calling reopenStore (singleton-safe)
-        try { com.peakform.fitness.core.ProState.reopenStore(ctx) } catch (_: Exception) { com.peakform.fitness.core.ProState.init(ctx) }
         // Reset ThemeController to defaults — load() with null returns early,
         // so we load a known-default JSON to force accentId back to "blue".
         ThemeController.load("""{"mode":"dark","accent":"blue"}""")
@@ -49,10 +42,6 @@ class Batch4EAppearanceTest {
     @After
     fun tearDown() {
         ProPrefs.clearAll(ctx)
-        com.peakform.fitness.core.ProDb.close("pro.db")
-        ctx.deleteDatabase("pro.db")
-        ctx.deleteDatabase("pro.db-wal")
-        ctx.deleteDatabase("pro.db-shm")
     }
 
     /**
@@ -72,8 +61,8 @@ class Batch4EAppearanceTest {
         // Simulate the exact cold-start path from MainActivity.kt:86-87:
         //   ThemeController.load(ProPrefs.get(this, "p4_theme"))
         //   ThemeController.loadDynamic(ProPrefs.get(this, "p4_dynamic"))
-        val p4Theme = ProfileSettings.get(ctx, ProfileSettings.K_THEME)  // null on fresh install
-        val p4Dynamic = ProfileSettings.get(ctx, ProfileSettings.K_DYNAMIC)  // null on fresh install
+        val p4Theme = ProPrefs.get(ctx, "p4_theme")  // null on fresh install
+        val p4Dynamic = ProPrefs.get(ctx, "p4_dynamic")  // null on fresh install
 
         ThemeController.load(p4Theme)
         ThemeController.loadDynamic(p4Dynamic)

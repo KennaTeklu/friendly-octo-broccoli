@@ -19,8 +19,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.ProState
-import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.Health
+import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.engine.Generator
 import com.peakform.fitness.engine.Stats
 import com.peakform.fitness.ui.*
@@ -99,7 +99,7 @@ fun DashboardScreen(
         // ---- data-safety nudges (FIX (audit) #35: the legacy app nudged via
         // p4_last_backup; the native port shipped without any backup nudge). ----
         val lastBackupIso = remember(ver) {
-            com.peakform.fitness.ui.Fa.appContext?.let { com.peakform.fitness.core.ProfileSettings.get(it, ProfileSettings.K_LAST_BACKUP) }
+            com.peakform.fitness.ui.Fa.appContext?.let { com.peakform.fitness.core.ProfileSettings.get(it, com.peakform.fitness.core.ProfileSettings.K_LAST_BACKUP) }
         }
         val showBackupNudge = remember(ver, lastBackupIso) {
             com.peakform.fitness.core.Nudges.shouldNudgeBackup(lastBackupIso, totalWorkouts, System.currentTimeMillis())
