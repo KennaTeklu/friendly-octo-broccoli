@@ -80,9 +80,10 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     var componentFilter by remember { mutableStateOf<String?>(null) }
 
     // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806).
-    // BATCH-4C Gap 1: honor p4_lib_expand_all pref — when "true", start with all
-    // groups EXPANDED (empty collapsed set) instead of the default all-collapsed.
-    // 5A+5B+6+7: default is now ALL-COLLAPSED (matches legacy).
+    // BATCH-5A: routed through ProfileSettings (per-profile).
+    // BATCH-6: all-collapsed default — when no preference is set, all groups start
+    // collapsed (matches the legacy "expandAll" default OFF). The expandAll pref
+    // overrides this when set to "true".
     var collapsedGroups by remember(Library.groups) {
         val expandAllPref = ProfileSettings.get(ctx, ProfileSettings.K_LIB_EXPAND_ALL) == "true"
         val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
@@ -97,6 +98,14 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     fun persistCollapse() {
         ProfileSettings.put(ctx, ProfileSettings.K_LIBRARY_COLLAPSED,
             ProJson.json.encodeToString(ListSerializer(String.serializer()), collapsedGroups.toList()))
+    }
+
+    /** BATCH-6: changeGroupBy(idx) — wraps the group-by switch and persists the new
+     *  preference via ProfileSettings. Smart-button visibility: only renders the
+     *  group-by chip row when there are at least 2 groupings. */
+    fun changeGroupBy(idx: Int) {
+        groupBy = idx.coerceIn(0, groupings.size - 1)
+        ProfileSettings.put(ctx, ProfileSettings.K_LIB_GROUP, groupings[groupBy].first)
     }
 
     val mode = ProState.data.user.settings.trainingMode
@@ -119,15 +128,6 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
             list = list.filter { ex -> ex.fitnessComponents.contains(componentFilter) }
         }
         list
-    }
-
-    // 5A+5B+6+7: changeGroupBy(idx) — single helper that updates the in-memory
-    // group-by index AND persists the pref in one call. Defined AFTER `grouped`
-    // so it can verify the new mode is valid.
-    fun changeGroupBy(idx: Int) {
-        if (idx !in groupings.indices) return
-        groupBy = idx
-        ProfileSettings.put(ctx, ProfileSettings.K_LIB_GROUP, groupings[idx].first)
     }
 
     val grouped: List<Pair<String, List<LibraryExercise>>> = remember(filtered, groupBy) {
@@ -205,49 +205,45 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
             ProTextField(value = search, onValueChange = { search = it }, placeholder = "Search exercises or muscles...")
         }
         item(key = "hdr_groupby", contentType = "header") {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                groupings.chunked(3).forEach { rowDefs ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        rowDefs.forEach { (key, label) ->
-                            val idx = groupings.indexOfFirst { it.first == key }
-                            val active = groupBy == idx
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(if (active) c.accentSoft else c.surface2)
-                                    .border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
-                                    .clickable { changeGroupBy(idx) }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(label, fontSize = 12.sp, color = if (active) c.accent else c.text2, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, maxLines = 1)
+            // BATCH-6: smart button visibility — only render the group-by row when
+            // there are at least 2 groupings (there always are, but the guard
+            // keeps the contract explicit).
+            if (groupings.size >= 2) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    groupings.chunked(3).forEach { rowDefs ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowDefs.forEach { (key, label) ->
+                                val idx = groupings.indexOfFirst { it.first == key }
+                                val active = groupBy == idx
+                                Box(
+                                    Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(if (active) c.accentSoft else c.surface2)
+                                        .border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
+                                        .clickable { changeGroupBy(idx) }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(label, fontSize = 12.sp, color = if (active) c.accent else c.text2, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, maxLines = 1)
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        item(key = "hdr_expand_collapse", contentType = "header") {
-            // 5A+5B+6+7: smart visibility — only show Expand All when at least
-            // one group is collapsed; only show Collapse All when at least one
-            // group is expanded. Avoids dead-button taps on already-all-expanded.
-            val anyCollapsed = grouped.any { it.first in collapsedGroups }
-            val anyExpanded = grouped.any { it.first !in collapsedGroups }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (anyCollapsed) {
+        // BATCH-6: smart button visibility — Expand/Collapse All only render when
+        // there is at least 1 group on screen.
+        if (grouped.isNotEmpty()) {
+            item(key = "hdr_expand_collapse", contentType = "header") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     P4Button("Expand All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
                         collapsedGroups = emptySet(); persistCollapse()
                     }
-                }
-                if (anyExpanded) {
-                    P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = if (anyCollapsed) Modifier.weight(1f) else Modifier.fillMaxWidth()) {
+                    P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
                         collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
                     }
-                }
-                if (!anyCollapsed && !anyExpanded) {
-                    // No groups at all — show a non-interactive placeholder so the row keeps its height.
-                    P4Button("No groups", style = BtnStyle.GHOST, minHeight = 34, modifier = Modifier.fillMaxWidth(), onClick = {})
                 }
             }
         }

@@ -2,6 +2,7 @@ package com.peakform.fitness.core
 
 import android.content.Context
 import com.peakform.fitness.ProLog
+import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import java.io.File
@@ -139,10 +140,21 @@ object Profiles {
             ProLog.w("PROFILE", "delete blocked — $profileId is the default; reassign default first")
             return
         }
+        // BATCH-11 Item 1 (P0): flush ALL in-flight saves before closing the DB.
+        // Without this, a save launched from a previous tap lands on a closed
+        // handle and crashes with "connection pool has been closed".
+        val wasActive = activeId(ctx) == profileId
+        if (wasActive) {
+            ProState.flush()
+        }
         val (profiles, _, ask) = ProfileRegistry.read(ctx)
         val remaining = profiles.filter { it.id != profileId }
-        val wasActive = activeId(ctx) == profileId
-        val newActive = if (wasActive) (remaining.firstOrNull()?.id ?: DEFAULT) else activeId(ctx)
+        // BATCH-11: pick a new active whose DB file actually exists on disk.
+        val newActive = if (wasActive) {
+            remaining.firstOrNull { p ->
+                p.id == DEFAULT || ctx.getDatabasePath(dbNameFor(ctx, p.id)).exists()
+            }?.id ?: DEFAULT
+        } else activeId(ctx)
         ProfileRegistry.write(ctx, remaining, newActive, ask)
         if (wasActive) ProPrefs.put(ctx, ACTIVE_KEY, newActive)
         // P4D-CRASH-04: close the DB handle BEFORE unlinking the file.
@@ -155,6 +167,19 @@ object Profiles {
             File(dbFile.path + "-shm").delete()
         } catch (_: Exception) {}
         ProLog.i("PROFILE", "deleted $profileId")
+        // BATCH-11: if we deleted the active profile, reopen the store to the
+        // new active, reload data + theme, and notify so the UI recomposes
+        // with the new profile's state instead of stale in-memory state.
+        if (wasActive && newActive != profileId) {
+            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                ProState.reopenStore(ctx)
+                ProState.loadAll()
+                val systemDark = isSystemDark(ctx)
+                com.peakform.fitness.ui.ThemeController.setSystemDark(systemDark)
+                com.peakform.fitness.ui.ThemeController.reload(ctx)
+            }
+            ProState.notifyChanged()
+        }
     }
 
     fun setActive(ctx: Context, profileId: String) {
@@ -169,29 +194,42 @@ object Profiles {
      * BATCH-4B item 3: after the switch, callers should land on Dashboard.
      * The state-notify flow drives the recomposition so the change is visible
      * without a restart — see `ProfilesScreen` for the navigation call.
+     *
+     * BATCH-5B: wrap the load + theme reload in runBlocking(Dispatchers.IO)
+     * so the IO reads don't block the main thread, and reload
+     * ThemeController from the new profile's per-profile SharedPreferences
+     * (ProfileSettings) BEFORE notifyChanged so the next recomposition sees
+     * the new profile's theme. Log under tag "ProTheme".
      */
     fun switchTo(ctx: Context, profileId: String): String {
-        val oldId = activeId(ctx)
-        ProLog.i("ProTheme", "profile switch $oldId → $profileId")
-        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-            ProState.flush()
-            setActive(ctx, profileId)
-            ProState.reopenStore(ctx)
-            ProState.loadAll()
-            // 5A+5B+6+7: reload per-profile theme AFTER loadAll, BEFORE notifyChanged.
-            com.peakform.fitness.ui.ThemeController.reload(ctx)
-            val systemDark = (ctx.resources.configuration.uiMode and
-                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-                android.content.res.Configuration.UI_MODE_NIGHT_YES
-            com.peakform.fitness.ui.ThemeController.resolveDark(systemDark)
-            // BATCH-4B item 6: stamp the (possibly new) profile's first-launch
-            // timestamp as part of the multi-signal new-user detection.
-            ProfileState.stampFirstLaunch(ctx)
+        // BATCH-11 Item 1 (P0): refuse to switch to a profile whose DB file is missing.
+        if (profileId != DEFAULT && !ctx.getDatabasePath(dbNameFor(ctx, profileId)).exists()) {
+            ProLog.w("PROFILE", "switchTo refused — DB file missing for $profileId")
+            return activeId(ctx)
         }
+        // BATCH-11: flush ALL in-flight saves before closing the old store's DB.
+        ProState.flush()
+        setActive(ctx, profileId)
+        ProState.reopenStore(ctx)
+        kotlinx.coroutines.runBlocking(Dispatchers.IO) { ProState.loadAll() }
+        ProfileState.stampFirstLaunch(ctx)
+        // Batch 5B: reload theme from the new profile's per-profile SharedPreferences.
+        // Push the latest system dark state first so reload()'s resolveDark uses it.
+        val systemDark = isSystemDark(ctx)
+        com.peakform.fitness.ui.ThemeController.setSystemDark(systemDark)
+        com.peakform.fitness.ui.ThemeController.reload(ctx)
+        ProLog.i("ProTheme", "profile switch: $profileId → mode=${com.peakform.fitness.ui.ThemeController.mode} accent=${com.peakform.fitness.ui.ThemeController.accentId} dark=${com.peakform.fitness.ui.ThemeController.dark}")
         ProState.notifyChanged()
         val p = list(ctx).firstOrNull { it.id == profileId }
         return p?.name ?: profileId
     }
+
+    /** Read the system's current dark-mode setting from the application resources.
+     *  Used by switchTo when no Compose tree is available to push systemDark. */
+    private fun isSystemDark(ctx: Context): Boolean = try {
+        val mode = ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        mode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    } catch (_: Exception) { true }
 
     fun randomAnimalEmoji(ctx: Context): String = try {
         val raw = ctx.assets.open("data/animals.json").bufferedReader().use { it.readText() }

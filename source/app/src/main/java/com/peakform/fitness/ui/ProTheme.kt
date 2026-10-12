@@ -75,26 +75,33 @@ data class ProColors(
     val warn: Color,
     val bad: Color,
     val accentId: String,
-    /** 5A+5B+6+7: derived tint tokens — accent-mixed surfaces, hairlines, ink, ring. */
-    val tint: Color,
-    val tintStrong: Color,
-    val tintBg: Color,
-    val tintLine: Color,
-    val inkSoft: Color,
-    val ring: Color,
 ) {
     val accentGradient: Brush
         get() = Brush.linearGradient(listOf(accent, lighten(accent, 0.28f)))
 
     val primaryButtonShadow: Brush get() = accentGradient
 
-    /** Derived gradient for cards — accent tint fading to surface. */
-    val cardGradient: Brush
-        get() = Brush.linearGradient(listOf(tintBg, surface))
+    /** Batch 5B — accent-tinted tokens derived from `mix(accent, base, pct)`.
+     *  These give the new card system a coherent accent-tinted scale:
+     *    tint       — accent ~12% over surface (chip backgrounds, soft badges)
+     *    tintStrong — accent ~24% over surface (selected cards, focus wells)
+     *    tintBg     — accent ~6% over bg (page-level tinted backdrops)
+     *    tintLine   — accent ~32% alpha (border for tinted cards)
+     *    inkSoft    — text at 70% alpha (secondary text on tinted surfaces)
+     *    ring       — accent at 50% alpha (focus ring around inputs)
+     *  cardGradient — surface → surface2 linear gradient (the new card body)
+     *  focusRing    — accent solid (the inner focus stroke) */
+    val tint: Color get() = mix(accent, if (dark) surface else surface, 0.12f)
+    val tintStrong: Color get() = mix(accent, if (dark) surface else surface, 0.24f)
+    val tintBg: Color get() = mix(accent, if (dark) bg else bg, 0.06f)
+    val tintLine: Color get() = accent.copy(alpha = 0.32f)
+    val inkSoft: Color get() = text.copy(alpha = 0.70f)
+    val ring: Color get() = accent.copy(alpha = 0.50f)
 
-    /** Focus ring color (accent at higher opacity). */
-    val focusRing: Color
-        get() = ring
+    val cardGradient: Brush
+        get() = Brush.linearGradient(listOf(surface, surface2))
+
+    val focusRing: Color get() = accent
 
     companion object {
         fun lighten(c: Color, f: Float): Color = Color(
@@ -108,68 +115,50 @@ data class ProColors(
             red = c.red * (1f - f), green = c.green * (1f - f), blue = c.blue * (1f - f), alpha = c.alpha,
         )
 
-        /** 5A+5B+6+7: linear mix of accent color onto a base color by percentage. */
+        /** Batch 5B — mix `accent` onto `base` by `pct` (0..1), preserving alpha of base.
+         *  Dark theme mixes onto surface (#10141C); light theme mixes onto white. */
         fun mix(accent: Color, base: Color, pct: Float): Color {
             val p = pct.coerceIn(0f, 1f)
             return Color(
-                red = base.red + (accent.red - base.red) * p,
-                green = base.green + (accent.green - base.green) * p,
-                blue = base.blue + (accent.blue - base.blue) * p,
-                alpha = base.alpha + (accent.alpha - base.alpha) * p,
+                red = base.red * (1f - p) + accent.red * p,
+                green = base.green * (1f - p) + accent.green * p,
+                blue = base.blue * (1f - p) + accent.blue * p,
+                alpha = base.alpha,
             )
         }
     }
 }
 
-fun buildProColors(dark: Boolean, accent: AccentDef): ProColors {
-    val accentColor = if (dark) accent.darkHex else accent.lightHex
-    return if (dark) {
-        // Dark mode: mix accent onto surface (#10141C) at varying strengths.
-        val surface = Color(0xFF10141C)
-        ProColors(
-            dark = true,
-            bg = Color(0xFF07090D), bg2 = Color(0xFF0B0E14),
-            surface = surface, surface2 = Color(0xFF151B25), surface3 = Color(0xFF1B2230),
-            hairline = Color(0x2494A3B8), hairline2 = Color(0x4294A3B8),
-            text = Color(0xFFF2F4F8), text2 = Color(0xFFB7BDC9), text3 = Color(0xFF8A919E),
-            glass = Color(0xB810141C), glass2 = Color(0xDB0B0E14),
-            accent = accentColor,
-            accentSoft = accentColor.copy(alpha = 0.14f),
-            accentLine = accentColor.copy(alpha = 0.38f),
-            onAccent = accent.onDark,
-            ok = Color(0xFF34D399), warn = Color(0xFFFBBF24), bad = Color(0xFFF87171),
-            accentId = accent.id,
-            tint = ProColors.mix(accentColor, surface, 0.16f),
-            tintStrong = ProColors.mix(accentColor, surface, 0.34f),
-            tintBg = ProColors.mix(accentColor, surface, 0.08f),
-            tintLine = ProColors.mix(accentColor, surface, 0.26f),
-            inkSoft = ProColors.mix(accentColor, Color(0xFFF2F4F8), 0.28f),
-            ring = accentColor.copy(alpha = 0.72f),
-        )
-    } else {
-        // Light mode: mix accent onto white.
-        val surface = Color.White
-        ProColors(
-            dark = false,
-            bg = Color(0xFFF4F6F9), bg2 = Color.White,
-            surface = surface, surface2 = Color(0xFFF2F4F8), surface3 = Color(0xFFE8ECF2),
-            hairline = Color(0x1A0F172A), hairline2 = Color(0x2E0F172A),
-            text = Color(0xFF10141C), text2 = Color(0xFF3D4451), text3 = Color(0xFF6A7280),
-            glass = Color(0xCCFFFFFF), glass2 = Color(0xF0FFFFFF),
-            accent = accentColor,
-            accentSoft = accentColor.copy(alpha = 0.10f),
-            accentLine = accentColor.copy(alpha = 0.32f),
-            onAccent = accent.onLight,
-            ok = Color(0xFF34D399), warn = Color(0xFFFBBF24), bad = Color(0xFFF87171),
-            accentId = accent.id,
-            tint = ProColors.mix(accentColor, surface, 0.14f),
-            tintStrong = ProColors.mix(accentColor, surface, 0.28f),
-            tintBg = ProColors.mix(accentColor, surface, 0.06f),
-            tintLine = ProColors.mix(accentColor, surface, 0.22f),
-            inkSoft = ProColors.mix(accentColor, Color(0xFF10141C), 0.22f),
-            ring = accentColor.copy(alpha = 0.68f),
-        )
-    }
+fun buildProColors(dark: Boolean, accent: AccentDef): ProColors = if (dark) {
+    ProColors(
+        dark = true,
+        bg = Color(0xFF07090D), bg2 = Color(0xFF0B0E14),
+        surface = Color(0xFF10141C), surface2 = Color(0xFF151B25), surface3 = Color(0xFF1B2230),
+        hairline = Color(0x2494A3B8), hairline2 = Color(0x4294A3B8),
+        text = Color(0xFFF2F4F8), text2 = Color(0xFFB7BDC9), text3 = Color(0xFF8A919E),
+        glass = Color(0xB810141C), glass2 = Color(0xDB0B0E14),
+        accent = accent.darkHex,
+        accentSoft = accent.darkHex.copy(alpha = 0.14f),
+        accentLine = accent.darkHex.copy(alpha = 0.38f),
+        onAccent = accent.onDark,
+        ok = Color(0xFF34D399), warn = Color(0xFFFBBF24), bad = Color(0xFFF87171),
+        accentId = accent.id,
+    )
+} else {
+    ProColors(
+        dark = false,
+        bg = Color(0xFFF4F6F9), bg2 = Color.White,
+        surface = Color.White, surface2 = Color(0xFFF2F4F8), surface3 = Color(0xFFE8ECF2),
+        hairline = Color(0x1A0F172A), hairline2 = Color(0x2E0F172A),
+        text = Color(0xFF10141C), text2 = Color(0xFF3D4451), text3 = Color(0xFF6A7280),
+        glass = Color(0xCCFFFFFF), glass2 = Color(0xF0FFFFFF),
+        accent = accent.lightHex,
+        accentSoft = accent.lightHex.copy(alpha = 0.10f),
+        accentLine = accent.lightHex.copy(alpha = 0.32f),
+        onAccent = accent.onLight,
+        ok = Color(0xFF34D399), warn = Color(0xFFFBBF24), bad = Color(0xFFF87171),
+        accentId = accent.id,
+    )
 }
 
 val LocalProColors = staticCompositionLocalOf { buildProColors(true, ACCENTS[0]) }
@@ -215,10 +204,9 @@ fun ProTheme(
         surfaceVariant = pro.surface2, onSurfaceVariant = pro.text2,
         error = pro.bad, secondary = pro.accent, tertiary = pro.ok,
         outline = pro.hairline2,
-        surfaceTint = pro.tint,
-        primaryContainer = pro.tintStrong, onPrimaryContainer = pro.onAccent,
-        secondaryContainer = pro.tintBg, onSecondaryContainer = pro.text,
-        tertiaryContainer = pro.tintLine, onTertiaryContainer = pro.onAccent,
+        primaryContainer = pro.tintStrong, onPrimaryContainer = pro.text,
+        secondaryContainer = pro.tint, onSecondaryContainer = pro.text,
+        tertiaryContainer = pro.tint, onTertiaryContainer = pro.text,
     ) else lightColorScheme(
         primary = pro.accent, onPrimary = pro.onAccent,
         background = pro.bg, onBackground = pro.text,
@@ -226,10 +214,9 @@ fun ProTheme(
         surfaceVariant = pro.surface2, onSurfaceVariant = pro.text2,
         error = pro.bad, secondary = pro.accent, tertiary = pro.ok,
         outline = pro.hairline2,
-        surfaceTint = pro.tint,
-        primaryContainer = pro.tintStrong, onPrimaryContainer = pro.onAccent,
-        secondaryContainer = pro.tintBg, onSecondaryContainer = pro.text,
-        tertiaryContainer = pro.tintLine, onTertiaryContainer = pro.onAccent,
+        primaryContainer = pro.tintStrong, onPrimaryContainer = pro.text,
+        secondaryContainer = pro.tint, onSecondaryContainer = pro.text,
+        tertiaryContainer = pro.tint, onTertiaryContainer = pro.text,
     )
     CompositionLocalProvider(LocalProColors provides pro) {
         MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography.copy(

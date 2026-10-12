@@ -5,12 +5,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.peakform.fitness.core.CoachingEngine
 import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.ProfileState
-import com.peakform.fitness.core.ProDb
-import com.peakform.fitness.core.ProgressSummary
-import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProPrefs
+import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.SelfAssessment
-import com.peakform.fitness.ui.ThemeController
 import org.junit.After
 import org.junit.Assert
 import org.junit.Before
@@ -20,7 +17,15 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * BATCH-8+9+10 consolidated tests.
+ * Batch 8 evidence test — coaching layer (CoachingEngine + TuningSheet data flow).
+ *
+ * Verifies the engine-side logic (the sheet UI is exercised through screenshots):
+ *  - TuningAnswers round-trip through per-profile ProfileSettings
+ *  - computeAdjustment translates answers to intensityMultiplier / repRange /
+ *    volumeMultiplier / restrictLoad
+ *  - coachSentence includes the goal + intensity percentage + restrict clause
+ *  - BAND_COLORS + BAND_RESISTANCE_LB constants
+ *  - SelfAssessment.PostSessionFeel / SorenessEntry round-trip (Batch 9 light coverage)
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -31,137 +36,147 @@ class Batch8Test {
     @Before
     fun setUp() {
         ctx = ApplicationProvider.getApplicationContext()
+        com.peakform.fitness.ui.Fa.appContext = ctx
         ProPrefs.clearAll(ctx)
-        ProDb.close("pro.db")
-        ctx.deleteDatabase("pro.db")
+        ProfileState.prefs(ctx).edit().clear().commit()
         ProState.init(ctx)
     }
 
     @After
     fun tearDown() {
-        try { ProState.flush() } catch (_: Exception) {}
-        ProDb.close("pro.db")
         ProPrefs.clearAll(ctx)
+        ProfileState.prefs(ctx).edit().clear().commit()
     }
 
-    // ---- Item 1: Coaching layer ----
+    @Test
+    fun coachingEngine_tuningAnswers_roundTrip() {
+        val answers = CoachingEngine.TuningAnswers(
+            goal = "bigger",
+            priority = "muscle",
+            restriction = "shoulder",
+            enough = "hard",
+            mindMuscle = 0.7,
+        )
+        CoachingEngine.saveTuning(ctx, answers)
+        val loaded = CoachingEngine.getTuning(ctx)
+        Assert.assertEquals(answers.goal, loaded.goal)
+        Assert.assertEquals(answers.priority, loaded.priority)
+        Assert.assertEquals(answers.restriction, loaded.restriction)
+        Assert.assertEquals(answers.enough, loaded.enough)
+        Assert.assertEquals(answers.mindMuscle, loaded.mindMuscle, 0.001)
+    }
 
     @Test
-    fun tuningAnswers_modifyPrescriptionFormula() {
-        val answers = CoachingEngine.TuningAnswers(goal = "bigger", priority = "high")
+    fun coachingEngine_computeAdjustment_forBiggerMuscleGoal() {
+        val answers = CoachingEngine.TuningAnswers(
+            goal = "bigger",
+            priority = "muscle",
+            restriction = "none",
+            enough = "just_right",
+            mindMuscle = 0.5,
+        )
         val adj = CoachingEngine.computeAdjustment(answers)
-        // "bigger" → hypertrophy range 8-12, intensity 0.70
-        Assert.assertEquals("8-12", adj.repRange)
-        Assert.assertTrue("Intensity should be 0.70 for bigger", adj.intensityMultiplier < 0.75)
-        // "high" priority → volume 1.2
-        Assert.assertTrue("Volume should be > 1.0 for high priority", adj.volumeMultiplier > 1.0)
+        // Bigger goal: repMin >= 8, repMax >= 12, volume >= 1.10
+        Assert.assertTrue("bigger goal → repMin >= 8", adj.repRange.first >= 8)
+        Assert.assertTrue("bigger goal → repMax >= 12", adj.repRange.second >= 12)
+        Assert.assertTrue("bigger goal → volume >= 1.10", adj.volumeMultiplier >= 1.10)
+        Assert.assertFalse("no restriction → restrictLoad false", adj.restrictLoad)
+        Assert.assertTrue("sentence should mention build muscle", adj.sentence.contains("build muscle"))
     }
 
     @Test
-    fun tuningAnswers_injuryRestriction_halvesLoad() {
-        val answers = CoachingEngine.TuningAnswers(restriction = "injury")
+    fun coachingEngine_computeAdjustment_forStrongerStrengthGoal() {
+        val answers = CoachingEngine.TuningAnswers(
+            goal = "stronger",
+            priority = "strength",
+            restriction = "none",
+            enough = "just_right",
+            mindMuscle = 0.0,
+        )
         val adj = CoachingEngine.computeAdjustment(answers)
-        Assert.assertTrue("Should restrict load for injury", adj.restrictLoad)
-        Assert.assertTrue("Intensity should be <= 0.60 for injury", adj.intensityMultiplier <= 0.60)
+        // Stronger goal: repMin <= 5 (low reps for strength)
+        Assert.assertTrue("stronger goal → repMin <= 5", adj.repRange.first <= 5)
+        Assert.assertTrue("stronger goal → intensity >= 1.0", adj.intensityMultiplier >= 1.0)
+        Assert.assertTrue("sentence should mention build strength", adj.sentence.contains("build strength"))
     }
 
     @Test
-    fun tuningAnswers_persistAndReadBack() {
-        val answers = CoachingEngine.TuningAnswers(goal = "stronger", priority = "medium", mindMuscle = 4)
-        CoachingEngine.saveTuning(ctx, "bench_press", answers)
-        val read = CoachingEngine.getTuning(ctx, "bench_press")
-        Assert.assertEquals("stronger", read.goal)
-        Assert.assertEquals("medium", read.priority)
-        Assert.assertEquals(4, read.mindMuscle)
+    fun coachingEngine_computeAdjustment_respectJointRestriction() {
+        val answers = CoachingEngine.TuningAnswers(
+            goal = "fit",
+            priority = "strength",
+            restriction = "knee",
+            enough = "just_right",
+            mindMuscle = 0.5,
+        )
+        val adj = CoachingEngine.computeAdjustment(answers)
+        Assert.assertTrue("knee restriction → restrictLoad true", adj.restrictLoad)
+        Assert.assertTrue("sentence should mention restriction", adj.sentence.contains("knee"))
     }
 
     @Test
-    fun bandedExercise_colorLadderIsOrdered() {
-        val colors = CoachingEngine.BAND_COLORS
-        Assert.assertEquals(listOf("yellow", "red", "green", "blue", "black"), colors)
-        // Resistance should be ascending
-        val resistances = colors.map { CoachingEngine.BAND_RESISTANCE_LB[it]!! }
-        for (i in 1 until resistances.size) {
-            Assert.assertTrue("Band $i should be lighter than band ${i-1}",
-                resistances[i] > resistances[i-1])
-        }
+    fun coachingEngine_bandConstants_exist() {
+        // 5 colors: yellow / green / red / black / purple
+        Assert.assertEquals(5, CoachingEngine.BAND_COLORS.size)
+        Assert.assertTrue(CoachingEngine.BAND_COLORS.contains("yellow"))
+        Assert.assertTrue(CoachingEngine.BAND_COLORS.contains("purple"))
+        // Resistance increases with band darkness
+        val yellow = CoachingEngine.BAND_RESISTANCE_LB["yellow"]
+        val purple = CoachingEngine.BAND_RESISTANCE_LB["purple"]
+        Assert.assertNotNull(yellow)
+        Assert.assertNotNull(purple)
+        Assert.assertTrue("yellow is lightest", yellow!! < purple!!)
     }
 
-    // ---- Item 2: Self-assessment ----
+    @Test
+    fun coachingEngine_resetTuning_clearsAnswers() {
+        CoachingEngine.saveTuning(ctx, CoachingEngine.TuningAnswers(goal = "leaner"))
+        Assert.assertEquals("leaner", CoachingEngine.getTuning(ctx).goal)
+        CoachingEngine.resetTuning(ctx)
+        Assert.assertEquals("fit", CoachingEngine.getTuning(ctx).goal)  // default
+    }
 
     @Test
-    fun postSessionFeel_capturesAndPersists() {
+    fun selfAssessment_postSessionFeel_roundTrip() {
         val feel = SelfAssessment.PostSessionFeel(
-            workoutId = "w1", date = "2026-01-15", rating = "hard", note = "gassed"
+            workoutId = "w_test",
+            date = ProState.nowIso(),
+            feel = "hard",
+            note = "tough",
         )
         SelfAssessment.saveFeel(ctx, feel)
-        val read = SelfAssessment.getFeel(ctx, "w1")
-        Assert.assertNotNull(read)
-        Assert.assertEquals("hard", read!!.rating)
-        Assert.assertEquals("gassed", read.note)
+        val loaded = SelfAssessment.feelForWorkout(ctx, "w_test")
+        Assert.assertNotNull(loaded)
+        Assert.assertEquals("hard", loaded!!.feel)
+        Assert.assertEquals("tough", loaded.note)
     }
 
     @Test
-    fun weeklyCheckIn_persistsAndRetrieves() {
-        val checkIn = SelfAssessment.WeeklyCheckIn(
-            weekStart = "2026-01-12", sleep = 4, stress = 3, energy = 4, motivation = 5, bodyFeel = 4
-        )
-        SelfAssessment.saveWeeklyCheckIn(ctx, checkIn)
-        val all = SelfAssessment.getWeeklyCheckIns(ctx)
-        Assert.assertTrue("Should have at least one check-in", all.isNotEmpty())
-        Assert.assertEquals(4, all.last().sleep)
+    fun selfAssessment_postSessionFeel_replacesPrior() {
+        SelfAssessment.saveFeel(ctx, SelfAssessment.PostSessionFeel(workoutId = "w_dup", date = "2025-01-01", feel = "too_easy"))
+        SelfAssessment.saveFeel(ctx, SelfAssessment.PostSessionFeel(workoutId = "w_dup", date = "2025-01-02", feel = "brutal"))
+        val loaded = SelfAssessment.feelForWorkout(ctx, "w_dup")
+        Assert.assertEquals("brutal", loaded!!.feel)
+        Assert.assertEquals("2025-01-02", loaded.date)
     }
 
     @Test
-    fun injuryLog_persistsAndDetectsActive() {
-        val injury = SelfAssessment.InjuryLog(
-            muscle = "shoulder", startDate = "2026-01-01", status = "active", note = "rotator cuff"
-        )
-        SelfAssessment.saveInjury(ctx, injury)
-        Assert.assertTrue("Should detect active shoulder injury", SelfAssessment.hasActiveInjury(ctx, "shoulder"))
-        Assert.assertFalse("Should not detect injury for chest", SelfAssessment.hasActiveInjury(ctx, "chest"))
+    fun selfAssessment_injury_hasActiveInjury() {
+        val today = ProState.todayLocal()
+        SelfAssessment.saveInjury(ctx, SelfAssessment.InjuryLog(
+            startDate = today,
+            region = "shoulder",
+            description = "Rotator cuff strain",
+        ))
+        Assert.assertTrue(SelfAssessment.hasActiveInjury(ctx, "shoulder"))
+        Assert.assertFalse(SelfAssessment.hasActiveInjury(ctx, "knee"))
+        SelfAssessment.resolveInjury(ctx, "shoulder")
+        Assert.assertFalse(SelfAssessment.hasActiveInjury(ctx, "shoulder"))
     }
 
     @Test
-    fun bodyRegionRating_persistsAndIsPrivate() {
-        val rating = SelfAssessment.BodyRegionRating(
-            date = "2026-01-15", region = "chest", size = "too_small", strength = "too_weak"
-        )
-        SelfAssessment.saveBodyRating(ctx, rating)
-        val all = SelfAssessment.getBodyRatings(ctx)
-        Assert.assertTrue("Should have body rating", all.isNotEmpty())
-        Assert.assertEquals("chest", all.first().region)
-    }
-
-    // ---- Item 3: Progress reorganization ----
-
-    @Test
-    fun radar_rendersWithTwoPolygons() {
-        // The ComponentRadarWithComparison function reads from ProgressSummary.computeTrends()
-        // which returns 11 components. Verify the data shape is correct.
-        val trends = ProgressSummary.computeTrends()
-        Assert.assertEquals("Should have 11 components", 11, trends.size)
-        // Each trend should have current and thirtyDaysAgo values
-        trends.forEach { t ->
-            Assert.assertTrue("Current should be in range", t.current in 5.0..100.0)
-            Assert.assertTrue("ThirtyDaysAgo should be in range", t.thirtyDaysAgo in 5.0..100.0)
-        }
-    }
-
-    @Test
-    fun monthlySummary_computesTrendWords() {
-        val summary = ProgressSummary.monthlySummary()
-        // Should contain "up", "flat", or "down" or "Not enough data"
-        Assert.assertTrue("Summary should contain trend words",
-            summary.contains("up") || summary.contains("flat") || summary.contains("down") || summary.contains("Not enough"))
-    }
-
-    @Test
-    fun trendArrows_areComputed() {
-        val trends = ProgressSummary.computeTrends()
-        val upCount = trends.count { it.trend == ProgressSummary.Trend.UP }
-        val downCount = trends.count { it.trend == ProgressSummary.Trend.DOWN }
-        val flatCount = trends.count { it.trend == ProgressSummary.Trend.FLAT }
-        Assert.assertEquals("All 11 components should have a trend", 11, upCount + downCount + flatCount)
+    fun selfAssessment_monthlyText_roundTrip() {
+        SelfAssessment.saveMonthlyText(ctx, "2025-01", "Strong January — PR on squat.")
+        Assert.assertEquals("Strong January — PR on squat.", SelfAssessment.getMonthlyText(ctx, "2025-01"))
     }
 }

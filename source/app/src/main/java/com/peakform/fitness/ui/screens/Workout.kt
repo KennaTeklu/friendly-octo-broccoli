@@ -13,7 +13,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -388,7 +387,8 @@ fun ExerciseCard(
     onResume: () -> Unit = {},
 ) {
     val c = LocalProColors.current
-    val ctx = LocalContext.current
+    // BATCH-8: ctx for CoachingEngine / ProfileSettings reads (1RM context + tuning gear).
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val isDrill = exercise.noFatigue || exercise.isWarmup || exercise.isCooldown || exercise.isComponentDrill
 
     // BATCH-2: per-card UI toggles for superset / drop set / warmup (transient, not persisted —
@@ -397,6 +397,10 @@ fun ExerciseCard(
     var isDropset by remember(exercise.id) { mutableStateOf(false) }
     var isWarmupToggled by remember(exercise.id) { mutableStateOf(exercise.isWarmup) }
     var showInstructions by remember(exercise.id) { mutableStateOf(false) }
+    // BATCH-8: tuning sheet state — opens the CoachingEngine tuning dialog from the gear icon.
+    var showTuning by remember(exercise.id) { mutableStateOf(false) }
+    // BATCH-9: post-session feel sheet — opens after a logged set completes.
+    var showPostFeel by remember(exercise.id) { mutableStateOf(false) }
 
     // card state
     val has1RM = (ProState.data.exercises[exercise.id]?.tested1RM ?: 0.0) > 0
@@ -471,33 +475,14 @@ fun ExerciseCard(
             }
             com.peakform.fitness.ui.FaIcon(if (expanded) "fa-chevron-up" else "fa-chevron-down", size = 14.sp, tint = c.accent)
         }
-        // BATCH-8 Item 1A: 1RM context FIRST, then prescription.
-        Spacer(Modifier.height(12.dp))
-        val rec = ProState.data.exercises[exercise.id]
-        val has1RM = (rec?.tested1RM ?: 0.0) > 0
-        OneRmContextBlock(
-            has1RM = has1RM,
-            tested1RM = rec?.tested1RM,
-            testDate = rec?.testDate,
-            lastWeight = rec?.history?.lastOrNull()?.weight ?: 0.0,
-            lastReps = rec?.history?.lastOrNull()?.reps?.maxOrNull() ?: 0.0,
-        )
-        // BATCH-8 Item 1C: target chips + coach sentence
-        val tuning = com.peakform.fitness.core.CoachingEngine.getTuning(ctx, exercise.id)
-        val coachSentence = com.peakform.fitness.core.CoachingEngine.coachSentence(
-            exercise.name, exercise.fitnessComponents, exercise.muscleGroup, tuning
-        )
-        TargetChipsBlock(exercise.fitnessComponents, exercise.muscleGroup, coachSentence)
-        // BATCH-8 Item 1B: banded exercise input
-        if (exercise.equipment.equals("bands", ignoreCase = true) || exercise.equipment.equals("band", ignoreCase = true)) {
-            Spacer(Modifier.height(8.dp))
-            var bandColor by remember(exercise.id) { mutableStateOf<String?>(com.peakform.fitness.core.ProfileSettings.get(ctx, "p8_band_" + exercise.id)) }
-            BandedExerciseInput(bandColor) { color ->
-                bandColor = if (color.isBlank()) null else color
-                if (bandColor != null) com.peakform.fitness.core.ProfileSettings.put(ctx, "p8_band_" + exercise.id, bandColor!!)
-                else com.peakform.fitness.core.ProfileSettings.remove(ctx, "p8_band_" + exercise.id)
-            }
+
+        // BATCH-8: 1RM context block — shows the exercise's tested 1RM (or "Needs test")
+        // before the prescription, so the user understands where the prescription came from.
+        if (!isDrill) {
+            Spacer(Modifier.height(10.dp))
+            OneRmContextBlock(exerciseId = exercise.id)
         }
+
         // prescription summary (always visible) — also a toggle target
         Spacer(Modifier.height(12.dp))
         val rx = exercise.prescribed
@@ -510,6 +495,43 @@ fun ExerciseCard(
                     label = "PRESCRIPTION",
                     value = (if (w != null && w > 0) "${OneRm.roundToNearest(w).toInt()} lbs · " else "") + "${rx.sets} × ${rx.reps}",
                 )
+            }
+        }
+
+        // BATCH-8: target chips + coach sentence — derived from the per-profile CoachingEngine
+        // tuning (read via ProfileSettings). The chips show the computed rep range / intensity /
+        // volume multipliers so the user knows the session's intent at a glance.
+        if (!isDrill) {
+            Spacer(Modifier.height(8.dp))
+            TargetChipsBlock(exerciseId = exercise.id)
+            val adjustment = remember(exercise.id) {
+                com.peakform.fitness.core.CoachingEngine.currentAdjustment(ctx)
+            }
+            Text(adjustment.sentence, style = ProType.small, color = c.text2)
+        }
+
+        // BATCH-8: banded exercise input — when the exercise is banded (equipment == "band"),
+        // surface a resistance picker that writes the chosen resistance into the next set's load.
+        if (exercise.equipment.equals("band", ignoreCase = true)) {
+            Spacer(Modifier.height(8.dp))
+            Text("Band resistance (per side)", style = ProType.small, color = c.text3)
+            BandedExerciseInput(initial = rx.weight ?: 0.0) { resistance ->
+                // Write the chosen band resistance into the prescription's weight field.
+                val w = ProState.currentWorkout ?: return@BandedExerciseInput
+                val updated = w.exercises.mapIndexed { i, e ->
+                    if (i == index) e.copy(prescribed = e.prescribed.copy(weight = resistance))
+                    else e
+                }
+                ProState.currentWorkout = w.copy(exercises = updated)
+                ProState.performSave()
+            }
+        }
+
+        // BATCH-8: tuning gear button — opens the CoachingEngine tuning sheet.
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            P4Button("Tune", icon = "fa-sliders", style = BtnStyle.GHOST, minHeight = 32, modifier = Modifier.weight(1f)) {
+                showTuning = true
             }
         }
 
@@ -625,13 +647,25 @@ fun ExerciseCard(
                     P4Button("Resume this exercise", icon = "fa-rotate-left", style = BtnStyle.INFO, minHeight = 38, modifier = Modifier.fillMaxWidth()) {
                         onResume()
                     }
+                    // BATCH-9: surface the post-session feel sheet button after a logged set,
+                    // so the user can self-report how it felt for the coaching engine.
+                    P4Button("How did it feel?", icon = "fa-face-smile", style = BtnStyle.SECONDARY, minHeight = 38, modifier = Modifier.fillMaxWidth()) {
+                        showPostFeel = true
+                    }
                 }
             }
         }
     }
+
+    // BATCH-8: tuning sheet (per-card)
+    TuningSheet(visible = showTuning, onDismiss = { showTuning = false }, onSave = { showTuning = false })
+
+    // BATCH-9: post-session feel sheet (per-card)
+    PostSessionFeelSheet(visible = showPostFeel, workoutId = workoutId, onDismiss = { showPostFeel = false })
 }
 
-/** Reads a boolean from the p4_power_settings JSON (default when absent). */
+/** Reads a boolean from the p4_power_settings JSON (default when absent).
+ *  Batch 5A: routed through ProfileSettings so the JSON lives per-profile. */
 internal fun powerFlag(key: String, default: Boolean): Boolean {
     val ctx = com.peakform.fitness.ui.Fa.appContext ?: return default
     return try {
@@ -644,12 +678,11 @@ internal fun powerFlag(key: String, default: Boolean): Boolean {
     }
 }
 
-/** Reads a notification preference (p4_notif_<key>, absent = on) — FIX (audit): the
- * Settings notification toggles persisted but nothing read them; the retest banner and
- * the Deload chip are now wired to their switches. */
+/** Reads a notification preference (p4_notif_<key>, absent = on) —
+ *  Batch 5A: routed through ProfileSettings helpers (per-profile). */
 internal fun notifFlag(key: String, default: Boolean = true): Boolean {
     val ctx = com.peakform.fitness.ui.Fa.appContext ?: return default
-    return com.peakform.fitness.core.ProfileSettings.getNotif(ctx, key) != "false"
+    return com.peakform.fitness.core.ProfileSettings.getNotif(ctx, key, default)
 }
 
 @Composable

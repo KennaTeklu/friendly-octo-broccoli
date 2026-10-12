@@ -29,6 +29,12 @@ import kotlinx.serialization.json.jsonPrimitive
  * FaIcon — renders FontAwesome 6 glyphs natively from the bundled FA TTFs.
  * Map: assets/data/fa_map.json (2408 entries) class → codepoint.
  * Prefix rules: fab→brands font, far→regular font, everything else solid.
+ *
+ * Batch 6 accessibility pass: `contentDescription` is now wired to
+ * `Modifier.semantics { contentDescription = ... }` so screen readers
+ * announce the icon. When `contentDescription` is null the icon is
+ * marked decorative (no semantics node) — the surrounding text is the
+ * accessible label.
  */
 object Fa {
     val map: Map<String, String> by lazy {
@@ -66,12 +72,23 @@ object Fa {
 
 /** FontAwesome icon rendered as text glyph. */
 @Composable
-fun FaIcon(cls: String, modifier: Modifier = Modifier, size: TextUnit = 16.sp, tint: Color = LocalProColors.current.text, contentDescription: String? = null) {
+fun FaIcon(
+    cls: String,
+    modifier: Modifier = Modifier,
+    size: TextUnit = 16.sp,
+    tint: Color = LocalProColors.current.text,
+    contentDescription: String? = null,
+) {
     val ch = remember(cls) { Fa.glyph(cls) }
+    // Batch 6 accessibility: wire contentDescription into semantics so TalkBack
+    // announces the icon's purpose. When null, mark decorative (mergeDescendants
+    // stays default; the surrounding Text node is the accessible label).
     val semanticsModifier = if (contentDescription != null) {
-        modifier.semantics { this.contentDescription = contentDescription }
-    } else modifier
-    Box(semanticsModifier) {
+        Modifier.semantics { this.contentDescription = contentDescription }
+    } else {
+        Modifier
+    }
+    Box(modifier.then(semanticsModifier)) {
         if (ch != null) {
             Text(
                 text = ch,

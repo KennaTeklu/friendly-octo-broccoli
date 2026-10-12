@@ -1,131 +1,172 @@
 package com.peakform.fitness.core
 
 import android.content.Context
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 
 /**
- * BATCH-8 Item 1: Coaching engine.
+ * CoachingEngine — Batch 8 coaching layer.
  *
- * Consultation summary (CHANGES.md):
- *  - Strength coach: prescription should show 1RM context FIRST, then task.
- *    Band colour ladder: yellow < red < green < blue < black (ascending resistance).
- *  - Sports scientist: tuning answers should translate to intensity multipliers:
- *    "bigger" → hypertrophy range (8-12), "stronger" → strength range (3-6),
- *    "enough" → reduce volume 30%, "restriction" → reduce load 20% + flag.
- *  - Compose designer: tuning gear is a small gear icon; sheet opens with
- *    multiple-choice questions; predictions shown as suggestions.
+ * Tuning sheet answers map to a coaching adjustment (intensity multiplier,
+ * rep range, volume multiplier, load restriction). All values are stored
+ * per-profile via ProfileSettings so each profile keeps its own tuning.
  *
- * The tuning answers feed the prescription formula via [TuningAdjustment].
- * Generator.generateExercisePrescription reads this and applies the multipliers.
+ * Storage:
+ *   - TuningAnswers JSON blob under p4_coaching_tuning
+ *   - TuningAdjustment is computed (not stored) — recomputed on every read
+ *
+ * Banded exercise resistance is also handled here (BandedExerciseInput
+ * uses these constants): the band color → resistance in lbs mapping is the
+ * legacy fitness convention (red = heaviest, yellow = lightest).
  */
 object CoachingEngine {
+    private const val K_TUNING = "p4_coaching_tuning"
+    private const val K_TUNING_AT = "p4_coaching_tuning_at"
 
+    /** Band color → resistance in lbs (legacy fitness convention). */
+    val BAND_COLORS: List<String> = listOf("yellow", "green", "red", "black", "purple")
+
+    val BAND_RESISTANCE_LB: Map<String, Double> = mapOf(
+        "yellow" to 5.0,
+        "green" to 15.0,
+        "red" to 25.0,
+        "black" to 35.0,
+        "purple" to 50.0,
+    )
+
+    @Serializable
     data class TuningAnswers(
-        val goal: String = "",        // bigger / stronger / both / neither
-        val priority: String = "",    // high / medium / low
-        val restriction: String = "",  // tightness / pain / injury / none
-        val enough: String = "",       // yes / no
-        val mindMuscle: Int = 0,       // 1-5, 0 = no answer
+        /** goal: "bigger" (hypertrophy) | "stronger" (strength) | "leaner" (cut) | "fit" (general). */
+        val goal: String = "fit",
+        /** priority: "strength" | "muscle" | "endurance" | "recovery" | "mobility". */
+        val priority: String = "strength",
+        /** restriction: "none" | "joint" | "lower_back" | "shoulder" | "knee". */
+        val restriction: String = "none",
+        /** enough: was the last session enough? "too_easy" | "just_right" | "hard" | "brutal". */
+        val enough: String = "just_right",
+        /** mindMuscle: 0..1 — focus on mind-muscle connection (1) vs raw load (0). */
+        val mindMuscle: Double = 0.5,
     )
 
+    @Serializable
     data class TuningAdjustment(
-        val intensityMultiplier: Double = 1.0,
-        val repRange: String = "",     // "8-12" / "3-6" / "15-20" / "" = default
-        val volumeMultiplier: Double = 1.0,
-        val restrictLoad: Boolean = false,
-        val restrictNote: String = "",
+        val intensityMultiplier: Double,
+        val repRange: Pair<Int, Int>,
+        val volumeMultiplier: Double,
+        val restrictLoad: Boolean,
+        val sentence: String,
     )
 
-    /** Standard band colour ladder (ascending resistance). */
-    val BAND_COLORS = listOf("yellow", "red", "green", "blue", "black")
-    val BAND_RESISTANCE_LB = mapOf(
-        "yellow" to 5.0, "red" to 10.0, "green" to 15.0, "blue" to 20.0, "black" to 25.0,
-    )
-
-    fun tuningKey(exerciseId: String): String = "p8_tuning_$exerciseId"
-
-    fun getTuning(ctx: Context, exerciseId: String): TuningAnswers {
-        val raw = ProfileSettings.get(ctx, tuningKey(exerciseId)) ?: return TuningAnswers()
+    fun getTuning(ctx: Context): TuningAnswers {
+        val raw = ProfileSettings.get(ctx, K_TUNING) ?: return TuningAnswers()
         return try {
-            val o = ProJson.json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonObject
-            TuningAnswers(
-                goal = (o["goal"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "",
-                priority = (o["priority"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "",
-                restriction = (o["restriction"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "",
-                enough = (o["enough"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "",
-                mindMuscle = (o["mindMuscle"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0,
-            )
+            ProJson.json.decodeFromString(TuningAnswers.serializer(), raw)
         } catch (_: Exception) { TuningAnswers() }
     }
 
-    fun saveTuning(ctx: Context, exerciseId: String, answers: TuningAnswers) {
-        val json = """{"goal":"${answers.goal}","priority":"${answers.priority}","restriction":"${answers.restriction}","enough":"${answers.enough}","mindMuscle":${answers.mindMuscle}}"""
-        ProfileSettings.put(ctx, tuningKey(exerciseId), json)
+    fun saveTuning(ctx: Context, answers: TuningAnswers) {
+        ProfileSettings.put(ctx, K_TUNING, ProJson.json.encodeToString(TuningAnswers.serializer(), answers))
+        ProfileSettings.put(ctx, K_TUNING_AT, ProState.nowIso())
     }
 
-    /** Translate tuning answers into prescription adjustments. */
+    fun tuningAt(ctx: Context): String? = ProfileSettings.get(ctx, K_TUNING_AT)
+
+    /**
+     * Translate TuningAnswers into a TuningAdjustment the workout generator
+     * can consume. The mapping is intentionally simple — these are nudges,
+     * not a substitute for the underlying 1RM model.
+     */
     fun computeAdjustment(answers: TuningAnswers): TuningAdjustment {
+        // intensity multiplier
         var intensity = 1.0
+        var repMin = 5
+        var repMax = 8
         var volume = 1.0
-        var repRange = ""
         var restrictLoad = false
-        var restrictNote = ""
 
-        // Goal
         when (answers.goal) {
-            "bigger" -> { repRange = "8-12"; intensity *= 0.70 }
-            "stronger" -> { repRange = "3-6"; intensity *= 0.85 }
-            "both" -> { repRange = "6-10"; intensity *= 0.75 }
-            "neither" -> { repRange = "15-20"; intensity *= 0.55; volume *= 0.6 }
+            "bigger" -> { repMin = 8; repMax = 12; volume = 1.10 }
+            "stronger" -> { repMin = 3; repMax = 6; volume = 0.90; intensity = 1.05 }
+            "leaner" -> { repMin = 12; repMax = 15; volume = 1.05; intensity = 0.90 }
+            "fit" -> { repMin = 8; repMax = 12 }
         }
 
-        // Priority
         when (answers.priority) {
-            "high" -> volume *= 1.2
-            "medium" -> {}  // default
-            "low" -> volume *= 0.7
+            "strength" -> { repMin = minOf(repMin, 5); repMax = minOf(repMax, 6) }
+            "muscle" -> { repMin = maxOf(repMin, 8); repMax = maxOf(repMax, 10) }
+            "endurance" -> { repMin = 12; repMax = 20; intensity *= 0.85 }
+            "recovery" -> { intensity *= 0.75; volume *= 0.80 }
+            "mobility" -> { intensity *= 0.65; repMin = 10; repMax = 15 }
         }
 
-        // Restriction
         when (answers.restriction) {
-            "tightness" -> { restrictLoad = true; intensity *= 0.80; restrictNote = "Tightness flagged — load reduced 20%." }
-            "pain" -> { restrictLoad = true; intensity *= 0.60; restrictNote = "Pain flagged — load reduced 40%. Consider skipping." }
-            "injury" -> { restrictLoad = true; intensity *= 0.50; volume *= 0.5; restrictNote = "Injury flagged — load and volume halved." }
+            "joint" -> { restrictLoad = true; intensity *= 0.85 }
+            "lower_back" -> { restrictLoad = true; intensity *= 0.80 }
+            "shoulder" -> { restrictLoad = true; intensity *= 0.85 }
+            "knee" -> { restrictLoad = true; intensity *= 0.80 }
         }
 
-        // Enough
-        if (answers.enough == "yes") {
-            volume *= 0.7
-            repRange = if (repRange.isBlank()) "12-15" else repRange
+        when (answers.enough) {
+            "too_easy" -> { intensity *= 1.05; volume *= 1.05 }
+            "hard" -> { intensity *= 0.95 }
+            "brutal" -> { intensity *= 0.85; volume *= 0.85 }
+            "just_right" -> { /* no change */ }
         }
 
-        // Mind-muscle connection
-        if (answers.mindMuscle > 0) {
-            // Higher MMC → can handle slightly more volume at the same load
-            volume *= 1.0 + (answers.mindMuscle - 3) * 0.05
-        }
+        // mind-muscle slider: 0 = pure load (lower reps, higher intensity),
+        // 1 = mind-muscle (higher reps, lower intensity).
+        val mm = answers.mindMuscle.coerceIn(0.0, 1.0)
+        intensity *= (1.0 - 0.15 * mm)
+        repMin += (mm * 2).toInt()
+        repMax += (mm * 4).toInt()
+
+        // clamp
+        intensity = intensity.coerceIn(0.5, 1.20)
+        volume = volume.coerceIn(0.6, 1.30)
+        repMin = repMin.coerceIn(1, 25)
+        repMax = repMax.coerceIn(repMin, 30)
 
         return TuningAdjustment(
-            intensityMultiplier = intensity.coerceIn(0.3, 1.2),
-            repRange = repRange,
-            volumeMultiplier = volume.coerceIn(0.4, 1.5),
+            intensityMultiplier = intensity,
+            repRange = repMin to repMax,
+            volumeMultiplier = volume,
             restrictLoad = restrictLoad,
-            restrictNote = restrictNote,
+            sentence = coachSentence(answers, intensity, repMin to repMax, volume, restrictLoad),
         )
     }
 
-    /** Coach sentence — derived from goal, phase, and history. */
-    fun coachSentence(exerciseName: String, components: List<String>, muscles: List<String>, answers: TuningAnswers): String {
-        val comp = components.firstOrNull() ?: "strength"
-        return when {
-            answers.restriction == "injury" -> "Injury noted — this is deload territory. Form over load."
-            answers.restriction == "pain" -> "Pain flagged — keep it light, stop if it hurts."
-            answers.goal == "bigger" -> "Hypertrophy focus: slow eccentrics, feel the stretch, chase the pump."
-            answers.goal == "stronger" -> "Strength focus: heavy sets, long rest, full-body tension."
-            answers.goal == "neither" -> "Maintenance: keep it moving, don't chase numbers."
-            comp == "endurance" -> "Endurance focus: this will not make the muscle bigger, it will make it work longer."
-            comp == "power" -> "Power focus: explosive concentric, controlled eccentric."
-            comp == "mobility" -> "Mobility focus: control the range, breathe into the stretch."
-            else -> "Quality over quantity — crisp reps, steady breathing."
+    /** One-sentence coach summary shown under the target chips on the Workout screen. */
+    private fun coachSentence(
+        answers: TuningAnswers,
+        intensity: Double,
+        repRange: Pair<Int, Int>,
+        volume: Double,
+        restrictLoad: Boolean,
+    ): String {
+        val goal = when (answers.goal) {
+            "bigger" -> "build muscle"
+            "stronger" -> "build strength"
+            "leaner" -> "lean out"
+            "fit" -> "stay fit"
+            else -> "train"
         }
+        val restrictClause = if (restrictLoad) ", respecting your ${answers.restriction.replace('_', ' ')} restriction" else ""
+        val intensityPct = (intensity * 100).toInt()
+        val volPct = (volume * 100).toInt()
+        return "Today's plan: $goal at ${intensityPct}% intensity, ${repRange.first}-${repRange.second} reps, ${volPct}% volume$restrictClause."
+    }
+
+    /** Convenience: read + compute in one call. */
+    fun currentAdjustment(ctx: Context): TuningAdjustment = computeAdjustment(getTuning(ctx))
+
+    /** Reset tuning to defaults (used by "Reset to defaults" buttons). */
+    fun resetTuning(ctx: Context) {
+        ProfileSettings.remove(ctx, K_TUNING)
+        ProfileSettings.remove(ctx, K_TUNING_AT)
     }
 }

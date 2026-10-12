@@ -16,10 +16,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.ProState
+import com.peakform.fitness.core.ProgressSummary
 import com.peakform.fitness.engine.Stats
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
@@ -68,19 +70,50 @@ fun ProgressScreen(onOpenSection: (String) -> Unit, onRequireGenerate: (String) 
         Spacer(Modifier.height(4.dp))
         SectionTitle("fa-chart-line", "Progress Analytics")
 
-        // BATCH-10 Item 3D: Monthly summary card at the very top.
+        // BATCH-10: 11-component radar with 30-day comparison overlay, moved to TOP.
+        // Shows current values + a translucent overlay of values 30 days ago, with
+        // trend arrows (UP / FLAT / DOWN) per component.
         GlassCard(padding = PaddingValues(16.dp)) {
-            val summary = remember(ver.intValue) { com.peakform.fitness.core.ProgressSummary.monthlySummary() }
-            Text(summary, style = ProType.body2, color = c.text)
-        }
-
-        // BATCH-10 Item 3A: 11-component radar moved to top, with comparison overlay.
-        GlassCard(padding = PaddingValues(16.dp)) {
-            SectionTitle("fa-bullseye", "11-Component Radar", Modifier)
+            SectionTitle("fa-bullseye", "11-Component Radar (now vs 30 days ago)", Modifier)
             ComponentRadarWithComparison(ver.intValue)
         }
 
-        // hero: longevity circle
+        // BATCH-10: monthly summary card — one narrative sentence summarizing the month.
+        GlassCard(padding = PaddingValues(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                com.peakform.fitness.ui.FaIcon("fa-calendar-check", size = 14.sp, tint = c.accent)
+                Spacer(Modifier.width(10.dp))
+                Text("Monthly summary", style = ProType.cardTitle, color = c.text, fontSize = 15.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+            val summary = remember(ver.intValue) { ProgressSummary.monthlySummary() }
+            Text(summary, style = ProType.body2, color = c.text2)
+            // Trend arrows for all 11 components
+            Spacer(Modifier.height(10.dp))
+            val trends = remember(ver.intValue) { ProgressSummary.computeTrends() }
+            trends.forEach { trend ->
+                val arrow = when (trend.trend) {
+                    ProgressSummary.Trend.UP -> "▲"
+                    ProgressSummary.Trend.DOWN -> "▼"
+                    ProgressSummary.Trend.FLAT -> "▶"
+                }
+                val arrowColor = when (trend.trend) {
+                    ProgressSummary.Trend.UP -> c.ok
+                    ProgressSummary.Trend.DOWN -> c.bad
+                    ProgressSummary.Trend.FLAT -> c.text3
+                }
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(trend.name.replace('_', ' ').replaceFirstChar { it.uppercase() }, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
+                    Text("${trend.current.toInt()}", style = ProType.small, color = c.text, textAlign = TextAlign.End, modifier = Modifier.width(40.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(arrow, color = arrowColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(8.dp))
+                    Text("(30d: ${trend.thirtyDaysAgo.toInt()})", style = ProType.small, color = c.text3, modifier = Modifier.width(60.dp))
+                }
+            }
+        }
+
+        // hero: longevity circle + radar
         GlassCard(padding = PaddingValues(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val color = when {
@@ -164,11 +197,9 @@ fun ProgressScreen(onOpenSection: (String) -> Unit, onRequireGenerate: (String) 
             if (sub.isEmpty()) Text("Complete workouts to build your component profile.", style = ProType.small, color = c.text3)
         }
 
-        // SC1: 11-component radar
-        GlassCard(padding = PaddingValues(16.dp)) {
-            SectionTitle("fa-bullseye", "11-Component Radar", Modifier)
-            ComponentRadar(ver.intValue)
-        }
+        // SC1: 11-component radar — moved to the top of the screen as
+        // ComponentRadarWithComparison (see BATCH-10 above). The bare
+        // ComponentRadar card is removed to avoid duplication.
 
         // SC2: workout frequency strip
         GlassCard(padding = PaddingValues(16.dp)) {
@@ -293,7 +324,77 @@ fun VolumeBars(ver: Int = 0) {
 
 // ---------------- 1.4 progress additions ----------------
 
-/** SC1: 11-component radar (mpComponentRadar port). */
+/** BATCH-10: 11-component radar with 30-day comparison overlay.
+ *  Renders the current radar (filled accent polygon) PLUS a translucent
+ *  outline of the values 30 days ago, so the user can see at a glance
+ *  whether their profile is improving, holding, or declining per component. */
+@Composable
+fun ComponentRadarWithComparison(ver: Int = 0) {
+    val c = LocalProColors.current
+    val trends = remember(ver) { com.peakform.fitness.core.ProgressSummary.computeTrends() }
+    val current = trends.map { it.current.coerceIn(5.0, 100.0) }
+    val historical = trends.map { it.thirtyDaysAgo.coerceIn(5.0, 100.0) }
+    Canvas(Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(12.dp)).background(c.bg2)) {
+        val n = current.size
+        if (n < 3) return@Canvas
+        val cx = size.width / 2
+        val cy = size.height / 2
+        val r = min(size.width, size.height) / 2 * 0.78f
+        // grid rings
+        for (ring in 1..4) {
+            val rr = r * ring / 4
+            val path = Path()
+            for (i in 0..n) {
+                val ang = (2 * Math.PI * (i % n) / n) - Math.PI / 2
+                val x = cx + cos(ang).toFloat() * rr
+                val y = cy + sin(ang).toFloat() * rr
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(path, c.hairline2, style = Stroke(width = 2f))
+        }
+        // 30-days-ago polygon (translucent outline)
+        val histPath = Path()
+        for (i in 0..n) {
+            val idx = i % n
+            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
+            val v = (historical[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
+            val x = cx + cos(ang).toFloat() * r * v
+            val y = cy + sin(ang).toFloat() * r * v
+            if (i == 0) histPath.moveTo(x, y) else histPath.lineTo(x, y)
+        }
+        drawPath(histPath, c.text3, style = Stroke(width = 2f))
+        // current polygon (filled)
+        val dataPath = Path()
+        for (i in 0..n) {
+            val idx = i % n
+            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
+            val v = (current[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
+            val x = cx + cos(ang).toFloat() * r * v
+            val y = cy + sin(ang).toFloat() * r * v
+            if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
+        }
+        drawPath(dataPath, c.accent.copy(alpha = 0.22f))
+        drawPath(dataPath, c.accent, style = Stroke(width = 4f))
+    }
+    val labels = listOf("Cardio", "Strength", "Mobility", "Balance", "Core", "Power", "Agility", "Coordination", "Flexibility", "Endurance", "Reaction")
+    Text(labels.joinToString(" · "), style = ProType.small, color = c.text3, maxLines = 2)
+    Spacer(Modifier.height(4.dp))
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(c.accent))
+            Spacer(Modifier.width(4.dp))
+            Text("Now", style = ProType.small, color = c.text2)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(c.text3))
+            Spacer(Modifier.width(4.dp))
+            Text("30 days ago", style = ProType.small, color = c.text3)
+        }
+    }
+}
+
+/** SC1: 11-component radar (mpComponentRadar port). Kept for screenshot tests;
+ *  the in-screen card now uses ComponentRadarWithComparison (BATCH-10). */
 @Composable
 fun ComponentRadar(ver: Int = 0) {
     val c = LocalProColors.current
@@ -338,79 +439,6 @@ fun ComponentRadar(ver: Int = 0) {
     }
     val labels = listOf("Cardio", "Strength", "Mobility", "Balance", "Core", "Power", "Agility", "Coordination", "Flexibility", "Endurance", "Reaction")
     Text(labels.joinToString(" · "), style = ProType.small, color = c.text3, maxLines = 2)
-}
-
-/**
- * BATCH-10 Item 3A: Radar with comparison overlay.
- * Two polygons: this week (filled) vs 4 weeks ago (outlined).
- * Trend arrows on each component (Item 3E).
- */
-@Composable
-fun ComponentRadarWithComparison(ver: Int = 0) {
-    val c = LocalProColors.current
-    val trends = remember(ver) { com.peakform.fitness.core.ProgressSummary.computeTrends() }
-    val currentValues = trends.map { it.current }
-    val pastValues = trends.map { it.thirtyDaysAgo }
-
-    Canvas(Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(12.dp)).background(c.bg2)) {
-        val n = currentValues.size
-        if (n < 3) return@Canvas
-        val cx = size.width / 2
-        val cy = size.height / 2
-        val r = min(size.width, size.height) / 2 * 0.78f
-        // grid rings
-        for (ring in 1..4) {
-            val rr = r * ring / 4
-            val path = Path()
-            for (i in 0..n) {
-                val ang = (2 * Math.PI * (i % n) / n) - Math.PI / 2
-                val x = cx + cos(ang).toFloat() * rr
-                val y = cy + sin(ang).toFloat() * rr
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            drawPath(path, c.hairline2, style = Stroke(width = 2f))
-        }
-        // 4-weeks-ago polygon (outlined)
-        val pastPath = Path()
-        for (i in 0..n) {
-            val idx = i % n
-            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
-            val v = (pastValues[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
-            val x = cx + cos(ang).toFloat() * r * v
-            val y = cy + sin(ang).toFloat() * r * v
-            if (i == 0) pastPath.moveTo(x, y) else pastPath.lineTo(x, y)
-        }
-        drawPath(pastPath, c.text3.copy(alpha = 0.5f), style = Stroke(width = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(8f, 8f))))
-        // current polygon (filled)
-        val dataPath = Path()
-        for (i in 0..n) {
-            val idx = i % n
-            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
-            val v = (currentValues[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
-            val x = cx + cos(ang).toFloat() * r * v
-            val y = cy + sin(ang).toFloat() * r * v
-            if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
-        }
-        drawPath(dataPath, c.accent.copy(alpha = 0.22f))
-        drawPath(dataPath, c.accent, style = Stroke(width = 4f))
-    }
-    // Trend arrows
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        trends.take(11).forEach { t ->
-            val arrow = when (t.trend) {
-                com.peakform.fitness.core.ProgressSummary.Trend.UP -> "↑"
-                com.peakform.fitness.core.ProgressSummary.Trend.DOWN -> "↓"
-                else -> "→"
-            }
-            val color = when (t.trend) {
-                com.peakform.fitness.core.ProgressSummary.Trend.UP -> c.ok
-                com.peakform.fitness.core.ProgressSummary.Trend.DOWN -> c.bad
-                else -> c.text3
-            }
-            Text("$arrow ${t.name}", fontSize = 8.sp, color = color, modifier = Modifier.weight(1f))
-        }
-    }
-    Text("Filled = this week · Dashed = 4 weeks ago", style = ProType.small, color = c.text3)
 }
 
 /** SC2: workouts per week over 8 weeks. */
