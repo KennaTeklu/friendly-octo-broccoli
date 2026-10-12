@@ -43,6 +43,7 @@ fun WorkoutScreen(
 ) {
     val c = LocalProColors.current
     val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val ver = remember { mutableIntStateOf(0) }
     DisposableEffect(Unit) {
         val l: () -> Unit = { ver.intValue++ }
@@ -67,6 +68,10 @@ fun WorkoutScreen(
     // BATCH-2: regenerate confirm (top + bottom buttons share the same flow) + replace confirm
     var confirmRegenerate by remember { mutableStateOf(false) }
     var confirmReplace by remember { mutableStateOf<Int?>(null) }
+    // BATCH-16: tuning + post-session feel + coach-led prescription visibility
+    var showTuning by remember { mutableStateOf(false) }
+    var showPostFeel by remember { mutableStateOf(false) }
+    var showCoachTips by remember { mutableStateOf(false) }
 
     val workout = ProState.currentWorkout
     Column(
@@ -79,9 +84,61 @@ fun WorkoutScreen(
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Today's Workout", style = ProType.sectionTitle, color = c.text, modifier = Modifier.weight(1f))
+            // BATCH-16: tuning gear — opens the per-profile tuning sheet.
+            P4Button("", icon = "fa-sliders", style = BtnStyle.GHOST, minHeight = 32, onClick = { showTuning = true })
+            // BATCH-16: coach-led prescription toggle — surfaces top coaching tips inline.
+            P4Button("", icon = "fa-whistle", style = BtnStyle.GHOST, minHeight = 32, onClick = { showCoachTips = !showCoachTips })
             // BATCH-2: top regenerate button (regenerateWorkoutBtn, same flow as bottom)
             if (workout != null && workout.exercises.isNotEmpty()) {
                 P4Button("Regenerate", icon = "fa-rotate", style = BtnStyle.GHOST, minHeight = 34, onClick = { confirmRegenerate = true })
+            }
+        }
+
+        // BATCH-16: 1RM context block — summary of the active profile's calibrated lifts.
+        if (workout != null && workout.exercises.isNotEmpty()) {
+            val tracked = ProState.data.exercises.values.count { (it.mu ?: 0.0) > 0 || (it.tested1RM ?: 0.0) > 0 }
+            val top1Rm = ProState.data.exercises.entries
+                .mapNotNull { (_, rec) -> (rec.tested1RM ?: rec.mu)?.takeIf { it > 0 }?.let { it } }
+                .maxOrNull()
+            if (tracked > 0) {
+                GlassCard(padding = PaddingValues(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        com.peakform.fitness.ui.FaIcon("fa-trophy", size = 14.sp, tint = c.ok)
+                        Spacer(Modifier.width(8.dp))
+                        Text("$tracked lifts calibrated", style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
+                        if (top1Rm != null) Text("Top 1RM: ${top1Rm.toInt()} lbs", style = ProType.small, color = c.accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Audit →", style = ProType.small, color = c.accent, modifier = Modifier.clickable { onOpenSection("1rm_audit") })
+                    }
+                }
+            }
+        }
+
+        // BATCH-16: coach-led prescription block — top 3 tips from the CoachingEngine.
+        if (showCoachTips && workout != null) {
+            val plan = remember(workout.id, ver.intValue) {
+                com.peakform.fitness.core.CoachingEngine.evaluate(ctx, workout.exercises.firstOrNull()?.id)
+            }
+            GlassCard(padding = PaddingValues(12.dp)) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        com.peakform.fitness.ui.FaIcon("fa-whistle", size = 14.sp, tint = c.accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Coach's notes", style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
+                        Text(plan.summary, style = ProType.small, color = c.text3)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    plan.tips.take(3).forEach { tip ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                            com.peakform.fitness.ui.FaIcon("fa-angle-right", size = 10.sp, tint = c.accent)
+                            Spacer(Modifier.width(6.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(tip.title, style = ProType.body2, color = c.text)
+                                Text(tip.body, style = ProType.small, color = c.text3)
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -361,6 +418,35 @@ fun WorkoutScreen(
     // ---- share sheet ----
     if (showShare && workout != null) {
         com.peakform.fitness.ui.ShareSheet(workout = workout, onDismiss = { showShare = false })
+    }
+
+    // ---- BATCH-16: tuning sheet (per-profile aggression / rest / progression) ----
+    if (showTuning) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTuning = false },
+            containerColor = c.glass2,
+            shape = RoundedCornerShape(24.dp),
+            title = {},
+            text = { TuningSheet(onDismiss = { showTuning = false }, onPostSessionFeel = {
+                showTuning = false
+                showPostFeel = true
+            }) },
+            confirmButton = {},
+            dismissButton = {},
+        )
+    }
+
+    // ---- BATCH-16: post-session feel sheet (RPE / readiness / mood survey) ----
+    if (showPostFeel) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPostFeel = false },
+            containerColor = c.glass2,
+            shape = RoundedCornerShape(24.dp),
+            title = {},
+            text = { PostSessionFeelSheet(onDismiss = { showPostFeel = false }, onSave = { /* applied */ }) },
+            confirmButton = {},
+            dismissButton = {},
+        )
     }
 
     // ---- PR toast ----

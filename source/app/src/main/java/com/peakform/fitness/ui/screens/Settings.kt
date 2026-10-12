@@ -545,6 +545,33 @@ private fun ColumnScope.SettingsCardBody(
             Text("Reset all data — workouts, exercises, profile stats and snapshots. Your license and app settings are preserved.", style = ProType.small, color = c.text3)
             Spacer(Modifier.height(10.dp))
             P4Button("Reset all data", icon = "fa-trash", style = BtnStyle.DANGER) { onReset() }
+            Spacer(Modifier.height(14.dp))
+            // BATCH-14/15: 1RM Audit + Reset buttons — open the OneRMAuditScreen,
+            // and offer a one-tap reset of every 1RM estimate in the profile.
+            Text("1RM Audit — review every calibrated / estimated 1RM in your profile, mark stale estimates, and reset ones that drifted from reality.", style = ProType.small, color = c.text3)
+            Spacer(Modifier.height(8.dp))
+            P4Button("Run 1RM Audit", icon = "fa-magnifying-glass-chart", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
+                onOpenSection("1rm_audit")
+            }
+            Spacer(Modifier.height(8.dp))
+            P4Button("Reset 1RM estimates", icon = "fa-arrow-rotate-left", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
+                var touched = 0
+                val updated = ProState.data.exercises.mapValues { (_, rec) ->
+                    val mu = rec.mu
+                    if (mu != null && mu > 0) {
+                        touched++
+                        rec.copy(mu = 0.0, sigma2 = 1.0, lastUpdate = null)
+                    } else rec
+                }
+                if (touched > 0) {
+                    ProState.data = ProState.data.copy(exercises = updated)
+                    ProState.saveWorkoutData()
+                    ProState.notifyChanged()
+                    onToast("Reset $touched 1RM estimates — they'll re-calibrate on next set.")
+                } else {
+                    onToast("No 1RM estimates to reset — log a few sets first.")
+                }
+            }
         }
     }
 }
@@ -613,21 +640,28 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     // lag behind the source of truth, and so a swatch tap re-colors the whole
     // app instantly. The tap writes accent + p4_dynamic atomically (see
     // ThemeController.setAccentAndDynamic).
-    val mode = if (ThemeController.dark) "dark" else "light"
+    // BATCH-6: 3-mode toggle (system / dark / light) — writes the new mode
+    // token AND re-resolves dark synchronously so the host recomposes
+    // immediately with the right scheme.
+    val mode = ThemeController.modeToken
     val accentId = ThemeController.accentId
     val dynamic = ThemeController.dynamic
 
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        listOf("dark" to "fa-moon", "light" to "fa-sun").forEach { (m, ic) ->
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(
+            Triple("system", "fa-circle-half-stroke", "System"),
+            Triple("dark", "fa-moon", "Dark"),
+            Triple("light", "fa-sun", "Light"),
+        ).forEach { (m, ic, label) ->
             val active = mode == m
             Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(2.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
                 ThemeController.set(m, accentId, ctx)
-                onToast("Theme updated — $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name}")
+                onToast("Theme updated — $label · ${ACCENTS.firstOrNull { it.id == accentId }?.name ?: "Material You"}")
             }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     com.peakform.fitness.ui.FaIcon(ic, size = 13.sp, tint = if (active) c.accent else c.text2)
                     Spacer(Modifier.width(6.dp))
-                    Text(m.replaceFirstChar { it.uppercase() }, fontSize = 13.sp, color = if (active) c.accent else c.text2)
+                    Text(label, fontSize = 12.sp, color = if (active) c.accent else c.text2)
                 }
             }
         }
@@ -1164,10 +1198,10 @@ fun StreamGroupCardBody(onToast: (String) -> Unit) {
             "component" to "Component",
         )
     }
-    var groupByKey by remember { mutableStateOf(ProPrefs.get(ctx, "p4_lib_group") ?: "muscleGroup") }
-    var chunkSize by remember { mutableIntStateOf(ProPrefs.get(ctx, "p4_lib_chunk")?.toIntOrNull() ?: 20) }
-    var expandAll by remember { mutableStateOf(ProPrefs.get(ctx, "p4_lib_expand_all") == "true") }
-    var streamingOn by remember { mutableStateOf(ProPrefs.get(ctx, "p4_lib_stream") != "false") }
+    var groupByKey by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.LIB_GROUP) ?: "muscleGroup") }
+    var chunkSize by remember { mutableIntStateOf(ProfileSettings.getInt(ctx, ProfileSettings.LIB_CHUNK, 20)) }
+    var expandAll by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.LIB_EXPAND_ALL) == "true") }
+    var streamingOn by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.LIB_STREAM) != "false") }
 
     Text("Default group-by mode for the Library screen. Streaming loads exercises in chunks to keep the screen fast.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(8.dp))
@@ -1177,7 +1211,7 @@ fun StreamGroupCardBody(onToast: (String) -> Unit) {
             val active = groupByKey == key
             Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (active) c.accentSoft else c.surface2).border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp)).clickable {
                 groupByKey = key
-                ProPrefs.put(ctx, "p4_lib_group", key)
+                ProfileSettings.put(ctx, ProfileSettings.LIB_GROUP, key)
                 onToast("Default group-by: $label")
             }.padding(horizontal = 10.dp, vertical = 7.dp)) {
                 Text(label, fontSize = 11.sp, color = if (active) c.accent else c.text2)
@@ -1188,19 +1222,19 @@ fun StreamGroupCardBody(onToast: (String) -> Unit) {
     Text("Streaming chunk size: $chunkSize exercises per batch", style = ProType.small, color = c.text3)
     Slider(
         value = chunkSize.toFloat(),
-        onValueChange = { chunkSize = it.toInt(); ProPrefs.put(ctx, "p4_lib_chunk", chunkSize.toString()) },
+        onValueChange = { chunkSize = it.toInt(); ProfileSettings.putInt(ctx, ProfileSettings.LIB_CHUNK, chunkSize) },
         valueRange = 10f..60f,
         steps = 10,
     )
     Spacer(Modifier.height(6.dp))
     ToggleRow("Stream exercises (load in chunks)", "Faster Library screen on large databases", checked = streamingOn) { on ->
         streamingOn = on
-        ProPrefs.put(ctx, "p4_lib_stream", if (on) "true" else "false")
+        ProfileSettings.put(ctx, ProfileSettings.LIB_STREAM, if (on) "true" else "false")
         onToast(if (on) "Streaming on" else "Streaming off — all cards load at once")
     }
     ToggleRow("Expand all groups on open", "Skip the per-group tap-to-expand step", checked = expandAll) { on ->
         expandAll = on
-        ProPrefs.put(ctx, "p4_lib_expand_all", if (on) "true" else "false")
+        ProfileSettings.put(ctx, ProfileSettings.LIB_EXPAND_ALL, if (on) "true" else "false")
         onToast(if (on) "Expand-all on" else "Expand-all off")
     }
 }

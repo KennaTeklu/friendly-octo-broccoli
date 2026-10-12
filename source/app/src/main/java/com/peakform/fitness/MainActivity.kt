@@ -83,10 +83,20 @@ class MainActivity : ComponentActivity() {
             com.peakform.fitness.engine.Fatigue.calculateMuscleLastTrained()
             com.peakform.fitness.engine.Sessions.recomputeAggregates()
         }
-        ThemeController.load(ProPrefs.get(this, "p4_theme"))
-        ThemeController.loadDynamic(ProPrefs.get(this, "p4_dynamic"))
+        // BATCH-12: theme load — load(p4_theme) + loadDynamic(p4_dynamic) +
+        // resolveDark so the host activity picks the right scheme before the
+        // first composition. ThemeController.reload(this) does all three.
+        ThemeController.reload(this)
+        // BATCH-6: in case the system dark setting changed since init, observe
+        // and call setSystemDark. This is a no-op when mode != SYSTEM.
+        ThemeController.setSystemDark(ThemeController.dark)
         Vocab.init(this)
         Badges.init(this)
+        // BATCH-5A/5B: one-shot v22 prefs migration — copy legacy global p4_onboarded /
+        // p4_health_* / workoutEmergencyBackup values from ProPrefs into every
+        // profile's per-profile SharedPrefs (p4_ls_<profileId>). Idempotent —
+        // gated on the global p4_v22_migrated flag.
+        try { com.peakform.fitness.core.ProfileState.migrateFromPrefs(this) } catch (_: Exception) {}
         applyScreenshotSafeMode()
         // resume section from launcher shortcut / notification / tile
         if (intent?.getStringExtra("section") != null) {
@@ -462,6 +472,8 @@ fun AppShell(
                         "feedback" -> FeedbackScreen(onClose = { go("settings") })
                         "mycycle" -> MyCycleScreen(onClose = { go("dashboard") })
                         "badges" -> BadgeGalleryScreen()
+                        // BATCH-14/15: 1RM Audit screen — opened from Settings → Danger zone.
+                        "1rm_audit" -> com.peakform.fitness.ui.screens.OneRMAuditScreen(onClose = { go("settings") })
                     }
                 }
             }
