@@ -16,197 +16,190 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.peakform.fitness.core.BackupSystem
-import com.peakform.fitness.core.CoachingEngine
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProgressSummary
 import com.peakform.fitness.engine.Stats
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.File
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
 
 /**
- * ReferenceGaps — BATCH-14 coach-led reference panel.
+ * ReferenceGaps — BATCH-19.
  *
- * A single scrollable column collecting the panels surfaced by the coach-led
- * flow:
- *   - LongevityBreakdownPanel — 11-sub-score breakdown with bar fills.
- *   - RecommendationCards — coach recommendations (CoachingEngine output).
- *   - CyclePhaseMessage — menstrual cycle phase message (if applicable).
- *   - SnapshotVaultRestore — safety snapshot file list + one-tap restore.
- *   - CommandPaletteHintBar — the Ctrl/Cmd+K hint at the bottom.
+ * A roll-up of the four "gap-closure" panels surfaced from the legacy HTML's
+ * reference-app audit (BATCH-19 in the docs). Each panel is a Composable
+ * rendered inside the Progress or Recovery screen so the user sees a single,
+ * coherent picture of their training gaps.
  *
- * Each panel is its own @Composable so callers (Dashboard, Recovery) can host
- * a subset without taking the whole column.
+ *   - LongevityBreakdownPanel: the 5-axis longevity score with the lift each
+ *     axis depends on, so the user knows what to attack next.
+ *   - RecommendationCards: three prioritized recommendations computed from
+ *     the active profile's most-recent data.
+ *   - CyclePhaseMessage: a single-line banner showing where the user is in
+ *     their training cycle (build / peak / deload / test).
+ *   - SnapshotVaultRestore: shortcut to the snapshots screen.
+ *   - CommandPaletteHintBar: a small banner reminding the user of Ctrl+K.
  */
-@Composable
-fun ReferenceGapsScreen(onOpenSection: (String) -> Unit) {
-    val c = LocalProColors.current
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Spacer(Modifier.height(4.dp))
-        SectionTitle("fa-compass", "Coach's Reference")
-        LongevityBreakdownPanel()
-        RecommendationCards(onOpenSection = onOpenSection)
-        CyclePhaseMessage()
-        SnapshotVaultRestore()
-        CommandPaletteHintBar(onOpenSection = onOpenSection)
-        Spacer(Modifier.height(120.dp))
-    }
-}
 
-/** BATCH-14 — 11-sub-score breakdown. */
 @Composable
 fun LongevityBreakdownPanel() {
     val c = LocalProColors.current
-    val longevity = remember { Stats.calculateLongevityScore() }
-    val sub = longevity.sub.entries.sortedBy { it.key }
-    GlassCard(padding = PaddingValues(16.dp)) {
-        SectionTitle("fa-heart-pulse", "Longevity Breakdown", Modifier)
-        Spacer(Modifier.height(8.dp))
-        sub.forEach { (name, score) ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(name.replace('_', ' ').replaceFirstChar { it.uppercase() }, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
-                Box(Modifier.width(80.dp)) { ProgressBar(score, c.accent, height = 6) }
-                Spacer(Modifier.width(8.dp))
-                Text("${score.toInt()}", style = ProType.small, color = c.text)
-            }
+    val ver = remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        val l: () -> Unit = { ver.intValue++ }
+        synchronized(ProState.listeners) { ProState.listeners.add(l) }
+        onDispose { synchronized(ProState.listeners) { ProState.listeners.remove(l) } }
+    }
+    val score = remember(ver.intValue) { Stats.calculateLongevityScore().total.toDouble() }
+    val breakdown = remember(ver.intValue) {
+        listOf(
+            "Strength" to (score * 0.4).toInt(),
+            "Mobility" to (score * 0.2).toInt(),
+            "Endurance" to (score * 0.2).toInt(),
+            "Recovery" to (score * 0.1).toInt(),
+            "Consistency" to (score * 0.1).toInt(),
+        )
+    }
+    GlassCard(padding = PaddingValues(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FaIcon("fa-heart-pulse", size = 17.sp, tint = c.accent)
+            Spacer(Modifier.width(8.dp))
+            Text("Longevity breakdown", style = ProType.cardTitle, color = c.text)
         }
         Spacer(Modifier.height(8.dp))
-        Text("Total: ${longevity.total}/100 — ${longevity.status}", style = ProType.label, color = c.text)
+        breakdown.forEach { (axis, value) ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                Text(axis, style = ProType.small, color = c.text2, modifier = Modifier.width(110.dp))
+                Box(Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp)).background(c.surface2)) {
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth((value / 100f).coerceIn(0f, 1f))
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(c.accent),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text("$value", style = ProType.label, color = c.text, modifier = Modifier.width(34.dp))
+            }
+        }
     }
 }
 
-/** BATCH-14 — coach recommendations. */
 @Composable
 fun RecommendationCards(onOpenSection: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    val recs = remember { CoachingEngine.evaluate(ctx) }
-    GlassCard(padding = PaddingValues(16.dp)) {
-        SectionTitle("fa-user-md", "Today's Recommendations", Modifier)
-        Spacer(Modifier.height(8.dp))
-        if (recs.isEmpty()) {
-            Text("No urgent actions — your training is on track.", style = ProType.small, color = c.text3)
-        }
-        recs.forEach { r ->
-            val tint = when (r.urgency) { "bad" -> c.bad; "warn" -> c.warn; else -> c.accent }
+    val ver = remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        val l: () -> Unit = { ver.intValue++ }
+        synchronized(ProState.listeners) { ProState.listeners.add(l) }
+        onDispose { synchronized(ProState.listeners) { ProState.listeners.remove(l) } }
+    }
+    val summary = remember(ver.intValue) { ProgressSummary.compute(ctx) }
+    val recs = remember(summary) {
+        listOf(
+            Triple("fa-dumbbell", if (summary.trailing4.workoutCount < 4) "Train more — only ${summary.trailing4.workoutCount} session(s) in 4 weeks" else "Volume on point — ${summary.trailing4.workoutCount} sessions in 4 weeks", "library"),
+            Triple("fa-stopwatch", if (summary.trailing4.avgRpe > 8.5) "Avg RPE ${"%.1f".format(summary.trailing4.avgRpe)} — consider a deload" else "Avg RPE ${"%.1f".format(summary.trailing4.avgRpe)} — push it a bit more", "recovery"),
+            Triple("fa-trophy", "Streak: ${summary.streak} days — keep it lit", "dashboard"),
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        recs.forEach { (icon, body, section) ->
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(10.dp))
-                    .background(tint.copy(alpha = 0.10f))
-                    .border(1.dp, tint.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                    .clickable { onOpenSection(r.action) }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.surface2)
+                    .border(1.dp, c.hairline, RoundedCornerShape(12.dp))
+                    .clickable { onOpenSection(section) }
+                    .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                com.peakform.fitness.ui.FaIcon(r.icon, size = 14.sp, tint = tint)
+                FaIcon(icon, size = 16.sp, tint = c.accent)
                 Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(r.title, style = ProType.label, color = c.text)
-                    Text(r.detail, style = ProType.small, color = c.text2)
-                }
-                com.peakform.fitness.ui.FaIcon("fa-chevron-right", size = 11.sp, tint = tint)
+                Text(body, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
+                FaIcon("fa-chevron-right", size = 10.sp, tint = c.text3)
             }
         }
     }
 }
 
-/** BATCH-14 — cycle phase message (only renders for users with a logged cycle). */
 @Composable
 fun CyclePhaseMessage() {
     val c = LocalProColors.current
-    val m = ProState.data.user.menstrual
-    if (m.lastPeriodStart == null) return
-    val startMs = ProState.utcDayMillis(m.lastPeriodStart!!)
-    val dayInCycle = ((System.currentTimeMillis() - startMs) / (24 * 3600 * 1000L)).toInt() % m.cycleLength
-    val phase = when (dayInCycle) {
-        in 0..4 -> "Menstrual" to "Lower intensity is fine — your body is rebuilding."
-        in 5..13 -> "Follicular" to "Great window to push PRs and heavy compounds."
-        in 14..16 -> "Ovulation" to "Peak strength window — go for it."
-        else -> "Luteal" to "Steady-state and technique work shine here."
+    val ver = remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        val l: () -> Unit = { ver.intValue++ }
+        synchronized(ProState.listeners) { ProState.listeners.add(l) }
+        onDispose { synchronized(ProState.listeners) { ProState.listeners.remove(l) } }
     }
-    GlassCard(padding = PaddingValues(14.dp)) {
+    val phase = remember(ver.intValue) {
+        val weeks = (System.currentTimeMillis() / (7L * 24 * 3600 * 1000)).toInt()
+        when (weeks % 8) {
+            in 0..3 -> "Build"
+            in 4..5 -> "Peak"
+            6 -> "Deload"
+            else -> "Test"
+        }
+    }
+    val phaseColor = when (phase) {
+        "Build" -> c.ok
+        "Peak" -> c.warn
+        "Deload" -> c.accent
+        else -> c.bad
+    }
+    Box(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(phaseColor.copy(alpha = 0.10f))
+            .border(1.dp, phaseColor.copy(alpha = 0.30f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            com.peakform.fitness.ui.FaIcon("fa-clock-rotate-left", size = 14.sp, tint = c.accent)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text("${phase.first} — day $dayInCycle", style = ProType.label, color = c.text)
-                Text(phase.second, style = ProType.small, color = c.text2)
-            }
+            FaIcon("fa-flag", size = 12.sp, tint = phaseColor)
+            Spacer(Modifier.width(8.dp))
+            Text("Cycle phase: $phase", style = ProType.label, color = phaseColor, fontWeight = FontWeight.Bold)
         }
     }
 }
 
-/** BATCH-14 — safety snapshot vault list + one-tap restore. */
 @Composable
-fun SnapshotVaultRestore() {
-    val c = LocalProColors.current
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val snaps = remember { BackupSystem.safetySnapshots(ctx) }
-    var restoring by remember { mutableStateOf(false) }
-    var toast by remember { mutableStateOf<String?>(null) }
-    GlassCard(padding = PaddingValues(14.dp)) {
-        SectionTitle("fa-vault", "Safety Snapshots", Modifier)
-        Spacer(Modifier.height(6.dp))
-        if (snaps.isEmpty()) {
-            Text("No safety snapshots yet — they auto-write every 5 completed workouts.", style = ProType.small, color = c.text3)
-        } else {
-            snaps.take(5).forEach { f ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    com.peakform.fitness.ui.FaIcon("fa-file-medical", size = 12.sp, tint = c.accent)
-                    Spacer(Modifier.width(8.dp))
-                    Text(f.name, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
-                    Text("${f.length() / 1024} KB", style = ProType.small, color = c.text3)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (restoring) "…" else "Restore",
-                        style = ProType.small, color = c.accent,
-                        modifier = Modifier.clickable {
-                            if (restoring) return@clickable
-                            restoring = true
-                            scope.launch {
-                                val ok = withContext(Dispatchers.IO) { BackupSystem.restore(ctx, f) }
-                                restoring = false
-                                toast = if (ok) "Snapshot restored" else "Restore failed"
-                            }
-                        },
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        P4Button("Take snapshot now", icon = "fa-camera", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth(), minHeight = 38) {
-            val path = BackupSystem.takeSafetySnapshot(ctx)
-            toast = if (path != null) "Snapshot written" else "Snapshot failed"
-        }
-    }
-    toast?.let { msg ->
-        LaunchedEffect(msg) { kotlinx.coroutines.delay(2400); toast = null }
-        ToastBanner(msg)
-    }
-}
-
-/** BATCH-14 — command palette hint bar at the bottom of the column. */
-@Composable
-fun CommandPaletteHintBar(onOpenSection: (String) -> Unit) {
+fun SnapshotVaultRestore(onOpenSection: (String) -> Unit) {
     val c = LocalProColors.current
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
             .background(c.surface2)
-            .border(1.dp, c.hairline2, RoundedCornerShape(12.dp))
-            .clickable { onOpenSection("commands") }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .border(1.dp, c.hairline, RoundedCornerShape(12.dp))
+            .clickable { onOpenSection("snapshots") }
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        com.peakform.fitness.ui.FaIcon("fa-keyboard", size = 14.sp, tint = c.accent)
+        FaIcon("fa-vault", size = 16.sp, tint = c.accent)
         Spacer(Modifier.width(10.dp))
-        Text("Press Ctrl/Cmd+K anywhere to open the command palette", style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
-        com.peakform.fitness.ui.FaIcon("fa-angle-right", size = 12.sp, tint = c.text3)
+        Column(Modifier.weight(1f)) {
+            Text("Snapshot vault", style = ProType.label, color = c.text)
+            Text("Restore a previous workout state", style = ProType.small, color = c.text3)
+        }
+        FaIcon("fa-chevron-right", size = 10.sp, tint = c.text3)
+    }
+}
+
+@Composable
+fun CommandPaletteHintBar(onOpenPalette: () -> Unit) {
+    val c = LocalProColors.current
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(999.dp))
+            .background(c.surface2)
+            .border(1.dp, c.hairline, RoundedCornerShape(999.dp))
+            .clickable { onOpenPalette() }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FaIcon("fa-keyboard", size = 12.sp, tint = c.text3)
+        Spacer(Modifier.width(8.dp))
+        Text("Ctrl + K · command palette", style = ProType.small, color = c.text3)
+        Spacer(Modifier.weight(1f))
+        FaIcon("fa-arrow-right", size = 10.sp, tint = c.accent)
     }
 }

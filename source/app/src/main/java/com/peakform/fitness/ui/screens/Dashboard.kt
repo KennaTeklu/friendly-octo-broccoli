@@ -98,7 +98,7 @@ fun DashboardScreen(
         // ---- data-safety nudges (FIX (audit) #35: the legacy app nudged via
         // p4_last_backup; the native port shipped without any backup nudge). ----
         val lastBackupIso = remember(ver) {
-            com.peakform.fitness.ui.Fa.appContext?.let { com.peakform.fitness.core.ProfileSettings.get(it, com.peakform.fitness.core.ProfileSettings.K_LAST_BACKUP) }
+            com.peakform.fitness.ui.Fa.appContext?.let { com.peakform.fitness.core.ProPrefs.get(it, "p4_last_backup") }
         }
         val showBackupNudge = remember(ver, lastBackupIso) {
             com.peakform.fitness.core.Nudges.shouldNudgeBackup(lastBackupIso, totalWorkouts, System.currentTimeMillis())

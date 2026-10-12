@@ -5,35 +5,35 @@ import android.content.SharedPreferences
 import com.peakform.fitness.ProLog
 
 /**
- * ProfileState — per-profile state lives in per-profile SharedPreferences
- * `p4_ls_<profileId>` (BATCH-5A).
+ * ProfileState — per-profile state lives in a profile-scoped SharedPreferences file.
+ *
+ * BATCH-5A: storage boundary moved from the active profile's Room `meta` table
+ * to a dedicated SharedPreferences file `p4_ls_<profileId>` per profile.
+ *
+ * Rationale:
+ *  - SharedPreferences reads are O(1) and main-thread safe — the legacy metaSync
+ *    queries blocked on the Room executor and were unsafe from the main thread.
+ *  - Profile isolation is now structural: each profile's prefs file is fully
+ *    independent, no namespace collisions, no migration needed when a profile's
+ *    DB is rebuilt.
+ *  - Backup/restore becomes trivial: the per-profile file is a stable key/value
+ *    blob the bundle export can include verbatim.
  *
  * Storage boundary:
- *   PER-PROFILE (this file, `p4_ls_<profileId>`): onboarding flag, onboarding
- *                 draft, onboarding finished_at, first-launch timestamp,
- *                 health-screen state, health-intro-seen, emergency backup,
- *                 training preferences, theme, dynamic flag, gym mode, language,
- *                 vocab level, library prefs, notification toggles, etc.
- *   GLOBAL      (ProPrefs, `p4_ls`):              active profile id, default
- *                 profile id, device id, consent log, license.
+ *   PER-PROFILE (this file, p4_ls_<profileId>): onboarding flag, onboarding draft,
+ *     onboarding finished_at, first-launch timestamp, health-screen state, health
+ *     intro seen, emergency backup, training preferences, library collapsed state,
+ *     streak recover timestamps.
+ *   GLOBAL (ProPrefs "p4_ls"): theme mode+accent, Material You flag, gym mode,
+ *     language, vocab level, active profile id, default profile id, device id,
+ *     consent log.
  *
- * The previous BATCH-4B implementation wrote these keys into Room `meta` table;
- * BATCH-5A moves them to SharedPreferences for synchronous, main-thread-safe
- * access (no DAO, no IO dispatcher hop) and correct per-profile isolation.
- *
- * Migration:
- *   - v18: copy legacy global `p4_ls` onboarded / health / draft values into
- *     every existing profile's `p4_ls_<id>` (one-shot, gated on `p4_v18_migrated`).
- *   - v22: see ProfileSettings.migrateFromPrefs — copies the per-profile-
- *     eligible keys (theme, gym, lang, vocab, …) from global `p4_ls` into every
- *     profile's `p4_ls_<id>`.
- *
- * New-user detection (BATCH-4B item 6) — a profile is "new" if NONE of:
- *   p4_onboarded, p4_health_screened_at, workout_count > 0, exercise_count > 0,
- *   p4_first_launch are present.
+ * Migration: `migrateFromPrefs(ctx)` is a one-shot v22 migration that copies
+ * legacy per-profile keys from the global ProPrefs file into each profile's
+ * dedicated p4_ls_<profileId> file. Idempotent — gated on `p4_v22_migrated`.
  */
 object ProfileState {
-    // Per-profile keys (`p4_ls_<profileId>` SharedPreferences file)
+    // ---- per-profile keys (legacy K_* names preserved for bundle compat) ----
     const val K_ONBOARDED = "p4_onboarded"
     const val K_OB_DRAFT = "p4_ob_draft"
     const val K_OB_FINISHED_AT = "p4_ob_finished_at"
@@ -48,27 +48,32 @@ object ProfileState {
     const val K_HEALTH_INTRO_SEEN = "p4_health_intro_seen"
     const val K_EMERGENCY_BACKUP = "workoutEmergencyBackup"
     const val K_V18_MIGRATED = "p4_v18_migrated"
+    const val K_V22_MIGRATED = "p4_v22_migrated"
 
-    /** File name format for per-profile SharedPreferences. */
+    /** SharedPreferences file name for a profile. */
     fun prefsName(profileId: String): String = "p4_ls_$profileId"
 
-    /** Returns the SharedPreferences for the given profile (`p4_ls_<profileId>`). */
+    /** Returns the per-profile SharedPreferences for the given profile id. */
     fun prefsFor(ctx: Context, profileId: String): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(prefsName(profileId), Context.MODE_PRIVATE)
 
     /** Returns the SharedPreferences for the active profile. */
     fun prefs(ctx: Context): SharedPreferences = prefsFor(ctx, Profiles.activeId(ctx))
 
+    /** Read a per-profile value (main-thread safe). */
     fun get(ctx: Context, key: String, default: String? = null): String? = try {
         prefs(ctx).getString(key, default)
     } catch (_: Exception) { default }
 
+    /** Async write (legacy contract — apply()). */
     fun put(ctx: Context, key: String, value: String) = try {
         prefs(ctx).edit().putString(key, value).apply()
-    } catch (e: Exception) { ProLog.w("PROFILESTATE", "put $key failed: ${e.message}") }
+    } catch (e: Exception) {
+        ProLog.w("PROFILESTATE", "put $key failed: ${e.message}")
+    }
 
-    /** Synchronous write — uses commit() so the value is on disk before the
-     *  call returns. Use for emergency backup writes and migration steps. */
+    /** Synchronous write (commit()). Used where the caller needs the value on
+     *  disk before continuing (e.g. before a profile switch). */
     fun putSync(ctx: Context, key: String, value: String): Boolean = try {
         prefs(ctx).edit().putString(key, value).commit()
     } catch (e: Exception) {
@@ -76,26 +81,22 @@ object ProfileState {
         false
     }
 
+    /** Remove a per-profile key. */
     fun remove(ctx: Context, key: String) = try {
         prefs(ctx).edit().remove(key).apply()
     } catch (_: Exception) {}
 
-    fun has(ctx: Context, key: String): Boolean = try {
-        prefs(ctx).contains(key)
-    } catch (_: Exception) { false }
+    /** True if the key exists for the active profile. */
+    fun has(ctx: Context, key: String): Boolean = prefs(ctx).contains(key)
 
-    fun keys(ctx: Context): List<String> = try {
-        prefs(ctx).all.keys.toList()
-    } catch (_: Exception) { emptyList() }
+    /** All keys for the active profile. */
+    fun keys(ctx: Context): List<String> = prefs(ctx).all.keys.toList()
 
     /**
-     * New-user detection (BATCH-4B item 6) — a profile is "new" only if NONE of
-     * the strong signals are present:
-     *   - p4_onboarded (per-profile)
-     *   - p4_health_screened_at (per-profile)
-     *   - workout count > 0 (active profile Room workouts table)
-     *   - exercise record count > 0 (active profile Room exercises table)
-     *   - p4_first_launch (per-profile, set on first cold-start of this profile)
+     * New-user detection — a profile is "new" only if NONE of the strong signals
+     * are present: p4_onboarded, p4_health_screened_at, workout count > 0,
+     * exercise record count > 0, p4_first_launch. If ANY signal is set, treat
+     * the profile as existing. Never re-onboard someone with workout history.
      */
     fun isNewUser(ctx: Context): Boolean {
         if (get(ctx, K_ONBOARDED) == "true") return false
@@ -115,43 +116,66 @@ object ProfileState {
     }
 
     /**
-     * One-shot v18 migration: copy legacy global p4_onboarded / p4_health_* /
-     * workoutEmergencyBackup values from the global ProPrefs file into EVERY
-     * existing profile's `p4_ls_<id>` SharedPreferences, so existing users
-     * keep their onboarded / screened state and never see the wizard fire
-     * again after upgrade.
+     * One-shot v22 migration: copy legacy per-profile keys from the GLOBAL
+     * ProPrefs file (`p4_ls`) into each profile's DEDICATED per-profile file
+     * (`p4_ls_<profileId>`). Idempotent — gated on `p4_v22_migrated` in the
+     * global file.
      *
-     * Idempotent — gated on the global `p4_v18_migrated` flag. New profiles
-     * created after v18 do NOT inherit the legacy flag (they're genuinely new).
+     * Why: prior versions stored per-profile keys (onboarding, health, draft,
+     * emergency backup) in the global p4_ls file because there was no profile
+     * scoping. Profile switching would silently leak state across profiles.
+     * The v22 migration distributes each legacy key to its owning profile's
+     * dedicated file (the global default profile gets everything, since we
+     * can't tell which profile a legacy key belonged to; non-default profiles
+     * start fresh on their own files).
+     *
+     * Also forwards the legacy v18 migration marker — if v18 already ran (i.e.
+     * the meta table was populated and the global p4_v18_migrated flag is
+     * set), we copy that flag into the per-profile files so any code reading
+     * it from there sees the right value.
      */
     fun migrateFromPrefs(ctx: Context) {
-        if (ProPrefs.get(ctx, K_V18_MIGRATED) == "true") return
+        val global = ProPrefs.get(ctx)
+        if (global.getString(K_V22_MIGRATED, null) == "true") return
+
         val profiles = Profiles.list(ctx)
-        val legacyOnboarded = ProPrefs.get(ctx, K_ONBOARDED)
-        val legacyObDraft = ProPrefs.get(ctx, K_OB_DRAFT)
-        val legacyObFinishedAt = ProPrefs.get(ctx, K_OB_FINISHED_AT)
-        val legacyHealth = mapOf(
-            K_HEALTH_SCREENED to ProPrefs.get(ctx, K_HEALTH_SCREENED),
-            K_HEALTH_TIER to ProPrefs.get(ctx, K_HEALTH_TIER),
-            K_HEALTH_GENERAL to ProPrefs.get(ctx, K_HEALTH_GENERAL),
-            K_HEALTH_FOLLOWUP to ProPrefs.get(ctx, K_HEALTH_FOLLOWUP),
-            K_HEALTH_JOINTS to ProPrefs.get(ctx, K_HEALTH_JOINTS),
-            K_HEALTH_UNLOCKED to ProPrefs.get(ctx, K_HEALTH_UNLOCKED),
-            K_HEALTH_DECLARED to ProPrefs.get(ctx, K_HEALTH_DECLARED),
-            K_EMERGENCY_BACKUP to ProPrefs.get(ctx, K_EMERGENCY_BACKUP),
+        val legacyKeys = listOf(
+            K_ONBOARDED, K_OB_DRAFT, K_OB_FINISHED_AT,
+            K_HEALTH_SCREENED, K_HEALTH_TIER, K_HEALTH_GENERAL,
+            K_HEALTH_FOLLOWUP, K_HEALTH_JOINTS, K_HEALTH_UNLOCKED,
+            K_HEALTH_DECLARED, K_HEALTH_INTRO_SEEN, K_EMERGENCY_BACKUP,
+            K_FIRST_LAUNCH, K_V18_MIGRATED,
         )
-        for (p in profiles) {
-            val sp = prefsFor(ctx, p.id)
-            val ed = sp.edit()
-            if (legacyOnboarded != null && !sp.contains(K_ONBOARDED)) ed.putString(K_ONBOARDED, legacyOnboarded)
-            if (legacyObDraft != null && !sp.contains(K_OB_DRAFT)) ed.putString(K_OB_DRAFT, legacyObDraft)
-            if (legacyObFinishedAt != null && !sp.contains(K_OB_FINISHED_AT)) ed.putString(K_OB_FINISHED_AT, legacyObFinishedAt)
-            legacyHealth.forEach { (k, v) ->
-                if (v != null && !sp.contains(k)) ed.putString(k, v)
+
+        // Default profile inherits ALL legacy keys (the global file was the
+        // default profile's de-facto namespace before v22). Other profiles
+        // start fresh — their dedicated files are empty, and they will be
+        // populated naturally as the user interacts with them.
+        val defaultId = Profiles.defaultId(ctx)
+        val defaultPrefs = prefsFor(ctx, defaultId)
+        val defaultEdit = defaultPrefs.edit()
+        var defaultTouched = false
+        for (k in legacyKeys) {
+            val v = global.getString(k, null) ?: continue
+            if (!defaultPrefs.contains(k)) {
+                defaultEdit.putString(k, v)
+                defaultTouched = true
             }
-            ed.commit()
         }
-        ProPrefs.put(ctx, K_V18_MIGRATED, "true")
-        ProLog.i("MIGRATE", "v18 meta migration complete for ${profiles.size} profiles")
+        if (defaultTouched) defaultEdit.commit()
+
+        // Mark every other profile as v22-migrated in their own files so
+        // future code reading K_V22_MIGRATED from the per-profile file sees
+        // "true" (the migration has run for them).
+        for (p in profiles) {
+            if (p.id == defaultId) continue
+            val pp = prefsFor(ctx, p.id)
+            if (!pp.contains(K_V22_MIGRATED)) {
+                pp.edit().putString(K_V22_MIGRATED, "true").commit()
+            }
+        }
+
+        global.edit().putString(K_V22_MIGRATED, "true").commit()
+        ProLog.i("MIGRATE", "v22 per-profile prefs migration complete for ${profiles.size} profile(s)")
     }
 }

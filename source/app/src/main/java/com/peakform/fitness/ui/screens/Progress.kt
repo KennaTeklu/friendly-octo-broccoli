@@ -68,16 +68,7 @@ fun ProgressScreen(onOpenSection: (String) -> Unit, onRequireGenerate: (String) 
         Spacer(Modifier.height(4.dp))
         SectionTitle("fa-chart-line", "Progress Analytics")
 
-        // BATCH-10: radar moved to the top — the radar is the user's "at-a-glance"
-        // shape profile, so it earns the hero slot. The previous layout buried it
-        // behind the longevity circle and forecast; surfacing it first matches the
-        // reference HTML app's progress-section ordering.
-        GlassCard(padding = PaddingValues(16.dp)) {
-            SectionTitle("fa-bullseye", "11-Component Radar", Modifier)
-            ComponentRadarWithComparison(ver.intValue)
-        }
-
-        // hero: longevity circle + summary
+        // hero: longevity circle + radar
         GlassCard(padding = PaddingValues(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val color = when {
@@ -104,16 +95,6 @@ fun ProgressScreen(onOpenSection: (String) -> Unit, onRequireGenerate: (String) 
                 // BATCH-4C Gap 2: View Report button opens the full longevity report
                 P4Button("View Report", style = BtnStyle.SECONDARY, minHeight = 36, onClick = { showLongevityReport = true })
             }
-        }
-
-        // BATCH-10: Monthly summary card + trend arrows
-        GlassCard(padding = PaddingValues(16.dp)) {
-            SectionTitle("fa-calendar-days", "Monthly Summary", Modifier)
-            MonthlySummaryCard()
-        }
-        GlassCard(padding = PaddingValues(16.dp)) {
-            SectionTitle("fa-arrow-trend-up", "Trend Arrows", Modifier)
-            TrendArrowsCard()
         }
 
         // strength forecast (SBD)
@@ -171,9 +152,7 @@ fun ProgressScreen(onOpenSection: (String) -> Unit, onRequireGenerate: (String) 
             if (sub.isEmpty()) Text("Complete workouts to build your component profile.", style = ProType.small, color = c.text3)
         }
 
-        // SC1: 11-component radar — also available as a "with comparison"
-        // variant at the top of the screen. Keep the inline version too for
-        // users who scroll past the hero.
+        // SC1: 11-component radar
         GlassCard(padding = PaddingValues(16.dp)) {
             SectionTitle("fa-bullseye", "11-Component Radar", Modifier)
             ComponentRadar(ver.intValue)
@@ -717,123 +696,6 @@ fun MuscleSparklines(ver: Int = 0) {
             }
             Spacer(Modifier.width(8.dp))
             Text("${weeks.sum()} lbs", style = ProType.small, color = c.text, textAlign = TextAlign.End, modifier = Modifier.width(60.dp))
-        }
-    }
-}
-
-// ---------- BATCH-10 additions ----------
-
-/**
- * BATCH-10: radar with a side-by-side comparison overlay. The current
- * profile is the bright polygon; a faded "previous 4-week average" polygon
- * shows the trend so the user can see whether their shape is expanding
- * (improving) or contracting (regressing).
- */
-@Composable
-fun ComponentRadarWithComparison(ver: Int = 0) {
-    val c = LocalProColors.current
-    val current = remember(ver) {
-        val sub = Stats.calculateLongevityScore().sub
-        val keys = listOf(
-            "cardio_endurance", "strength", "mobility", "balance", "core_stability",
-            "power", "agility", "coordination", "flexibility", "muscular_endurance", "reaction_time",
-        )
-        keys.map { k -> (sub[k] ?: 40).toDouble().coerceIn(5.0, 100.0) }
-    }
-    // BATCH-10: comparison polygon — a slightly deflated version of the current
-    // values to represent the prior 4-week window. (A real prior-window would
-    // require a historical snapshot we don't store; we use 0.92× as a visual
-    // "previous" baseline so the comparison shape is always visible.)
-    val previous = remember(ver) { current.map { (it * 0.92).coerceIn(5.0, 100.0) } }
-    Canvas(Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(12.dp)).background(c.bg2)) {
-        val n = current.size
-        if (n < 3) return@Canvas
-        val cx = size.width / 2
-        val cy = size.height / 2
-        val r = min(size.width, size.height) / 2 * 0.78f
-        // grid rings
-        for (ring in 1..4) {
-            val rr = r * ring / 4
-            val path = Path()
-            for (i in 0..n) {
-                val ang = (2 * Math.PI * (i % n) / n) - Math.PI / 2
-                val x = cx + cos(ang).toFloat() * rr
-                val y = cy + sin(ang).toFloat() * rr
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            drawPath(path, c.hairline2, style = Stroke(width = 2f))
-        }
-        // previous polygon (faded)
-        val prevPath = Path()
-        for (i in 0..n) {
-            val idx = i % n
-            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
-            val v = (previous[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
-            val x = cx + cos(ang).toFloat() * r * v
-            val y = cy + sin(ang).toFloat() * r * v
-            if (i == 0) prevPath.moveTo(x, y) else prevPath.lineTo(x, y)
-        }
-        drawPath(prevPath, c.text3.copy(alpha = 0.32f), style = Stroke(width = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(8f, 6f))))
-        // current polygon (bright)
-        val dataPath = Path()
-        for (i in 0..n) {
-            val idx = i % n
-            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
-            val v = (current[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
-            val x = cx + cos(ang).toFloat() * r * v
-            val y = cy + sin(ang).toFloat() * r * v
-            if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
-        }
-        drawPath(dataPath, c.accent.copy(alpha = 0.22f))
-        drawPath(dataPath, c.accent, style = Stroke(width = 4f))
-    }
-    val labels = listOf("Cardio", "Strength", "Mobility", "Balance", "Core", "Power", "Agility", "Coordination", "Flexibility", "Endurance", "Reaction")
-    Text(labels.joinToString(" · "), style = ProType.small, color = c.text3, maxLines = 2)
-    Text("Solid = current · dashed = 4-week-ago baseline", style = ProType.small, color = c.text3, fontSize = 10.sp)
-}
-
-/** BATCH-10: monthly summary card — trailing 6 months. */
-@Composable
-fun MonthlySummaryCard() {
-    val c = LocalProColors.current
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val rows = remember { com.peakform.fitness.core.ProgressSummary.monthly(ctx) }
-    if (rows.isEmpty()) {
-        Text("Complete a few workouts to see your monthly trend.", style = ProType.small, color = c.text3)
-        return
-    }
-    rows.forEach { r ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(r.monthLabel, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
-            Text("${r.workouts} workouts", style = ProType.small, color = c.text3, modifier = Modifier.width(110.dp))
-            Text(Stats.formatNumber(r.volume) + " lbs", style = ProType.small, color = c.text, textAlign = TextAlign.End, modifier = Modifier.width(90.dp))
-            Spacer(Modifier.width(8.dp))
-            val arrow = when (r.trend) { "up" -> "↑"; "down" -> "↓"; else -> "→" }
-            val arrowColor = when (r.trend) { "up" -> c.ok; "down" -> c.bad; else -> c.text3 }
-            Text(arrow, style = ProType.label, color = arrowColor)
-        }
-    }
-}
-
-/** BATCH-10: trend arrows card — last 4 weeks vs prior 4 weeks. */
-@Composable
-fun TrendArrowsCard() {
-    val c = LocalProColors.current
-    val trends = remember { com.peakform.fitness.core.ProgressSummary.metricTrends() }
-    if (trends.isEmpty()) {
-        Text("Log a few sessions to populate the trends.", style = ProType.small, color = c.text3)
-        return
-    }
-    trends.forEach { t ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(t.label, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
-            Text(Stats.formatNumber(t.current), style = ProType.label, color = c.text)
-            Spacer(Modifier.width(8.dp))
-            Text(t.arrow, style = ProType.label, color = when (t.arrow) { "↑" -> c.ok; "↓" -> c.bad; else -> c.text3 })
-            Spacer(Modifier.width(6.dp))
-            val delta = t.delta
-            val deltaTxt = if (kotlin.math.abs(delta) < 0.5) "—" else String.format("%+.1f", delta)
-            Text(deltaTxt, style = ProType.small, color = c.text3)
         }
     }
 }

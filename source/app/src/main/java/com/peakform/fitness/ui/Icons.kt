@@ -29,11 +29,6 @@ import kotlinx.serialization.json.jsonPrimitive
  * FaIcon — renders FontAwesome 6 glyphs natively from the bundled FA TTFs.
  * Map: assets/data/fa_map.json (2408 entries) class → codepoint.
  * Prefix rules: fab→brands font, far→regular font, everything else solid.
- *
- * BATCH-5B: contentDescription is now wired to Modifier.semantics so screen
- * readers announce icons. Pass a non-null contentDescription for any icon
- * that conveys meaning on its own (chips, action buttons, status badges).
- * Pass null for purely decorative icons (paired with a visible text label).
  */
 object Fa {
     val map: Map<String, String> by lazy {
@@ -73,13 +68,16 @@ object Fa {
 @Composable
 fun FaIcon(cls: String, modifier: Modifier = Modifier, size: TextUnit = 16.sp, tint: Color = LocalProColors.current.text, contentDescription: String? = null) {
     val ch = remember(cls) { Fa.glyph(cls) }
-    // BATCH-5B: wire contentDescription to Modifier.semantics so screen readers
-    // announce the icon when one is supplied. Decorative icons (null) stay
-    // silent — the visible adjacent label is the announcement.
-    val semantics = if (contentDescription != null) {
-        Modifier.semantics { this.contentDescription = contentDescription }
-    } else Modifier
-    Box(modifier.then(semantics)) {
+    // BATCH-14: when contentDescription is provided, attach it to the
+    // semantics tree so TalkBack announces the icon. When null, the icon is
+    // decorative (a Text label nearby describes it) — leave semantics empty
+    // so TalkBack doesn't double-announce.
+    val semanticsModifier = if (contentDescription != null) {
+        modifier.then(Modifier.semantics { this.contentDescription = contentDescription })
+    } else {
+        modifier
+    }
+    Box(semanticsModifier) {
         if (ch != null) {
             Text(
                 text = ch,

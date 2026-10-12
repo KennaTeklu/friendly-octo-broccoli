@@ -221,9 +221,6 @@ class ProStore(private val ctx: Context) {
             // P4D-CRASH-04: atomic wipe via @Transaction-wrapped wipeAll().
             // Previously four independent clears with no transaction — a crash
             // or race between clearUser/clearSaved could leave a half-wiped DB.
-            // BATCH-11: prefer the @Transaction-wrapped variant on the DAO so a
-            // crash between steps cannot leave a half-wiped DB even if the
-            // suspend wrapper is cancelled mid-flight.
             db.dao().wipeAll()
         }
     }

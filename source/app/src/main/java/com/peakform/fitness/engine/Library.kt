@@ -233,25 +233,23 @@ object Library {
     fun customExercisesSnapshot(): List<LibraryExercise> = customExercises.toList()
 
     /**
-     * BATCH-5B: reset the library to its default state — drop all custom
-     * exercises the user added via Studio, clear the persisted custom store,
-     * and re-load the default groups. The default library (1,413 movements +
-     * bodyweight set) stays untouched.
+     * BATCH-11: reset the library browsing prefs to defaults — collapse all
+     * groups, streaming on, chunk 20, expand-all off, group-by muscle. Used
+     * by the Settings → Danger zone → "Reset Library" button so the user can
+     * recover from a stuck browsing state without resetting their history.
      *
-     * Used by Settings → Library management → Reset library (BATCH-8/14).
+     * Per-profile: writes through ProfileSettings (per-profile prefs file),
+     * so only the active profile's browsing state is reset.
      */
-    fun resetToDefault(ctx: Context) {
-        try {
-            customExercises.clear()
-            // Clear the persisted custom store so a cold start does not bring
-            // the user's removed exercises back.
-            ctx.deleteSharedPreferences("p4_custom_ex")
-            // Re-inject nothing — the in-memory library still holds the
-            // default groups loaded at ensure().
-            reinjectCustom(ctx)
-        } catch (e: Exception) {
-            com.peakform.fitness.ProLog.w("LIBRARY", "resetToDefault failed: ${e.message}")
-        }
+    fun resetToDefault(ctx: android.content.Context) {
+        val ps = com.peakform.fitness.core.ProfileSettings
+        ps.remove(ctx, ps.K_LIB_COLLAPSED)
+        ps.remove(ctx, ps.K_LIB_GROUP)
+        ps.remove(ctx, ps.K_LIB_CHUNK)
+        ps.remove(ctx, ps.K_LIB_STREAM)
+        ps.remove(ctx, ps.K_LIB_EXPAND_ALL)
+        ps.put(ctx, ps.K_LIB_RESET_AT, com.peakform.fitness.core.ProState.nowIso())
+        com.peakform.fitness.ProLog.i("LIB", "library prefs reset to defaults")
     }
 
     /**

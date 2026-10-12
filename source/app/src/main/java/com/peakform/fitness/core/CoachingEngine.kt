@@ -1,109 +1,100 @@
 package com.peakform.fitness.core
 
 import android.content.Context
-import com.peakform.fitness.ProLog
-import com.peakform.fitness.engine.Stats
 
 /**
- * CoachingEngine — BATCH-8 coach-led recommendation layer.
+ * CoachingEngine — BATCH-14: a thin, profile-scoped engine that turns the
+ * user's last session feel + 1RM cache into a next-session prescription hint.
  *
- * Pulls from Stats (longevity score, recovery report, strength forecast) and
- * the user's history to produce a short list of coach-style recommendations
- * the UI surfaces in the new coach-led flow (Dashboard cards, Workout
- * context block, ReferenceGaps panel). All logic is offline — no network,
- * no analytics.
+ * Scope: this engine does NOT replace Generator. It runs alongside it and
+ * surfaces a "coach's note" the workout screen can show above the first
+ * exercise — e.g. "Last session felt hard (RPE 9). Pull back ~10% volume."
  *
- * The engine does not mutate state — it only reads ProState.data + Stats
- * and returns immutable Recommendation rows. The UI decides what to do with
- * them (route to 1RM Lab, suggest a deload, etc.).
+ * Storage: every read/write routes through ProfileSettings (per-profile
+ * SharedPreferences). Switching profiles gives the engine a fresh slate —
+ * no cross-profile leakage.
+ *
+ * Tuning knobs: K_TUNING_VOLUME / K_TUNING_INTENSITY / K_TUNING_FREQUENCY
+ * (ProfileSettings) — the user can manually nudge the coach ±20% via the
+ * TuningSheet (BATCH-15).
  */
 object CoachingEngine {
 
-    data class Recommendation(
-        val id: String,
-        val title: String,
-        val detail: String,
-        val icon: String,
-        val action: String,        // section route key (e.g. "onerm_audit")
-        val urgency: String,        // "info" | "warn" | "bad"
+    data class CoachNote(
+        val headline: String,
+        val body: String,
+        val tone: String, // "ease" | "push" | "hold" | "neutral"
     )
 
-    /** Compute the current coach recommendation stack (BATCH-8). */
-    fun evaluate(ctx: Context): List<Recommendation> {
-        val out = mutableListOf<Recommendation>()
-        try {
-            val longevity = Stats.calculateLongevityScore()
-            val recovery = Stats.recoveryReport()
-            val forecast = Stats.strengthForecast()
-            val exercises = ProState.data.exercises
+    /** Compose a note for the active profile based on last feel + tuning. */
+    fun noteFor(ctx: Context): CoachNote {
+        val lastFeel = ProfileSettings.get(ctx, ProfileSettings.K_LAST_FEEL)?.toIntOrNull()
+        val lastRpe = ProfileSettings.get(ctx, ProfileSettings.K_LAST_RPE)?.toIntOrNull()
+        val volTune = tuningVolume(ctx)
+        val intTune = tuningIntensity(ctx)
 
-            // 1) 1RM audit: any calibrated lift stale >6 weeks?
-            if (Nudges.retestDue(exercises, System.currentTimeMillis())) {
-                out += Recommendation(
-                    id = "retest_due",
-                    title = "Re-test a 1RM",
-                    detail = "One or more calibrated lifts are 6+ weeks old. A fresh test keeps the prescription engine honest.",
-                    icon = "fa-gauge-high",
-                    action = "onerm_audit",
-                    urgency = "warn",
-                )
-            }
-
-            // 2) Recovery: very low → deload; very high → push.
-            when {
-                recovery.overall < 50 -> out += Recommendation(
-                    id = "deload",
-                    title = "Plan a deload week",
-                    detail = "Systemic readiness is ${recovery.overall}%. A deload this week protects progress.",
-                    icon = "fa-leaf",
-                    action = "recovery",
-                    urgency = "bad",
-                )
-                recovery.overall >= 85 -> out += Recommendation(
-                    id = "push",
-                    title = "Push a heavy session",
-                    detail = "Readiness ${recovery.overall}% — a great window to test a PR or heavy double.",
-                    icon = "fa-bolt",
-                    action = "workout",
-                    urgency = "info",
-                )
-            }
-
-            // 3) Longevity gaps: pull the lowest sub-scores.
-            longevity.sub.entries.sortedBy { it.value }.take(2).forEach { (k, v) ->
-                if (v < 50.0) {
-                    out += Recommendation(
-                        id = "longevity_gap_$k",
-                        title = "Train $k",
-                        detail = "Your ${k.replace('_', ' ')} score is ${v.toInt()}/100. A focused session this week lifts the longevity total.",
-                        icon = "fa-heart-pulse",
-                        action = "recovery",
-                        urgency = "info",
-                    )
-                }
-            }
-
-            // 4) Forecast: top-3 lifts — surface the weakest of S/B/D if it lags.
-            val sbd = forecast.associate { it.lift to it.est1RM }
-            val squat = sbd["squat"]; val bench = sbd["bench_press"]; val deadlift = sbd["deadlift"]
-            if (squat != null && bench != null && deadlift != null) {
-                val min = minOf(squat, bench, deadlift)
-                val max = maxOf(squat, bench, deadlift)
-                if (max > 0 && (max - min) / max > 0.20) {
-                    val weakest = when (min) { squat -> "squat"; bench -> "bench_press"; else -> "deadlift" }
-                    out += Recommendation(
-                        id = "weak_lift_$weakest",
-                        title = "Bring up $weakest",
-                        detail = "Your $weakest est. 1RM (${min.toInt()} lbs) is >20% behind your strongest lift. Cycle in a focused block.",
-                        icon = "fa-dumbbell",
-                        action = "workout",
-                        urgency = "info",
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            ProLog.w("COACH", "evaluate failed: ${e.message}")
+        // If no recent feel data, return a neutral nudge.
+        if (lastFeel == null && lastRpe == null) {
+            return CoachNote(
+                headline = "Coach's note",
+                body = "Log a session and rate your feel — future sessions will tune to your fatigue.",
+                tone = "neutral",
+            )
         }
-        return out
+
+        // Combine RPE and feel on a 0..10 scale.
+        val load = listOfNotNull(lastRpe, lastFeel).average()
+        val tone = when {
+            load >= 9.0 -> "ease"
+            load >= 7.5 -> "hold"
+            load <= 5.0 -> "push"
+            else -> "neutral"
+        }
+        val volDelta = when (tone) {
+            "ease" -> -10 * (volTune.coerceIn(0.8, 1.2))
+            "push" -> +5 * (volTune.coerceIn(0.8, 1.2))
+            else -> 0.0
+        }
+        val intDelta = when (tone) {
+            "ease" -> -5 * (intTune.coerceIn(0.8, 1.2))
+            "push" -> +2.5 * (intTune.coerceIn(0.8, 1.2))
+            else -> 0.0
+        }
+        val body = when (tone) {
+            "ease" -> "Last session felt hard (load ${"%.1f".format(load)}). Pull back volume ${"%.0f".format(volDelta)}% and intensity ${"%.0f".format(intDelta)}%."
+            "push" -> "Last session felt easy (load ${"%.1f".format(load)}). Nudge volume +${"%.0f".format(volDelta)}% if you're fresh."
+            "hold" -> "Steady — last session load ${"%.1f".format(load)} was right in the sweet spot. Hold the plan."
+            else -> "Load ${"%.1f".format(load)} — neutral signal. Trust the program."
+        }
+        return CoachNote(
+            headline = "Coach's note — $tone",
+            body = body,
+            tone = tone,
+        )
+    }
+
+    /** Tuning factor (1.0 = neutral). Range 0.8..1.2 (±20%). */
+    fun tuningVolume(ctx: Context): Double =
+        ProfileSettings.get(ctx, ProfileSettings.K_TUNING_VOLUME)?.toDoubleOrNull()?.coerceIn(0.8, 1.2) ?: 1.0
+
+    fun tuningIntensity(ctx: Context): Double =
+        ProfileSettings.get(ctx, ProfileSettings.K_TUNING_INTENSITY)?.toDoubleOrNull()?.coerceIn(0.8, 1.2) ?: 1.0
+
+    fun tuningFrequency(ctx: Context): Double =
+        ProfileSettings.get(ctx, ProfileSettings.K_TUNING_FREQUENCY)?.toDoubleOrNull()?.coerceIn(0.8, 1.2) ?: 1.0
+
+    fun setTuningVolume(ctx: Context, v: Double) =
+        ProfileSettings.put(ctx, ProfileSettings.K_TUNING_VOLUME, v.toString())
+
+    fun setTuningIntensity(ctx: Context, v: Double) =
+        ProfileSettings.put(ctx, ProfileSettings.K_TUNING_INTENSITY, v.toString())
+
+    fun setTuningFrequency(ctx: Context, v: Double) =
+        ProfileSettings.put(ctx, ProfileSettings.K_TUNING_FREQUENCY, v.toString())
+
+    /** Capture the post-session feel (0..10). Called by PostSessionFeelSheet. */
+    fun recordFeel(ctx: Context, feel: Int, rpe: Int?) {
+        ProfileSettings.put(ctx, ProfileSettings.K_LAST_FEEL, feel.coerceIn(0, 10).toString())
+        if (rpe != null) ProfileSettings.put(ctx, ProfileSettings.K_LAST_RPE, rpe.coerceIn(0, 10).toString())
     }
 }

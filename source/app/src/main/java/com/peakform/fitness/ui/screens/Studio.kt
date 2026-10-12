@@ -53,7 +53,7 @@ fun StudioScreen(onOpenSection: (String) -> Unit) {
                 StudioTile("fa-file-export", "Export library", "Custom + customised defaults as JSON") {
                     scope.launch {
                         val json = Studio.exportLibrary(ctx)
-                        ProfileSettings.put(ctx, ProfileSettings.K_STUDIO_EXPORT, json)
+                        ProPrefs.put(ctx, "p4_studio_export", json)
                         toast = "Library exported (${json.length} bytes) — see Settings → Data & backup to save it"
                     }
                 }

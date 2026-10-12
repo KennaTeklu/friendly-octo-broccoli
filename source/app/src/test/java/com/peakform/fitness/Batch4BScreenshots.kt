@@ -155,9 +155,8 @@ class Batch4BScreenshots {
     fun themeAccentAfterRestart() {
         // Simulate a cold start: persist, then reload ThemeController from prefs
         // and re-snapshot. Demonstrates the accent survives a restart.
-        // BATCH-5B: theme now lives in per-profile SharedPreferences.
         ThemeController.set("dark", "orange", ctx)
-        ThemeController.reload(ctx)
+        ThemeController.load(com.peakform.fitness.core.ProPrefs.get(ctx, "p4_theme"))
         snap("batch4b-02-theme-accent-after-restart") {
             CardHost("Appearance", "fa-palette") { AppearanceCardBody(noop) }
         }

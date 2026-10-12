@@ -21,7 +21,6 @@ import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.LibraryExercise
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProfileSettings
-import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.core.ProJson
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -70,7 +69,8 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         "component" to "Component",
     )
     val initialGroupBy = remember {
-        val prefKey = ProfileSettings.get(ctx, ProfileSettings.K_LIB_GROUP) ?: "muscleGroup"
+        // BATCH-11: route through ProfileSettings (per-profile prefs file).
+        val prefKey = com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_LIB_GROUP) ?: "muscleGroup"
         val idx = groupings.indexOfFirst { it.first == prefKey }
         if (idx >= 0) idx else 0
     }
@@ -79,26 +79,30 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     var wikiFor by remember { mutableStateOf<String?>(null) }
     var componentFilter by remember { mutableStateOf<String?>(null) }
 
-    // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806).
-    // BATCH-4C Gap 1: honor p4_lib_expand_all pref — when "true", start with all
-    // groups EXPANDED (empty collapsed set) instead of the default all-collapsed.
+    // BATCH-11: persisted collapse state via ProfileSettings. Default = all
+    // collapsed (matches the HTML's first-load experience for power users who
+    // want to expand only the muscles they're working on). The user can flip
+    // this default with the "Expand All" smart button.
+    val ps = com.peakform.fitness.core.ProfileSettings
     var collapsedGroups by remember(Library.groups) {
-        val expandAllPref = ProfileSettings.get(ctx, ProfileSettings.K_LIB_EXPAND_ALL) == "true"
-        // BATCH-5B: default to all-collapsed (empty expandAll pref) so the
-        // Library loads fast on large databases. "Expand-all" pref flips this
-        // to empty-set (everything expanded).
+        val expandAllPref = ps.get(ctx, ps.K_LIB_EXPAND_ALL) == "true"
         val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
         mutableStateOf(
             try {
-                ProfileSettings.get(ctx, ProfileSettings.K_LIBRARY_COLLAPSED)?.let {
+                ps.get(ctx, ps.K_LIB_COLLAPSED)?.let {
                     ProJson.json.decodeFromString(ListSerializer(String.serializer()), it).toSet()
                 } ?: defaultSet
             } catch (_: Exception) { defaultSet }
         )
     }
     fun persistCollapse() {
-        ProfileSettings.put(ctx, ProfileSettings.K_LIBRARY_COLLAPSED,
+        ps.put(ctx, ps.K_LIB_COLLAPSED,
             ProJson.json.encodeToString(ListSerializer(String.serializer()), collapsedGroups.toList()))
+    }
+    fun changeGroupBy(idx: Int) {
+        groupBy = idx
+        // BATCH-11: persist the new group-by so the next cold start respects it.
+        ps.put(ctx, ps.K_LIB_GROUP, groupings[idx].first)
     }
 
     val mode = ProState.data.user.settings.trainingMode
@@ -165,15 +169,15 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         }
     }
 
-    // BATCH-4C Gap 1: honor p4_lib_chunk + p4_lib_stream prefs.
+    // BATCH-11: honor p4_lib_chunk + p4_lib_stream prefs (per-profile).
     // When streaming is ON (default), cap each group at the chunk size (default 20)
     // so the Library loads fast on large databases. When streaming is OFF, show all
     // (200 / 60 legacy caps). Search always bumps to 200 to avoid hiding matches.
     val cap = run {
         if (search.isNotBlank()) return@run 200
-        val streamingOn = ProfileSettings.get(ctx, ProfileSettings.K_LIB_STREAM) != "false"
+        val streamingOn = ps.get(ctx, ps.K_LIB_STREAM) != "false"
         if (streamingOn) {
-            ProfileSettings.get(ctx, ProfileSettings.K_LIB_CHUNK)?.toIntOrNull()?.coerceIn(10, 60) ?: 20
+            ps.get(ctx, ps.K_LIB_CHUNK)?.toIntOrNull()?.coerceIn(10, 60) ?: 20
         } else {
             60
         }
@@ -210,7 +214,7 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(if (active) c.accentSoft else c.surface2)
                                     .border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
-                                    .clickable { groupBy = idx }
+                                    .clickable { changeGroupBy(idx) }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center,
                             ) {

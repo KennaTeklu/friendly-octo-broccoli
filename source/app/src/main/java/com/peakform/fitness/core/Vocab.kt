@@ -78,10 +78,10 @@ object Vocab {
         return ladders[key] != asset
     }
 
-    fun currentLevel(ctx: Context): Int = ProfileSettings.get(ctx, ProfileSettings.K_VOCAB)?.toIntOrNull()?.coerceIn(1, 10) ?: 5
+    fun currentLevel(ctx: Context): Int = ProPrefs.get(ctx, PREF_KEY)?.toIntOrNull()?.coerceIn(1, 10) ?: 5
 
     fun setLevel(ctx: Context, level: Int) {
-        ProfileSettings.put(ctx, ProfileSettings.K_VOCAB, level.coerceIn(1, 10).toString())
+        ProPrefs.put(ctx, PREF_KEY, level.coerceIn(1, 10).toString())
     }
 
     /** Legacy invariant: L5 always equals the authored default (no-op level). */

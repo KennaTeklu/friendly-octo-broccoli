@@ -14,25 +14,36 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.peakform.fitness.core.OneRmLab
 import com.peakform.fitness.core.ProState
+import com.peakform.fitness.engine.Library
 import com.peakform.fitness.engine.OneRm
-import com.peakform.fitness.engine.Stats
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
 
 /**
- * OneRMAuditScreen — BATCH-8 audit view for the 1RM calibration state.
+ * OneRMAuditScreen — BATCH-15.
  *
- * Lists every exercise record with a tested1RM, est.1RM (mu), and the test
- * age (weeks since testDate). The user can re-test or clear a stale 1RM.
+ * Surfaces a per-exercise audit of every 1RM the active profile has on file:
+ *   - Tested 1RM (from a real 1RM test session)
+ *   - Estimated 1RM (μ from the ERF model)
+ *   - Last performed weight × reps
+ *   - Staleness: weeks since the last test (re-test nudge ≥ 6 weeks)
+ *   - Confidence (σ² → low / medium / high)
  *
- * Opened from Settings → Library management → 1RM Audit and from the
- * Workout screen's "1RM REQUIRED" hint.
+ * Plus two action buttons:
+ *   - "Reset 1RM cache" — clears every exercise's tested1RM / mu / sigma2 so
+ *     the engine starts fresh. History is preserved.
+ *   - "Open 1RM Lab" — deep-link to the OneRmLabScreen for formula experiments.
  */
 @Composable
-fun OneRMAuditScreen(onOpenSection: (String) -> Unit) {
+fun OneRMAuditScreen(
+    onClose: () -> Unit,
+    onOpenSection: (String) -> Unit,
+) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
     val ver = remember { mutableIntStateOf(0) }
@@ -41,24 +52,13 @@ fun OneRMAuditScreen(onOpenSection: (String) -> Unit) {
         synchronized(ProState.listeners) { ProState.listeners.add(l) }
         onDispose { synchronized(ProState.listeners) { ProState.listeners.remove(l) } }
     }
-    val _tick = ver.intValue
+    var toast by remember { mutableStateOf<String?>(null) }
+    var resetConfirm by remember { mutableStateOf(false) }
 
-    val rows = remember(ver.intValue) {
+    val exercises = remember(ver.intValue) {
         ProState.data.exercises.entries
-            .filter { it.value.tested1RM != null || it.value.mu != null }
-            .map { (id, rec) ->
-                AuditRow(
-                    id = id,
-                    name = id.replace('_', ' ').replaceFirstChar { it.uppercase() },
-                    tested = rec.tested1RM,
-                    est = rec.mu,
-                    testDate = rec.testDate,
-                    weeksOld = rec.testDate?.let { d ->
-                        ((System.currentTimeMillis() - ProState.utcDayMillis(d)) / (7L * 86400000)).toInt()
-                    } ?: -1,
-                )
-            }
-            .sortedByDescending { it.weeksOld }
+            .filter { it.value.tested1RM != null || it.value.mu != null || it.value.history.isNotEmpty() }
+            .sortedByDescending { it.value.tested1RM ?: it.value.mu ?: 0.0 }
     }
 
     Column(
@@ -66,79 +66,99 @@ fun OneRMAuditScreen(onOpenSection: (String) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Spacer(Modifier.height(4.dp))
-        SectionTitle("fa-magnifying-glass-chart", "1RM Audit")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FaIcon("fa-magnifying-glass-chart", size = 17.sp, tint = c.accent)
+            Spacer(Modifier.width(8.dp))
+            SectionTitle("fa-magnifying-glass-chart", "1RM Audit")
+        }
         Text(
-            "Every calibrated lift and Est. 1RM on file. Lifts older than 6 weeks are flagged for re-test.",
+            "Every 1RM on file for this profile — tested, estimated, last performed, and how stale each one is.",
             style = ProType.small, color = c.text3,
         )
-        if (rows.isEmpty()) {
-            EmptyState(
-                icon = "fa-gauge-high",
-                title = "No 1RM records yet",
-                message = "Run a 1RM test on a compound lift (Squat, Bench, Deadlift, Press, Row) to populate the audit.",
-            )
+
+        // summary tile
+        GlassCard(padding = PaddingValues(14.dp)) {
+            val testedCount = exercises.count { it.value.tested1RM != null }
+            val estCount = exercises.count { it.value.mu != null && it.value.tested1RM == null }
+            val staleCount = exercises.count { OneRmLab.weeksSinceTest(it.value.testDate) >= 6 }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatCard("$testedCount", "Tested", modifier = Modifier.weight(1f))
+                StatCard("$estCount", "Estimated", modifier = Modifier.weight(1f))
+                StatCard("$staleCount", "Stale ≥6w", modifier = Modifier.weight(1f))
+            }
         }
-        rows.forEach { row ->
-            val stale = row.weeksOld >= 6
-            val borderColor = when {
-                stale -> c.warn
-                row.tested != null -> c.ok
-                else -> c.accent
+
+        // exercise audit rows
+        if (exercises.isEmpty()) {
+            EmptyState("fa-dumbbell", "No 1RM data yet", "Generate a workout and log a session — your 1RMs will appear here.")
+        } else {
+            exercises.forEach { (id, rec) ->
+                val name = Library.getExerciseById(id)?.name ?: id
+                val tested = rec.tested1RM
+                val est = rec.mu
+                val lastEntry = rec.history.lastOrNull { !it.skipped }
+                val weeks = OneRmLab.weeksSinceTest(rec.testDate)
+                val confidence = OneRmLab.confidenceLabel(rec.sigma2)
+                val stale = weeks >= 6
+                GlassCard(padding = PaddingValues(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(name, style = ProType.label, color = c.text)
+                            if (tested != null) {
+                                Text("🏆 Tested: ${tested.toInt()} lbs", style = ProType.small, color = c.ok)
+                            }
+                            if (est != null && tested == null) {
+                                Text("Est. 1RM: ${est.toInt()} lbs", style = ProType.small, color = c.accent)
+                            }
+                            if (lastEntry != null) {
+                                Text("Last: ${lastEntry.weight.toInt()} × ${lastEntry.sets}", style = ProType.small, color = c.text3)
+                            }
+                            Text("Confidence: $confidence", style = ProType.small, color = c.text3)
+                        }
+                        if (stale) {
+                            Box(
+                                Modifier.clip(RoundedCornerShape(999.dp))
+                                    .background(c.warn.copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                            ) {
+                                Text("Re-test ($weeks w)", fontSize = 10.sp, color = c.warn, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
             }
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surface)
-                    .border(1.dp, borderColor, RoundedCornerShape(14.dp)).padding(14.dp),
+        }
+
+        // action buttons
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            P4Button("Open 1RM Lab", icon = "fa-flask", style = BtnStyle.SECONDARY, modifier = Modifier.weight(1f)) {
+                onOpenSection("1rm_lab")
+            }
+            P4Button(
+                if (resetConfirm) "Confirm reset?" else "Reset 1RM cache",
+                icon = "fa-rotate-left",
+                style = BtnStyle.DANGER,
+                modifier = Modifier.weight(1f),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(row.name, style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
-                    if (stale) {
-                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.warn.copy(alpha = 0.16f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
-                            Text("STALE ${row.weeksOld}w", color = c.warn, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    } else if (row.tested != null) {
-                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.ok.copy(alpha = 0.16f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
-                            Text("TESTED", color = c.ok, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AuditStat("Tested 1RM", if (row.tested != null) "${row.tested.toInt()} lbs" else "—", c.ok)
-                    AuditStat("Est. 1RM", if (row.est != null) "${row.est.toInt()} lbs" else "—", c.accent)
-                    AuditStat("Last test", if (row.weeksOld >= 0) "${row.weeksOld}w ago" else "—", c.text3)
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    P4Button("Open Lab", icon = "fa-flask", style = BtnStyle.INFO, modifier = Modifier.weight(1f), minHeight = 36) {
-                        onOpenSection("onerm_lab")
-                    }
-                    P4Button("Clear", icon = "fa-eraser", style = BtnStyle.GHOST, modifier = Modifier.weight(1f), minHeight = 36) {
-                        val rec = ProState.data.exercises[row.id] ?: return@P4Button
-                        val cleared = rec.copy(tested1RM = null, testDate = null)
-                        ProState.data = ProState.data.copy(exercises = ProState.data.exercises + (row.id to cleared))
-                        ProState.saveWorkoutData()
-                        ProState.notifyChanged()
-                    }
+                if (!resetConfirm) {
+                    resetConfirm = true
+                } else {
+                    OneRmLab.resetCache(ctx)
+                    toast = "1RM cache cleared — history preserved"
+                    resetConfirm = false
+                    ProState.notifyChanged()
                 }
             }
+        }
+        P4Button("Back", icon = "fa-arrow-left", style = BtnStyle.GHOST, modifier = Modifier.fillMaxWidth()) {
+            onClose()
+        }
+
+        toast?.let { t ->
+            LaunchedEffect(t) { kotlinx.coroutines.delay(2400); toast = null }
+            ToastBanner(t)
         }
         Spacer(Modifier.height(120.dp))
-    }
-}
-
-private data class AuditRow(
-    val id: String, val name: String,
-    val tested: Double?, val est: Double?,
-    val testDate: String?, val weeksOld: Int,
-)
-
-@Composable
-private fun AuditStat(label: String, value: String, color: androidx.compose.ui.graphics.Color) {
-    val c = LocalProColors.current
-    Box(Modifier.clip(RoundedCornerShape(10.dp)).background(c.surface2).padding(horizontal = 10.dp, vertical = 6.dp)) {
-        Column {
-            Text(label, fontSize = 9.sp, color = c.text3)
-            Text(value, style = ProType.label, color = color)
-        }
     }
 }

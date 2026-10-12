@@ -4,67 +4,75 @@ import android.content.Context
 import com.peakform.fitness.ProLog
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import java.io.File
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
- * BackupSystem — BATCH-12 scheduled backup + safety snapshot facility.
+ * BackupSystem — BATCH-18.
  *
- * The legacy app exported backups only on explicit user action; BATCH-12
- * adds a periodic safety snapshot to local files (filesDir/backups/) so a
- * crashed or accidentally reset device keeps the last 5 sessions recoverable.
+ * Profile-scoped backup: exports the active profile's prefs file
+ * (p4_ls_<profileId>) AS-IS into a JSON bundle the user can save anywhere
+ * via the system file picker, and restores it back into the active profile's
+ * prefs file. The legacy Backup.kt already handles workouts/exercises/user
+ * bundles; this file adds the per-profile prefs file as a separate export
+ * so the user can move their preferences between devices without touching
+ * the workout data.
  *
- * Snapshots are written as Format-A JSON to filesDir/backups/safety-N.json
- * (rolling N=1..5). The user can restore from Settings → Data & backup →
- * Snapshots (existing SnapshotsScreen already handles UI).
- *
- * This object owns the file-roll logic; the actual export shape comes from
- * Backup.exportFormatA() so the bundle is byte-compatible with the manual
- * export path.
+ * Storage: reads/writes through ProfileState.prefs(ctx) (the active profile's
+ * SharedPreferences file). No global prefs are touched.
  */
 object BackupSystem {
-    private const val MAX_SAFETY = 5
-    private const val DIR_NAME = "backups"
 
-    private fun dir(ctx: Context): File = File(ctx.filesDir, DIR_NAME).apply { mkdirs() }
+    data class PrefsBundle(
+        val profileId: String,
+        val exportedAt: String,
+        val keys: Map<String, String>,
+        val version: Int = 1,
+    )
 
-    /** Take a safety snapshot to the rolling file set. Returns the file path or null. */
-    fun takeSafetySnapshot(ctx: Context): String? = try {
-        val payload = Backup.exportFormatA(ctx, "safety snapshot")
-        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-        val file = File(dir(ctx), "safety-$stamp.json")
-        file.writeText(ProJson.pretty.encodeToString(JsonObject.serializer(), payload))
-        // roll: keep only the newest MAX_SAFETY
-        dir(ctx).listFiles()?.toList()?.sortedByDescending { it.lastModified() }?.drop(MAX_SAFETY)?.forEach { it.delete() }
-        ProLog.i("BACKUP", "safety snapshot written: ${file.name}")
-        file.absolutePath
-    } catch (e: Exception) {
-        ProLog.w("BACKUP", "safety snapshot failed: ${e.message}")
-        null
+    /** Export the active profile's prefs file as a JSON bundle string. */
+    fun export(ctx: Context): String {
+        val profileId = Profiles.activeId(ctx)
+        val sp = ProfileState.prefs(ctx)
+        val keys = sp.all.mapValues { it.value?.toString() ?: "" }
+        val bundle = PrefsBundle(profileId, ProState.nowIso(), keys)
+        val obj = buildJsonObject {
+            put("profileId", bundle.profileId)
+            put("exportedAt", bundle.exportedAt)
+            put("version", bundle.version)
+            put("keys", buildJsonObject {
+                keys.forEach { (k, v) -> put(k, v) }
+            })
+        }
+        return ProJson.json.encodeToString(JsonObject.serializer(), obj)
     }
 
-    /** List the safety snapshots available for restore (newest first). */
-    fun safetySnapshots(ctx: Context): List<File> = try {
-        dir(ctx).listFiles()?.toList()?.sortedByDescending { it.lastModified() } ?: emptyList()
-    } catch (_: Exception) { emptyList() }
-
-    /** Restore a safety snapshot file back into ProState via Backup.import(). */
-    suspend fun restore(ctx: Context, file: File): Boolean = try {
-        val raw = file.readText()
-        Backup.import(ctx, raw)
-        true
-    } catch (e: Exception) {
-        ProLog.w("BACKUP", "restore failed: ${e.message}")
-        false
-    }
-
-    /** Periodic trigger: take a snapshot every N completed workouts (BATCH-12). */
-    fun maybeAutoSnapshot(ctx: Context) {
-        val completed = ProState.data.workouts.count { it.isCompleted }
-        if (completed in 1..9999 && completed % 5 == 0) {
-            takeSafetySnapshot(ctx)
+    /** Restore a JSON bundle string into the active profile's prefs file.
+     *  Returns true on success. */
+    fun restore(ctx: Context, raw: String): Boolean {
+        return try {
+            val obj = ProJson.json.decodeFromString(JsonObject.serializer(), raw)
+            val keysObj = obj["keys"] as? JsonObject ?: return false
+            val sp = ProfileState.prefs(ctx)
+            val edit = sp.edit()
+            keysObj.forEach { (k, v) ->
+                val s = (v as? JsonPrimitive)?.content ?: v.toString()
+                edit.putString(k, s)
+            }
+            edit.commit()
+            ProLog.i("BACKUP", "restored ${keysObj.size} keys into ${ProfileState.prefsName(Profiles.activeId(ctx))}")
+            true
+        } catch (e: Exception) {
+            ProLog.e("BACKUP", "restore failed: ${e.message}")
+            false
         }
     }
+
+    /** ISO timestamp helper for the bundle. */
+    fun nowIso(): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        .apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
 }

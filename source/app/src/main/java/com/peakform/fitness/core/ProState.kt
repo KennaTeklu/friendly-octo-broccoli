@@ -64,24 +64,9 @@ object ProState {
     val listeners = mutableListOf<() -> Unit>()
 
     fun init(context: Context) {
-        val appCtx = context.applicationContext
-        // Idempotent for the same context (production cold-start). When the
-        // applicationContext reference changes (e.g. Robolectric hands each test
-        // method a fresh app instance with its own temp dir), close the old
-        // store's DB handle and re-init with the new context — otherwise the
-        // cached store would keep writing to the previous test's dataDir and
-        // dbFileExists() against the new context would never see the file.
-        if (store != null && ctx === appCtx) return
-        if (store != null) {
-            val pending = saveJobs.toList()
-            if (pending.isNotEmpty()) flush()
-            store?.let { ProDb.close(it.dbName) }
-        }
-        ctx = appCtx
+        if (store != null) return
+        ctx = context.applicationContext
         activeProfileId = Profiles.activeId(context)
-        data = WorkoutData()
-        currentWorkout = null
-        initialized = false
         store = ProStore(context)
     }
 
@@ -231,11 +216,7 @@ object ProState {
             val s = store ?: return@launch
             val d = data
             s.saveAggregate(d, null)
-            // BATCH-5B: the workoutData legacy mirror key is now per-profile
-            // (ProfileSettings.K_WORKOUT_DATA) so a save in profile A does not
-            // leave a stale global mirror key that profile B would read on cold
-            // start. The active profile id is read fresh from ProPrefs every call.
-            ctx?.let { c -> ProfileSettings.put(c, ProfileSettings.K_WORKOUT_DATA, ProJson.encode(WorkoutData.serializer(), d)) }
+            ProPrefs.put(ctx!!, "workoutData", ProJson.encode(WorkoutData.serializer(), d)) // legacy mirror key
         }
         saveJob = trackSave(job)
     }

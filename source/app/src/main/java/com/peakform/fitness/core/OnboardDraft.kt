@@ -62,10 +62,8 @@ data class OnboardDraft(
                 gender = gender,
             ))
             ProState.saveWorkoutData()
-            // theme + vocab
-            // BATCH-5B: theme is now write-through — ThemeController.set()
-            // writes the in-memory state AND the per-profile SharedPreferences
-            // in the same call. No need to write p4_theme again here.
+            // theme + vocab (BATCH-12: ThemeController.set() persists atomically
+            // — no separate ProPrefs.put needed here).
             ThemeController.set(mode, accentId, ctx)
             Vocab.setLevel(ctx, level)
             // consents recorded in one action (L56559–56563)

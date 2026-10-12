@@ -2,8 +2,6 @@ package com.peakform.fitness.core
 
 import android.content.Context
 import com.peakform.fitness.ProLog
-import com.peakform.fitness.ui.ThemeController
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import java.io.File
@@ -14,15 +12,7 @@ import java.util.UUID
  * Each profile owns a Room namespace: the legacy "pro.db" file stays the
  * default profile's store (additive migration — existing users keep everything),
  * other profiles get pro_<id>.db. Switching is live: flush → reopen store →
- * loadAll → reload theme → notify (no restart).
- *
- * BATCH-5B: switchTo() now also reloads ThemeController from the new profile's
- *   per-profile SharedPreferences so theme switches with the profile.
- * BATCH-11: delete() picks the new active profile only from the set whose Room
- *   DB file exists on disk — switching to a "phantom" profile (registry entry
- *   with no DB) crashed the app on cold start. switchTo() now refuses to switch
- *   to a profile whose DB file is missing, returning the active profile name
- *   unchanged.
+ * loadAll → notify (no restart).
  *
  * BATCH-4B item 4: "default" is no longer always the hardcoded `DEFAULT` ID —
  * the user can promote any profile to be the cold-start profile via
@@ -152,26 +142,31 @@ object Profiles {
         val (profiles, _, ask) = ProfileRegistry.read(ctx)
         val remaining = profiles.filter { it.id != profileId }
         val wasActive = activeId(ctx) == profileId
-        // BATCH-11: flush the active store BEFORE closing the DB handle, so any
-        // in-flight save coroutines finish writing instead of being orphaned
-        // mid-write (P4D-CRASH-01/03 race window).
-        if (wasActive) ProState.flush()
-        // BATCH-11: pick the new active profile ONLY from profiles whose Room
-        // DB file actually exists on disk. Switching to a "phantom" profile
-        // (registry entry with no DB) crashed the app on cold start because
-        // loadAll() read empty tables and there was no path back.
+        // BATCH-5A: pick a new active whose DB actually exists on disk.
+        // If the active profile is being deleted, fall back to the default if
+        // its DB exists, else the first remaining profile whose DB exists,
+        // else DEFAULT (will be created lazily on next open).
         val newActive = if (wasActive) {
-            remaining.firstOrNull { p -> dbFileExists(ctx, p.id) }?.id ?: DEFAULT
-        } else {
-            activeId(ctx)
-        }
+            remaining.firstOrNull { p ->
+                try { ctx.getDatabasePath(dbNameFor(ctx, p.id)).exists() } catch (_: Exception) { false }
+            }?.id ?: DEFAULT
+        } else activeId(ctx)
         ProfileRegistry.write(ctx, remaining, newActive, ask)
-        if (wasActive) ProPrefs.put(ctx, ACTIVE_KEY, newActive)
-        // P4D-CRASH-04: close the DB handle BEFORE unlinking the file.
-        // BATCH-11: also flush a second time after close in case the active
-        // profile was the deleted one and the new active needs its store
-        // opened. reopenStore + loadAll below bring the in-memory state in
-        // sync with the new active profile.
+        if (wasActive) {
+            // BATCH-5A: flush BEFORE close so any in-flight save completes.
+            // The new active's store will be opened by reopenStore() below.
+            if (newActive != profileId) {
+                ProState.flush()
+                ProPrefs.put(ctx, ACTIVE_KEY, newActive)
+                ProState.reopenStore(ctx)
+                kotlinx.coroutines.runBlocking { ProState.loadAll() }
+                com.peakform.fitness.ui.ThemeController.reload(ctx)
+                com.peakform.fitness.ui.ThemeController.resolveDark(ctx)
+                ProfileState.stampFirstLaunch(ctx)
+                ProState.notifyChanged()
+            }
+        }
+        // P4D-CRASH-04 + BATCH-5A: close the DB handle BEFORE unlinking the file.
         try {
             val dbName = dbNameFor(ctx, profileId)
             ProDb.close(dbName)
@@ -180,23 +175,8 @@ object Profiles {
             File(dbFile.path + "-wal").delete()
             File(dbFile.path + "-shm").delete()
         } catch (_: Exception) {}
-        if (wasActive) {
-            // reopen the new active profile's store, load its data, reload theme
-            // from its per-profile SharedPreferences, and notify listeners.
-            ProState.reopenStore(ctx)
-            kotlinx.coroutines.runBlocking(Dispatchers.IO) { ProState.loadAll() }
-            ThemeController.reload(ctx)
-            ProfileState.stampFirstLaunch(ctx)
-            ProState.notifyChanged()
-        }
-        ProLog.i("PROFILE", "deleted $profileId; new active=$newActive")
+        ProLog.i("PROFILE", "deleted $profileId")
     }
-
-    /** BATCH-11: returns true if the profile's Room DB file exists on disk. */
-    fun dbFileExists(ctx: Context, profileId: String): Boolean = try {
-        val dbName = dbNameFor(ctx, profileId)
-        ctx.getDatabasePath(dbName).exists()
-    } catch (_: Exception) { false }
 
     fun setActive(ctx: Context, profileId: String) {
         ProPrefs.put(ctx, ACTIVE_KEY, profileId)
@@ -207,31 +187,33 @@ object Profiles {
 
     /**
      * Live switch: returns the display name for the toast.
-     * BATCH-5B: reloads ThemeController from the new profile's per-profile
-     *   SharedPreferences so a theme change in profile A does not bleed into
-     *   profile B (write-through + reload contract).
-     * BATCH-11: refuses to switch to a profile whose Room DB file is missing —
-     *   returns the current profile name unchanged and logs the refusal so the
-     *   user is never stranded on a profile they cannot open.
+     * BATCH-4B item 3 + BATCH-5A: after the switch, callers should land on Dashboard.
+     *
+     * Sequence (all on Dispatchers.IO via runBlocking so callers off the main
+     * thread get a synchronous switch):
+     *   1. flush()         — drain every in-flight save so the old profile's DB
+     *                        is not written to after close.
+     *   2. setActive()     — write p4_active_profile.
+     *   3. reopenStore()   — drop the old handle, open the new profile's DB.
+     *   4. loadAll()       — hydrate from the new DB.
+     *   5. ThemeController.reload()   — re-read theme prefs (per-profile story
+     *                                   reserved for a future batch; today theme
+     *                                   lives in the global file).
+     *   6. resolveDark()   — refresh the dark flag for the (possibly new) mode.
+     *   7. stampFirstLaunch() — idempotent per-profile timestamp.
+     *   8. notifyChanged() — drive recomposition.
      */
     fun switchTo(ctx: Context, profileId: String): String {
-        if (profileId == activeId(ctx)) return list(ctx).firstOrNull { it.id == profileId }?.name ?: profileId
-        if (!dbFileExists(ctx, profileId)) {
-            ProLog.w("PROFILE", "switchTo refused — $profileId DB missing; staying on ${activeId(ctx)}")
-            return list(ctx).firstOrNull { it.id == activeId(ctx) }?.name ?: activeId(ctx)
-        }
-        kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
             ProState.flush()
             setActive(ctx, profileId)
             ProState.reopenStore(ctx)
             ProState.loadAll()
+            com.peakform.fitness.ui.ThemeController.reload(ctx)
+            com.peakform.fitness.ui.ThemeController.resolveDark(ctx)
+            ProfileState.stampFirstLaunch(ctx)
+            ProState.notifyChanged()
         }
-        // BATCH-5B: reload the theme from the new active profile's SharedPreferences.
-        ThemeController.reload(ctx)
-        // BATCH-4B item 6: stamp the (possibly new) profile's first-launch
-        // timestamp as part of the multi-signal new-user detection.
-        ProfileState.stampFirstLaunch(ctx)
-        ProState.notifyChanged()
         val p = list(ctx).firstOrNull { it.id == profileId }
         return p?.name ?: profileId
     }

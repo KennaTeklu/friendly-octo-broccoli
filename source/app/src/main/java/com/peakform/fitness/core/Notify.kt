@@ -53,16 +53,20 @@ object Notify {
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     /** Legacy per-toast "Don't show today" suppression (L45782–45800).
-     *  BATCH-5B: routed through ProfileSettings (per-profile SharedPreferences). */
-    fun suppressedToday(ctx: Context, key: String): Boolean =
-        ProfileSettings.notifSuppressedToday(ctx, key)
-
-    fun suppressToday(ctx: Context, key: String) {
-        ProfileSettings.suppressNotifToday(ctx, key)
+     *  BATCH-12: routed through ProfileSettings so suppression is per-profile —
+     *  profile A's "don't show today" doesn't leak to profile B. */
+    fun suppressedToday(ctx: Context, key: String): Boolean {
+        val stamp = ProfileSettings.get(ctx, "p4_notif_suppressed_$key")
+        return stamp != null && stamp == ProState.todayLocal()
     }
 
+    fun suppressToday(ctx: Context, key: String) {
+        ProfileSettings.put(ctx, "p4_notif_suppressed_$key", ProState.todayLocal())
+    }
+
+    /** Per-profile notification toggle. */
     private fun toggleEnabled(ctx: Context, key: String): Boolean =
-        ProfileSettings.getNotif(ctx, key, defaultOn = true)
+        ProfileSettings.getNotif(ctx, key)
 
     fun notify(ctx: Context, key: String, title: String, body: String) {
         if (!toggleEnabled(ctx, key) || suppressedToday(ctx, key) || !hasPermission(ctx)) return
@@ -131,9 +135,9 @@ object Notify {
                     "Your cycle says your period is expected in $expectedIn day(s).")
             }
         }
-        // backup nudge every 5 workouts (L41182) — BATCH-5B: per-profile p4_last_backup.
+        // backup nudge every 5 workouts (L41182)
         val completed = d.workouts.count { it.isCompleted }
-        if (completed in 1..9999 && completed % 5 == 0 && ProfileSettings.get(ctx, ProfileSettings.K_LAST_BACKUP) == null) {
+        if (completed in 1..9999 && completed % 5 == 0 && ProPrefs.get(ctx, "p4_last_backup") == null) {
             notify(ctx, "backup_nudge", "Backup your data",
                 "🎉 You've completed $completed workouts! Backup your data?")
         }

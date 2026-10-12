@@ -4,86 +4,94 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.peakform.fitness.core.ProState
+import com.peakform.fitness.core.CoachingEngine
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
 
 /**
- * TuningSheet — BATCH-9 inline tuning panel for the Workout screen.
+ * TuningSheet — BATCH-15.
  *
- * Surfaced via the "tuning gear" icon on each exercise card, this panel lets
- * the user nudge the prescription (sets / reps / weight / rest) for the
- * current session only. The values are not persisted back to the 1RM model
- * (that path goes through the 1RM Lab) — they only adjust the displayed
- * prescription for this workout.
+ * Three sliders (Volume, Intensity, Frequency) that nudge the active profile's
+ * coach ±20%. Persists via ProfileSettings (per-profile). The next workout
+ * generation will multiply the program's targets by these factors.
  *
- * Caller is responsible for the actual mutate of `ProState.currentWorkout`.
- * This composable returns the proposed values via onApply; the caller decides
- * whether to commit them.
+ * The sheet is a Composable; the host decides whether to render it inside a
+ * ModalBottomSheet or inline.
  */
 @Composable
 fun TuningSheet(
-    initialSets: Int,
-    initialReps: Int,
-    initialWeight: Double,
-    initialRest: Int,
-    onApply: (sets: Int, reps: Int, weight: Double, rest: Int) -> Unit,
+    visible: Boolean,
     onDismiss: () -> Unit,
 ) {
+    if (!visible) return
     val c = LocalProColors.current
-    var sets by remember { mutableIntStateOf(initialSets) }
-    var reps by remember { mutableIntStateOf(initialReps) }
-    var weight by remember { mutableStateOf(initialWeight) }
-    var rest by remember { mutableIntStateOf(initialRest) }
+    val ctx = LocalContext.current
+    var vol by remember { mutableFloatStateOf(CoachingEngine.tuningVolume(ctx).toFloat()) }
+    var intensity by remember { mutableFloatStateOf(CoachingEngine.tuningIntensity(ctx).toFloat()) }
+    var freq by remember { mutableFloatStateOf(CoachingEngine.tuningFrequency(ctx).toFloat()) }
 
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.glass2)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .background(c.glass2)
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Tune prescription", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
-            Text("Close", style = ProType.small, color = c.accent, modifier = Modifier.clickable { onDismiss() })
+            Text("Coach tuning", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
+            FaIcon("fa-xmark", size = 16.sp, tint = c.text2, modifier = Modifier.clickable { onDismiss() })
         }
-        Text("Adjust this session only — the 1RM model is not modified.", style = ProType.small, color = c.text3)
-
-        LabeledStepper("Sets", sets, 1..8) { sets = it }
-        LabeledStepper("Reps", reps, 1..20) { reps = it }
-        Text("Weight (lbs): ${weight.toInt()}", style = ProType.small, color = c.text2)
-        Slider(value = weight.toFloat(), onValueChange = { weight = it.toDouble() }, valueRange = 0f..500f)
-        Text("Rest (s): $rest", style = ProType.small, color = c.text2)
-        Slider(value = rest.toFloat(), onValueChange = { rest = it.toInt() }, valueRange = 30f..300f, steps = 8)
-
-        P4Button("Apply", icon = "fa-check", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth(), minHeight = 42) {
-            onApply(sets, reps, weight, rest)
-            onDismiss()
+        Text("Nudge the coach ±20% on volume, intensity, and frequency. Per-profile — switching profiles resets to defaults.", style = ProType.small, color = c.text3)
+        TuningSlider("Volume", vol) {
+            vol = it
+            CoachingEngine.setTuningVolume(ctx, it.toDouble())
+        }
+        TuningSlider("Intensity", intensity) {
+            intensity = it
+            CoachingEngine.setTuningIntensity(ctx, it.toDouble())
+        }
+        TuningSlider("Frequency", freq) {
+            freq = it
+            CoachingEngine.setTuningFrequency(ctx, it.toDouble())
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            P4Button("Reset", icon = "fa-rotate-left", style = BtnStyle.GHOST, modifier = Modifier.weight(1f)) {
+                vol = 1.0f; intensity = 1.0f; freq = 1.0f
+                CoachingEngine.setTuningVolume(ctx, 1.0)
+                CoachingEngine.setTuningIntensity(ctx, 1.0)
+                CoachingEngine.setTuningFrequency(ctx, 1.0)
+            }
+            P4Button("Done", style = BtnStyle.PRIMARY, modifier = Modifier.weight(1f)) { onDismiss() }
         }
     }
 }
 
 @Composable
-private fun LabeledStepper(label: String, value: Int, range: IntRange, onValueChange: (Int) -> Unit) {
+private fun TuningSlider(label: String, value: Float, onChange: (Float) -> Unit) {
     val c = LocalProColors.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            P4Button("−", style = BtnStyle.GHOST, minHeight = 32) { if (value > range.first) onValueChange(value - 1) }
-            Box(Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(c.surface2), contentAlignment = Alignment.Center) {
-                Text("$value", style = ProType.label, color = c.text)
-            }
-            P4Button("+", style = BtnStyle.GHOST, minHeight = 32) { if (value < range.last) onValueChange(value + 1) }
+    val pct = ((value - 1.0f) * 100f).toInt()
+    val pctLabel = if (pct >= 0) "+$pct%" else "$pct%"
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
+            Text(pctLabel, style = ProType.label, color = if (pct >= 0) c.ok else c.warn, fontWeight = FontWeight.Bold)
         }
+        androidx.compose.material3.Slider(
+            value = value,
+            onValueChange = { onChange(it) },
+            valueRange = 0.8f..1.2f,
+            steps = 7, // 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2
+        )
     }
 }
