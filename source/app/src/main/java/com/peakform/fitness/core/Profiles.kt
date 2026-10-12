@@ -85,6 +85,9 @@ object Profiles {
      * table. Returns "" if the profile has no user row or the name is blank.
      * Opens the profile's Room DB directly so the call works for any profile,
      * not just the active one.
+     *
+     * P4D-CRASH-02 (W3): uses ProDb.withDb() so the DB handle cannot be closed
+     * by a concurrent close() between the get and the first DAO call.
      */
     fun liveNameFor(ctx: Context, profileId: String): String = try {
         ProDb.withDb(ctx, dbNameFor(ctx, profileId)) { dao ->
@@ -134,7 +137,10 @@ object Profiles {
     }
 
     fun delete(ctx: Context, profileId: String) {
-        if (profileId == DEFAULT) return
+        if (profileId == DEFAULT) return // the default namespace is never deletable
+        // BATCH-4B item 4: the currently-configured default profile is also
+        // delete-protected — the user must promote another profile to default
+        // before this one can be removed.
         if (profileId == defaultId(ctx)) {
             ProLog.w("PROFILE", "delete blocked — $profileId is the default; reassign default first")
             return
@@ -142,22 +148,14 @@ object Profiles {
         val (profiles, _, ask) = ProfileRegistry.read(ctx)
         val remaining = profiles.filter { it.id != profileId }
         val wasActive = activeId(ctx) == profileId
-        // BATCH-5A: pick a new active whose DB actually exists (not just the
-        // first remaining profile, which may have been created but never opened).
-        val newActive = if (wasActive) {
-            remaining.firstOrNull { p ->
-                runCatching { ctx.getDatabasePath(dbNameFor(ctx, p.id)) }.getOrNull()?.exists() == true
-            }?.id ?: DEFAULT
-        } else activeId(ctx)
+        val newActive = if (wasActive) (remaining.firstOrNull()?.id ?: DEFAULT) else activeId(ctx)
         ProfileRegistry.write(ctx, remaining, newActive, ask)
         if (wasActive) ProPrefs.put(ctx, ACTIVE_KEY, newActive)
-        // BATCH-5A: flush the active store BEFORE closing — the in-flight save
-        // coroutines must finish so the deleted profile's pending writes land
-        // before the handle is dropped.
-        if (wasActive) {
-            try { ProState.flush() } catch (_: Exception) {}
-        }
         // P4D-CRASH-04: close the DB handle BEFORE unlinking the file.
+        // Previously the file was deleted while SQLite still had it open —
+        // on some kernels this leaves a stale WAL/journal that corrupts the
+        // next open of a DB at the same path, and on all kernels it races
+        // any in-flight write that holds the file handle.
         try {
             val dbName = dbNameFor(ctx, profileId)
             ProDb.close(dbName)
@@ -166,16 +164,6 @@ object Profiles {
             File(dbFile.path + "-wal").delete()
             File(dbFile.path + "-shm").delete()
         } catch (_: Exception) {}
-        // BATCH-5A: drop the cached SharedPrefs instance for the deleted profile.
-        ProfileState.invalidate(profileId)
-        // BATCH-5A: reopen + loadAll + theme reload for the new active.
-        if (wasActive) {
-            ProState.reopenStore(ctx)
-            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) { ProState.loadAll() }
-            com.peakform.fitness.ui.ThemeController.reload(ctx)
-            ProfileState.stampFirstLaunch(ctx)
-            ProState.notifyChanged()
-        }
         ProLog.i("PROFILE", "deleted $profileId")
     }
 
@@ -188,28 +176,19 @@ object Profiles {
 
     /**
      * Live switch: returns the display name for the toast.
-     * BATCH-5A: flush → reopen → loadAll → ThemeController.reload →
-     * resolveDark → stampFirstLaunch → notifyChanged, all on Dispatchers.IO
-     * via runBlocking so the switch is atomic from the caller's POV.
      * BATCH-4B item 3: after the switch, callers should land on Dashboard.
+     * The state-notify flow drives the recomposition so the change is visible
+     * without a restart — see `ProfilesScreen` for the navigation call.
      */
     fun switchTo(ctx: Context, profileId: String): String {
-        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-            ProState.flush()
-            setActive(ctx, profileId)
-            // BATCH-5A: drop the cached SharedPrefs instance for the OLD profile
-            // so the new profile's prefs are loaded fresh on the next access.
-            ProfileState.invalidate(profileId)
-            ProState.reopenStore(ctx)
-            ProState.loadAll()
-            // BATCH-6: reload theme (mode + accent + dynamic) + resolve system dark.
-            com.peakform.fitness.ui.ThemeController.reload(ctx)
-            com.peakform.fitness.ui.ThemeController.resolveDark(ctx)
-            // BATCH-4B item 6: stamp the (possibly new) profile's first-launch
-            // timestamp as part of the multi-signal new-user detection.
-            ProfileState.stampFirstLaunch(ctx)
-            ProState.notifyChanged()
-        }
+        ProState.flush()
+        setActive(ctx, profileId)
+        ProState.reopenStore(ctx)
+        kotlinx.coroutines.runBlocking { ProState.loadAll() }
+        // BATCH-4B item 6: stamp the (possibly new) profile's first-launch
+        // timestamp as part of the multi-signal new-user detection.
+        ProfileState.stampFirstLaunch(ctx)
+        ProState.notifyChanged()
         val p = list(ctx).firstOrNull { it.id == profileId }
         return p?.name ?: profileId
     }

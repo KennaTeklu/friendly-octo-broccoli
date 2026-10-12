@@ -226,10 +226,6 @@ object Library {
         } + customExercises
     }
 
-    /** BATCH-15: find an exercise by id across gym + bodyweight + custom. */
-    fun findExercise(id: String): LibraryExercise? =
-        allLibraryExercises("mixed").firstOrNull { it.id == id }
-
     fun addCustomExercise(ex: LibraryExercise) {
         if (customExercises.none { it.id == ex.id }) customExercises.add(ex)
     }
@@ -264,31 +260,6 @@ object Library {
             ProLog.i("LIBRARY", "custom exercises reinjected: ${arr.size}")
         } catch (e: Exception) {
             ProLog.e("LIBRARY", "reinjectCustom failed: ${e.message}")
-        }
-    }
-
-    /**
-     * BATCH-11: Reset the library to the bundled default state — clear all
-     * per-profile library prefs (group-by, chunk size, expand-all, stream,
-     * collapsed groups, custom exercises) and reload from assets.
-     *
-     * The reset is per-profile: only the active profile's prefs are cleared.
-     * Custom exercises are wiped via the Studio.CUST_KEY per-profile pref.
-     */
-    fun resetToDefault(ctx: Context) {
-        try {
-            com.peakform.fitness.core.ProfileSettings.remove(ctx, com.peakform.fitness.core.ProfileSettings.LIB_GROUP)
-            com.peakform.fitness.core.ProfileSettings.remove(ctx, com.peakform.fitness.core.ProfileSettings.LIB_CHUNK)
-            com.peakform.fitness.core.ProfileSettings.remove(ctx, com.peakform.fitness.core.ProfileSettings.LIB_EXPAND_ALL)
-            com.peakform.fitness.core.ProfileSettings.remove(ctx, com.peakform.fitness.core.ProfileSettings.LIB_STREAM)
-            com.peakform.fitness.core.ProfileSettings.remove(ctx, com.peakform.fitness.core.ProfileSettings.LIB_COLLAPSED)
-            com.peakform.fitness.core.ProfileSettings.remove(ctx, com.peakform.fitness.core.ProfileSettings.CUSTOM_EX)
-            // Reload the library from assets so any in-memory custom exercises
-            // added by reinjectCustom() are dropped.
-            ensure(ctx)
-            ProLog.i("LIBRARY", "library reset to default for profile ${com.peakform.fitness.core.Profiles.activeId(ctx)}")
-        } catch (e: Exception) {
-            ProLog.e("LIBRARY", "resetToDefault failed: ${e.message}")
         }
     }
 

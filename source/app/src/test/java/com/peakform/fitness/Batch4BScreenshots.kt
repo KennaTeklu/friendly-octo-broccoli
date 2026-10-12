@@ -25,6 +25,7 @@ import com.peakform.fitness.ui.screens.HealthScreenFlow
 import com.peakform.fitness.ui.screens.OnboardingWizard
 import com.peakform.fitness.ui.screens.PersonalCardBody
 import com.peakform.fitness.ui.screens.ProfilesScreen
+import com.peakform.fitness.ui.screens.ThemePickerCardBody
 import com.peakform.fitness.ui.screens.SettingsGroupCard
 import org.junit.Before
 import org.junit.Test
@@ -144,10 +145,11 @@ class Batch4BScreenshots {
 
     @Test
     fun themePickerAccentApplied() {
-        // P4E-UI-01: Theme picker card deleted; test now uses Change theme card.
+        // Apply a non-default accent and capture the picker — the whole-app
+        // re-color is captured by the same ProTheme wrap above.
         ThemeController.set("dark", "green", ctx)
         snap("batch4b-01-theme-picker-accent") {
-            CardHost("Change theme", "fa-palette") { AppearanceCardBody(noop) }
+            CardHost("Theme picker", "fa-palette") { ThemePickerCardBody(noop) }
         }
     }
 

@@ -1,46 +1,39 @@
 package com.peakform.fitness.core
 
 import android.content.Context
-import android.content.SharedPreferences
 import com.peakform.fitness.ProLog
+import kotlinx.coroutines.runBlocking
 
 /**
- * ProfileState — per-profile SharedPreferences ("p4_ls_<profileId>").
+ * ProfileState — per-profile state lives in the active profile's Room `meta` table.
  *
- * BATCH-5A structural change: previously per-profile state lived in the active
- * profile's Room `meta` table. The meta-table approach required a DB open +
- * a synchronized DAO call for every boot-time read, which blocked the main
- * thread on cold start. SharedPreferences gives us O(1) reads with no DB
- * round-trip and is the same persistent KV store pattern used by the legacy
- * HTML app's per-profile localStorage shim.
+ * BATCH-4B items 2, 6, 7, 8: previously, onboarding flags, draft, health-screen
+ * state, and first-launch timestamps were stored in the global `ProPrefs`
+ * (SharedPreferences "p4_ls") — meaning every profile shared one onboarded /
+ * health-screened flag, so a brand-new profile looked "existing" and skipped
+ * the wizard, and a single profile's health answers leaked across switches.
  *
- * Storage boundary (BATCH-5A):
- *   PER-PROFILE  (this file, "p4_ls_<profileId>" SharedPrefs): onboarding flag,
- *                 onboarding draft, onboarding finished_at, first-launch
- *                 timestamp, health-screen state (screened_at / tier /
- *                 general / followup / joints / unlocked_at / declared),
- *                 health-intro-seen, emergency backup, training preferences,
- *                 notifications, vocabulary level, language, library prefs,
- *                 streak recovery, competition date.
- *   GLOBAL       ("p4_ls" SharedPrefs, ProPrefs): theme mode + accent,
- *                 Material You flag, active profile id, default profile id,
- *                 device id, consent log (legal record), app id.
+ * Storage boundary (BATCH-4B item 2):
+ *   PER-PROFILE  (this file, meta table): onboarding flag, onboarding draft,
+ *                 onboarding finished_at, first-launch timestamp, health-screen
+ *                 state (screened_at / tier / general / followup / joints /
+ *                 unlocked_at / declared), health-intro-seen, emergency draft
+ *                 backup, vault snapshots, training preferences.
+ *   GLOBAL       (ProPrefs, not here):   theme mode+accent, Material You flag,
+ *                 gym mode, language, vocab level, active profile id, default
+ *                 profile id, device id, consent log (legal record).
  *
- * Key naming: all per-profile keys keep the legacy `p4_*` / `workoutEmergencyBackup`
- * / `lastStreakRecoverAt` names so Complete-Backup-v1 bundles round-trip and
- * downgrading does not lose data.
+ * New-user detection (BATCH-4B item 6) — a profile is "new" if NONE of:
+ *   p4_onboarded, p4_health_screened_at, workout_count > 0,
+ *   exercise_count > 0, p4_first_launch are present.
  *
- * New-user detection (BATCH-4B item 6, retained): a profile is "new" only if
- * NONE of: p4_onboarded, p4_health_screened_at, workout_count > 0,
- * exercise_count > 0, p4_first_launch are present.
- *
- * Migration (one-shot, BATCH-5A): on first v22 cold start, every profile in
- * the registry inherits the legacy global p4_onboarded / p4_health_* /
- * workoutEmergencyBackup values from ProPrefs so existing users keep their
- * "already onboarded" state. Idempotent — gated on `p4_v22_migrated` (global).
+ * Migration (one-shot): on first v18 cold start, every profile in the registry
+ * inherits the legacy global p4_onboarded / p4_health_* values from ProPrefs so
+ * existing users keep their "already onboarded" state and never see the wizard
+ * fire again. The migration is idempotent and gated on `p4_v18_migrated`.
  */
 object ProfileState {
-    // ---- per-profile key constants (SharedPrefs "p4_ls_<profileId>") ----
+    // Per-profile keys (Room `meta` table, active profile namespace)
     const val K_ONBOARDED = "p4_onboarded"
     const val K_OB_DRAFT = "p4_ob_draft"
     const val K_OB_FINISHED_AT = "p4_ob_finished_at"
@@ -54,64 +47,31 @@ object ProfileState {
     const val K_HEALTH_DECLARED = "p4_health_declared"
     const val K_HEALTH_INTRO_SEEN = "p4_health_intro_seen"
     const val K_EMERGENCY_BACKUP = "workoutEmergencyBackup"
-    const val K_V22_MIGRATED = "p4_v22_migrated"
-
-    // Legacy v18 migration flag — kept for idempotent re-runs of older code paths.
     const val K_V18_MIGRATED = "p4_v18_migrated"
 
-    /** Per-profile SharedPrefs file name: "p4_ls_<profileId>".
-     *  Default profile uses "p4_ls_default" so a fresh install lines up with
-     *  the global ProPrefs file "p4_ls" only for the global keys — never mixed. */
-    fun prefsName(profileId: String): String = "p4_ls_${profileId.ifBlank { Profiles.DEFAULT }}"
+    private fun dao(ctx: Context): ProDao = ProStore(ctx).db.dao()
 
-    /** Cached SharedPreferences instances per profile id. */
-    private val instances = java.util.Collections.synchronizedMap(mutableMapOf<String, SharedPreferences>())
+    fun get(ctx: Context, key: String, default: String? = null): String? = try {
+        dao(ctx).metaSync(key) ?: default
+    } catch (_: Exception) { default }
 
-    /** Return the SharedPreferences for the ACTIVE profile. */
-    fun prefsFor(ctx: Context, profileId: String? = null): SharedPreferences {
-        val pid = profileId ?: Profiles.activeId(ctx)
-        val name = prefsName(pid)
-        return instances.getOrPut(name) {
-            ctx.applicationContext.getSharedPreferences(name, Context.MODE_PRIVATE)
-        }
-    }
-
-    /** Drop the cached instance for a profile — used on switch / delete. */
-    fun invalidate(profileId: String) {
-        synchronized(instances) { instances.remove(prefsName(profileId)) }
-    }
-
-    /** Read a value from the active profile's SharedPrefs. */
-    fun get(ctx: Context, key: String, default: String? = null): String? =
-        try { prefsFor(ctx).getString(key, default) } catch (_: Exception) { default }
-
-    /** Write a value to the active profile's SharedPrefs (async apply). */
     fun put(ctx: Context, key: String, value: String) = try {
-        prefsFor(ctx).edit().putString(key, value).apply()
+        dao(ctx).putMetaSync(MetaRow(key, value))
     } catch (e: Exception) { ProLog.w("PROFILESTATE", "put $key failed: ${e.message}") }
 
-    /** Write a value synchronously (commit) — used by the flush-before-close path. */
-    fun putSync(ctx: Context, key: String, value: String) = try {
-        prefsFor(ctx).edit().putString(key, value).commit()
-    } catch (e: Exception) { ProLog.w("PROFILESTATE", "putSync $key failed: ${e.message}") }
-
-    /** Remove a key from the active profile's SharedPrefs. */
     fun remove(ctx: Context, key: String) = try {
-        prefsFor(ctx).edit().remove(key).apply()
+        dao(ctx).deleteMetaSync(listOf(key))
     } catch (_: Exception) {}
 
-    /** True if the key exists in the active profile's SharedPrefs. */
-    fun has(ctx: Context, key: String): Boolean = prefsFor(ctx).contains(key)
+    fun has(ctx: Context, key: String): Boolean = get(ctx, key) != null
 
-    /** All keys in the active profile's SharedPrefs. */
     fun keys(ctx: Context): List<String> = try {
-        prefsFor(ctx).all.keys.toList()
+        dao(ctx).metaKeysSync()
     } catch (_: Exception) { emptyList() }
 
     /**
-     * New-user detection (BATCH-4B item 6, retained).
-     *
-     * Returns true ONLY when none of the strong signals are present:
+     * New-user detection (BATCH-4B item 6) — a profile is "new" only if NONE of
+     * the strong signals are present:
      *   - p4_onboarded (per-profile)
      *   - p4_health_screened_at (per-profile)
      *   - workout count > 0 (active profile Room workouts table)
@@ -119,6 +79,9 @@ object ProfileState {
      *   - p4_first_launch (per-profile, set on first cold-start of this profile)
      *
      * Combination rule: if ANY signal is set, treat the profile as existing.
+     * A user who wiped their workouts but kept their onboarding flag is still
+     * existing. A user with only workouts but no flag (rare migration case) is
+     * also existing — never re-onboard someone with workout history.
      */
     fun isNewUser(ctx: Context): Boolean {
         if (get(ctx, K_ONBOARDED) == "true") return false
@@ -138,23 +101,22 @@ object ProfileState {
     }
 
     /**
-     * One-shot v22 migration: copy legacy global p4_onboarded / p4_health_* /
-     * workoutEmergencyBackup values from the global ProPrefs ("p4_ls") into
-     * EVERY existing profile's per-profile SharedPrefs ("p4_ls_<profileId>")
-     * so existing users keep their onboarded / screened state and never see
-     * the wizard fire again after upgrade.
+     * One-shot v18 migration: copy legacy global p4_onboarded / p4_health_* /
+     * workoutEmergencyBackup values from ProPrefs into EVERY existing profile's
+     * Room `meta` table, so existing users keep their onboarded / screened
+     * state and never see the wizard fire again after upgrade.
      *
-     * Idempotent — gated on the global `p4_v22_migrated` flag (stored in
-     * ProPrefs so it is global). New profiles created after v22 do NOT inherit
-     * the legacy flag (they're genuinely new).
+     * Idempotent — gated on the global `p4_v18_migrated` flag. New profiles
+     * created after v18 do NOT inherit the legacy flag (they're genuinely new),
+     * because the migration only touches profiles that exist in the registry
+     * at the moment it runs.
      */
     fun migrateFromPrefs(ctx: Context) {
-        if (ProPrefs.get(ctx, K_V22_MIGRATED) == "true") return
+        if (ProPrefs.get(ctx, K_V18_MIGRATED) == "true") return
         val profiles = Profiles.list(ctx)
         val legacyOnboarded = ProPrefs.get(ctx, K_ONBOARDED)
         val legacyObDraft = ProPrefs.get(ctx, K_OB_DRAFT)
         val legacyObFinishedAt = ProPrefs.get(ctx, K_OB_FINISHED_AT)
-        val legacyFirstLaunch = ProPrefs.get(ctx, K_FIRST_LAUNCH)
         val legacyHealth = mapOf(
             K_HEALTH_SCREENED to ProPrefs.get(ctx, K_HEALTH_SCREENED),
             K_HEALTH_TIER to ProPrefs.get(ctx, K_HEALTH_TIER),
@@ -163,23 +125,32 @@ object ProfileState {
             K_HEALTH_JOINTS to ProPrefs.get(ctx, K_HEALTH_JOINTS),
             K_HEALTH_UNLOCKED to ProPrefs.get(ctx, K_HEALTH_UNLOCKED),
             K_HEALTH_DECLARED to ProPrefs.get(ctx, K_HEALTH_DECLARED),
-            K_HEALTH_INTRO_SEEN to ProPrefs.get(ctx, K_HEALTH_INTRO_SEEN),
             K_EMERGENCY_BACKUP to ProPrefs.get(ctx, K_EMERGENCY_BACKUP),
         )
         for (p in profiles) {
-            val sp = ctx.applicationContext.getSharedPreferences(prefsName(p.id), Context.MODE_PRIVATE)
-            val ed = sp.edit()
-            if (legacyOnboarded != null && !sp.contains(K_ONBOARDED)) ed.putString(K_ONBOARDED, legacyOnboarded)
-            if (legacyObDraft != null && !sp.contains(K_OB_DRAFT)) ed.putString(K_OB_DRAFT, legacyObDraft)
-            if (legacyObFinishedAt != null && !sp.contains(K_OB_FINISHED_AT)) ed.putString(K_OB_FINISHED_AT, legacyObFinishedAt)
-            if (legacyFirstLaunch != null && !sp.contains(K_FIRST_LAUNCH)) ed.putString(K_FIRST_LAUNCH, legacyFirstLaunch)
-            legacyHealth.forEach { (k, v) ->
-                if (v != null && !sp.contains(k)) ed.putString(k, v)
+            val dbName = Profiles.dbNameFor(ctx, p.id)
+            val db = ProDb.get(ctx, dbName)
+            try {
+                val dao = db.dao()
+                if (legacyOnboarded != null && dao.metaSync(K_ONBOARDED) == null) {
+                    dao.putMetaSync(MetaRow(K_ONBOARDED, legacyOnboarded))
+                }
+                if (legacyObDraft != null && dao.metaSync(K_OB_DRAFT) == null) {
+                    dao.putMetaSync(MetaRow(K_OB_DRAFT, legacyObDraft))
+                }
+                if (legacyObFinishedAt != null && dao.metaSync(K_OB_FINISHED_AT) == null) {
+                    dao.putMetaSync(MetaRow(K_OB_FINISHED_AT, legacyObFinishedAt))
+                }
+                legacyHealth.forEach { (k, v) ->
+                    if (v != null && dao.metaSync(k) == null) {
+                        dao.putMetaSync(MetaRow(k, v))
+                    }
+                }
+            } catch (e: Exception) {
+                ProLog.w("MIGRATE", "v18 meta migration failed for ${p.id}: ${e.message}")
             }
-            ed.apply()
-            ProLog.i("MIGRATE", "v22 prefs migrated for ${p.id} (${p.name})")
         }
-        ProPrefs.put(ctx, K_V22_MIGRATED, "true")
-        ProLog.i("MIGRATE", "v22 prefs migration complete for ${profiles.size} profiles")
+        ProPrefs.put(ctx, K_V18_MIGRATED, "true")
+        ProLog.i("MIGRATE", "v18 meta migration complete for ${profiles.size} profiles")
     }
 }

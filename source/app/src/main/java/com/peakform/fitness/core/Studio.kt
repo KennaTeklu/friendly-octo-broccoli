@@ -26,14 +26,14 @@ object Studio {
     const val CUST_KEY = "p4_custom_ex"
 
     fun loadCustom(ctx: Context): MutableList<JsonObject> = try {
-        ProfileSettings.get(ctx, CUST_KEY)?.let {
+        ProPrefs.get(ctx, CUST_KEY)?.let {
             (ProJson.json.parseToJsonElement(it) as? JsonArray)
                 ?.mapNotNull { el -> el as? JsonObject }?.toMutableList()
         } ?: mutableListOf()
     } catch (_: Exception) { mutableListOf() }
 
     private fun saveCustom(ctx: Context, list: List<JsonObject>) {
-        ProfileSettings.put(ctx, CUST_KEY, ProJson.json.encodeToString(JsonArray.serializer(), JsonArray(list)))
+        ProPrefs.put(ctx, CUST_KEY, ProJson.json.encodeToString(JsonArray.serializer(), JsonArray(list)))
     }
 
     /** Legacy validation limits (L55120–55145). Returns an error string or null when valid. */

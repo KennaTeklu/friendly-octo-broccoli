@@ -19,7 +19,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.LibraryExercise
-import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.core.ProJson
@@ -61,7 +60,6 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     // BATCH-4C Gap 1: read p4_lib_group pref (written by Settings → StreamGroup card)
     // to seed the initial group-by mode. The on-screen toggle still wins for the
     // current session; this only affects the FIRST render.
-    // BATCH-11: routed through ProfileSettings so the pref is per-profile.
     val groupings = listOf(
         "muscleGroup" to "Muscle",
         "equipment" to "Equipment",
@@ -71,15 +69,11 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         "component" to "Component",
     )
     val initialGroupBy = remember {
-        val prefKey = ProfileSettings.get(ctx, ProfileSettings.LIB_GROUP) ?: "muscleGroup"
+        val prefKey = ProPrefs.get(ctx, "p4_lib_group") ?: "muscleGroup"
         val idx = groupings.indexOfFirst { it.first == prefKey }
         if (idx >= 0) idx else 0
     }
     var groupBy by remember { mutableIntStateOf(initialGroupBy) }
-    fun changeGroupBy(idx: Int) {
-        groupBy = idx
-        ProfileSettings.put(ctx, ProfileSettings.LIB_GROUP, groupings[idx].first)
-    }
     var openDetail by remember { mutableStateOf<LibraryExercise?>(null) }
     var wikiFor by remember { mutableStateOf<String?>(null) }
     var componentFilter by remember { mutableStateOf<String?>(null) }
@@ -87,20 +81,19 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806).
     // BATCH-4C Gap 1: honor p4_lib_expand_all pref — when "true", start with all
     // groups EXPANDED (empty collapsed set) instead of the default all-collapsed.
-    // BATCH-11: routed through ProfileSettings; default is all-collapsed.
     var collapsedGroups by remember(Library.groups) {
-        val expandAllPref = ProfileSettings.get(ctx, ProfileSettings.LIB_EXPAND_ALL) == "true"
+        val expandAllPref = ProPrefs.get(ctx, "p4_lib_expand_all") == "true"
         val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
         mutableStateOf(
             try {
-                ProfileSettings.get(ctx, ProfileSettings.LIB_COLLAPSED)?.let {
+                ProPrefs.get(ctx, "p4_library_collapsed")?.let {
                     ProJson.json.decodeFromString(ListSerializer(String.serializer()), it).toSet()
                 } ?: defaultSet
             } catch (_: Exception) { defaultSet }
         )
     }
     fun persistCollapse() {
-        ProfileSettings.put(ctx, ProfileSettings.LIB_COLLAPSED,
+        ProPrefs.put(ctx, "p4_library_collapsed",
             ProJson.json.encodeToString(ListSerializer(String.serializer()), collapsedGroups.toList()))
     }
 
@@ -169,12 +162,14 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     }
 
     // BATCH-4C Gap 1: honor p4_lib_chunk + p4_lib_stream prefs.
-    // BATCH-11: routed through ProfileSettings; default streaming chunk = 20.
+    // When streaming is ON (default), cap each group at the chunk size (default 20)
+    // so the Library loads fast on large databases. When streaming is OFF, show all
+    // (200 / 60 legacy caps). Search always bumps to 200 to avoid hiding matches.
     val cap = run {
         if (search.isNotBlank()) return@run 200
-        val streamingOn = ProfileSettings.get(ctx, ProfileSettings.LIB_STREAM) != "false"
+        val streamingOn = ProPrefs.get(ctx, "p4_lib_stream") != "false"
         if (streamingOn) {
-            ProfileSettings.getInt(ctx, ProfileSettings.LIB_CHUNK, 20).coerceIn(10, 60)
+            ProPrefs.get(ctx, "p4_lib_chunk")?.toIntOrNull()?.coerceIn(10, 60) ?: 20
         } else {
             60
         }
@@ -211,7 +206,7 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(if (active) c.accentSoft else c.surface2)
                                     .border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp))
-                                    .clickable { changeGroupBy(idx) }
+                                    .clickable { groupBy = idx }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -230,24 +225,6 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
                 P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
                     collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
                 }
-            }
-            // BATCH-11: smart button — if collapsed groups == group count, offer
-            // an Expand All; if empty, offer a Collapse All; if mixed, both.
-            Spacer(Modifier.height(6.dp))
-            val anyCollapsed = collapsedGroups.isNotEmpty()
-            val allCollapsed = collapsedGroups.containsAll(grouped.map { it.first })
-            if (anyCollapsed && !allCollapsed) {
-                P4Button("Expand remaining groups", icon = "fa-up-right-and-down-left-from-center", style = BtnStyle.GHOST, minHeight = 32, modifier = Modifier.fillMaxWidth()) {
-                    collapsedGroups = emptySet(); persistCollapse()
-                }
-            }
-            // BATCH-11: reset-to-default button — clears library prefs and
-            // restores the bundled JSON library (no user-custom exercises).
-            Spacer(Modifier.height(4.dp))
-            P4Button("Reset library to default", icon = "fa-arrow-rotate-left", style = BtnStyle.GHOST, minHeight = 32, modifier = Modifier.fillMaxWidth()) {
-                Library.resetToDefault(ctx)
-                collapsedGroups = Library.groups.keys.toSet()
-                persistCollapse()
             }
         }
         // component filter chips (only rendered if non-empty)
