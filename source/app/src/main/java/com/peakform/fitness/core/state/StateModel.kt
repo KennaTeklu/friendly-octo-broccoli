@@ -2,106 +2,126 @@ package com.peakform.fitness.core.state
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
-import java.util.UUID
 
-const val SCHEMA_VERSION = 31
+/** Training intent — what the user wants from this exercise/session. */
+enum class Intent {
+    STRONGER, BIGGER, ENDURE, POWER, MOBILE, SKILL, BALANCE, AGILE, FAST, COMP, LONGEVITY, MAINTAIN
+}
 
-@Serializable
-data class Event(
-    val id: String = UUID.randomUUID().toString(),
-    val ts: Long = System.currentTimeMillis(),
-    val source: String,
-    val type: String,
-    val payload: String,
-    val signature: String = "",
-    val schemaVersion: Int = SCHEMA_VERSION,
-)
+/** Arc state — where in the training cycle the user is. */
+enum class ArcState {
+    BASE, BUILD, PEAK, DELOAD, MAINTAIN, COMEBACK, INTERRUPTED
+}
 
-enum class ArcState { BASE, BUILD, PEAK, DELOAD, MAINTAIN, COMEBACK, INTERRUPTED }
-enum class Intent { STRONGER, BIGGER, ENDURE, POWER, MOBILE, SKILL, BALANCE, AGILE, FAST, COMP, LONGEVITY, MAINTAIN }
+/**
+ * StateModel — the formal state model for the engine.
+ *
+ * BATCH-31: every input the engine consumes and every output it produces
+ * is modelled here so the prescription path is testable end-to-end without
+ * touching Room or Compose.
+ *
+ * Hierarchy:
+ *   Event           — user-initiated stimulus (logged a set, switched profile, etc.)
+ *   ProfileStateTree — the per-profile state tree (workouts + exercises + user + draft + prefs)
+ *   StateFold       — pure reducer: (tree, event) → tree
+ *   Migrations      — version-tagged state migrations (one-shot, idempotent)
+ *   ExportContract  — the round-trip contract every backup file must satisfy
+ *   StimulusField   — typed wrapper for the inputs to the engines (Batch 31)
+ */
+object StateModel {
 
-@Serializable
-data class PrescriptionWithProvenance(
-    val sets: Int, val reps: String, val weight: Double?, val duration: Double?,
-    val pct1RM: Double?, val restSeconds: Int, val note: String,
-    val intent: String, val arc: String, val engineIds: List<String>,
-    val ruleIds: List<String>, val envelopeChecks: List<String>,
-    val authorCoachId: String, val authorCoachVersion: Int, val schemaVersion: Int = SCHEMA_VERSION,
-)
+    /** User-initiated events that drive state changes. */
+    @Serializable
+    sealed class Event {
+        @Serializable data class LoggedSet(val exerciseId: String, val weight: Double, val reps: Int, val rpe: Double?) : Event()
+        @Serializable data class SkippedSet(val exerciseId: String) : Event()
+        @Serializable data class SwitchedProfile(val profileId: String) : Event()
+        @Serializable data class StartedWorkout(val sessionId: String, val date: String) : Event()
+        @Serializable data class CompletedWorkout(val sessionId: String, val atIso: String) : Event()
+        @Serializable data class UpdatedUser(val name: String? = null, val weight: Double? = null, val goal: String? = null) : Event()
+        @Serializable data class ResetData(val reason: String) : Event()
+        @Serializable data class ImportedBundle(val bundle: JsonObject) : Event()
+    }
 
-@Serializable
-data class StimulusProfile(
-    val exerciseId: String, val muscle: String, val primaryForce: String,
-    val jointAction: String, val contributionWeight: Double,
-    val bestRepRange: String, val bestIntensityPct: Double,
-)
+    /** Per-profile state tree — pure data, no I/O. */
+    @Serializable
+    data class ProfileStateTree(
+        val profileId: String,
+        val workouts: List<String> = emptyList(),       // workout ids
+        val exercises: Map<String, Double> = emptyMap(), // exerciseId → mu (estimated 1RM)
+        val draftId: String? = null,
+        val prefsVersion: Int = 31,
+    )
 
-data class Distribution(val mean: Double, val stdDev: Double)
-
-data class ProfileStateTree(
-    val schemaVersion: Int = SCHEMA_VERSION,
-    val arc: ArcState = ArcState.BASE,
-    val events: List<Event> = emptyList(),
-    val dossier: Map<String, ExerciseDossier> = emptyMap(),
-    val chronicle: List<ChronicleEntry> = emptyList(),
-    val tuningIntents: Map<String, String> = emptyMap(),
-    val bodySignals: List<BodySignal> = emptyList(),
-    val lifeEvents: List<LifeEvent> = emptyList(),
-    val coachVersionPins: Map<String, Int> = emptyMap(),
-    val exportContractVersion: Int = 1,
-)
-
-data class ExerciseDossier(val exerciseId: String, val tested1RM: Double? = null, val history: List<LoggedSession> = emptyList(), val tuningGoal: String = "", val responseRate: Double = 0.0)
-data class LoggedSession(val date: String, val weight: Double, val reps: Int, val rpe: Double?, val volume: Double)
-data class ChronicleEntry(val ts: Long, val text: String, val arc: ArcState)
-data class BodySignal(val ts: Long, val type: String, val value: Double, val muscle: String? = null)
-data class LifeEvent(val ts: Long, val type: String, val note: String)
-
-object StateFold {
-    fun apply(state: ProfileStateTree, event: Event): ProfileStateTree {
-        return when (event.type) {
-            "workout_completed" -> applyWorkout(state, event)
-            "1rm_tested" -> apply1RM(state, event)
-            "tuning_set" -> applyTuning(state, event)
-            "chronicle_entry" -> applyChronicle(state, event)
-            "body_signal" -> applyBodySignal(state, event)
-            "life_event" -> applyLifeEvent(state, event)
-            "arc_change" -> applyArcChange(state, event)
-            else -> state.copy(events = state.events + event)
+    /** Pure reducer — applies an event to a tree, returns the new tree.
+     *  Side-effect free. The engine writes the result via ProState. */
+    object StateFold {
+        fun reduce(tree: ProfileStateTree, event: Event): ProfileStateTree = when (event) {
+            is Event.LoggedSet -> {
+                val newMu = tree.exercises[event.exerciseId]?.let {
+                    if (it > 0) it * 1.005 else event.weight * (1.0 + event.reps / 30.0)
+                } ?: event.weight * (1.0 + event.reps / 30.0)
+                tree.copy(exercises = tree.exercises + (event.exerciseId to newMu))
+            }
+            is Event.SkippedSet -> tree
+            is Event.SwitchedProfile -> tree.copy(profileId = event.profileId, workouts = emptyList(), exercises = emptyMap(), draftId = null)
+            is Event.StartedWorkout -> tree.copy(draftId = event.sessionId)
+            is Event.CompletedWorkout -> tree.copy(draftId = null, workouts = tree.workouts + event.sessionId)
+            is Event.UpdatedUser -> tree
+            is Event.ResetData -> ProfileStateTree(profileId = tree.profileId)
+            is Event.ImportedBundle -> tree  // bundle import handled at the store layer
         }
     }
-    fun fold(events: List<Event>, initial: ProfileStateTree = ProfileStateTree()): ProfileStateTree = events.fold(initial) { s, e -> apply(s, e) }
-    private fun applyWorkout(s: ProfileStateTree, e: Event): ProfileStateTree { return s.copy(events = s.events + e) }
-    private fun apply1RM(s: ProfileStateTree, e: Event): ProfileStateTree { return s.copy(events = s.events + e) }
-    private fun applyTuning(s: ProfileStateTree, e: Event): ProfileStateTree { return s.copy(events = s.events + e) }
-    private fun applyChronicle(s: ProfileStateTree, e: Event): ProfileStateTree { return s.copy(events = s.events + e) }
-    private fun applyBodySignal(s: ProfileStateTree, e: Event): ProfileStateTree { return s.copy(events = s.events + e) }
-    private fun applyLifeEvent(s: ProfileStateTree, e: Event): ProfileStateTree { return s.copy(events = s.events + e) }
-    private fun applyArcChange(s: ProfileStateTree, e: Event): ProfileStateTree { return s.copy(events = s.events + e) }
-}
 
-object Migrations {
-    fun migrate(events: List<Event>, from: Int, to: Int): List<Event> {
-        if (from >= to) return events
-        return events.map { it.copy(schemaVersion = to) }
+    /** Version-tagged state migrations (one-shot, idempotent). */
+    @Serializable
+    data class Migration(
+        val fromVersion: Int,
+        val toVersion: Int,
+        val description: String,
+    )
+
+    object Migrations {
+        val ALL: List<Migration> = listOf(
+            Migration(18, 22, "per-profile meta → per-profile SharedPreferences"),
+            Migration(22, 26, "global prefs → per-profile prefs (ProfileSettings)"),
+            Migration(26, 31, "coach-led prescription overlay"),
+        )
+
+        /** Returns the migration path from `from` to `to`. Empty if none. */
+        fun path(from: Int, to: Int): List<Migration> =
+            ALL.filter { it.fromVersion >= from && it.toVersion <= to }
     }
-}
 
-object ExportContract {
-    const val VERSION = 1
-    fun export(state: ProfileStateTree): String = com.peakform.fitness.core.ProJson.json.encodeToString(kotlinx.serialization.builtins.ListSerializer(Event.serializer()), state.events)
-    fun import(json: String): List<Event>? = try { com.peakform.fitness.core.ProJson.json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(Event.serializer()), json) } catch (_: Exception) { null }
-}
+    /** Export contract — every backup file must round-trip through this. */
+    @Serializable
+    data class ExportContract(
+        val format: String,         // "PeakForm-Complete-Backup-v1"
+        val createdAt: String,
+        val schemaVersion: Int,
+        val requiredKeys: List<String>,
+    )
 
-object StimulusField {
-    fun fieldQuery(exerciseId: String, muscle: String, intent: Intent, timeContext: String = "build-week-3", dossier: Map<String, ExerciseDossier> = emptyMap()): Distribution {
-        val priorMean = 0.70; val priorStd = 0.10
-        val d = dossier[exerciseId]
-        if (d != null && d.history.isNotEmpty()) {
-            val lastW = d.history.lastOrNull()?.weight ?: 0.0
-            val orm = d.tested1RM ?: (lastW / 0.70)
-            if (orm > 0 && lastW > 0) { val obs = lastW / orm; val a = 0.3; return Distribution(priorMean*(1-a)+obs*a, priorStd*0.7) }
-        }
-        return Distribution(priorMean, priorStd)
-    }
+    /** Stimulus field — typed wrapper for engine inputs. */
+    @Serializable
+    data class StimulusField(
+        val id: String,
+        val label: String,
+        val type: String,           // "number" | "boolean" | "string" | "enum"
+        val default: String,
+        val range: Pair<String, String>? = null,
+        val options: List<String>? = null,
+    )
+
+    /** Every stimulus field the engines read. */
+    val STIMULUS_FIELDS: List<StimulusField> = listOf(
+        StimulusField("aggression", "Aggression dial", "number", "1.0", "0.6" to "1.4"),
+        StimulusField("fatigue", "Current fatigue", "number", "0.0", "0.0" to "1.0"),
+        StimulusField("goal", "Training goal", "enum", "balanced", null, listOf("balanced", "hypertrophy", "strength", "endurance", "powerlifting")),
+        StimulusField("streakDays", "Current streak", "number", "0", "0" to "365"),
+        StimulusField("recoveryDays", "Days since muscle trained", "number", "2", "0" to "30"),
+        StimulusField("holdBack", "Hold-back flag", "boolean", "false"),
+        StimulusField("tuneTarget", "Tune target flag", "boolean", "false"),
+        StimulusField("periodPhase", "Period phase", "enum", "none", null, listOf("none", "follicular", "ovulation", "luteal", "menstrual")),
+    )
 }

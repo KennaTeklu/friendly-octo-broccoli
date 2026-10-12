@@ -18,110 +18,110 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.SelfAssessment
-import com.peakform.fitness.ui.*
-import com.peakform.fitness.ui.components.*
+import com.peakform.fitness.ui.LocalProColors
+import com.peakform.fitness.ui.ProType
+import com.peakform.fitness.ui.components.P4Button
+import com.peakform.fitness.ui.components.BtnStyle
 
 /**
- * PostSessionFeelSheet — BATCH-15.
+ * PostSessionFeelSheet — BATCH-9 post-session feel tracker.
  *
- * Surfaces the SelfAssessment survey after a workout is completed. The
- * captured RPE / readiness / mood / sleep feeds back into the next session's
- * prescribed load (via SelfAssessment.recommendedLoadMultiplier).
- *
- * Renders inside any AlertDialog text slot.
+ * Three sliders (effort, readiness-next, soreness-expected) plus an optional
+ * note. Saves to per-profile SharedPreferences keyed on the workout id.
+ * Reachable from the Workout screen's "Log Session" flow.
  */
 @Composable
-fun PostSessionFeelSheet(onDismiss: () -> Unit, onSave: (SelfAssessment) -> Unit) {
+fun PostSessionFeelSheet(
+    visible: Boolean,
+    sessionId: String,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    var rpe by remember { mutableIntStateOf(7) }
-    var readiness by remember { mutableIntStateOf(3) }
-    var soreness by remember { mutableIntStateOf(1) }
-    var sleep by remember { mutableStateOf(7f) }
-    var mood by remember { mutableIntStateOf(3) }
-    var notes by remember { mutableStateOf("") }
+    var effort by remember(sessionId) { mutableIntStateOf(7) }
+    var readiness by remember(sessionId) { mutableIntStateOf(7) }
+    var soreness by remember(sessionId) { mutableIntStateOf(3) }
+    var note by remember(sessionId) { mutableStateOf("") }
 
-    Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+    Box(
+        Modifier.fillMaxSize().background(c.bg.copy(alpha = 0.6f)).clickable { onDismiss() },
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            FaIcon("fa-face-smile", size = 16.sp, tint = c.accent)
-            Spacer(Modifier.width(8.dp))
-            Text("How did that feel?", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
-            FaIcon("fa-xmark", size = 14.sp, tint = c.text3, modifier = Modifier.clickable { onDismiss() })
-        }
-        Spacer(Modifier.height(10.dp))
-        FeelRow("RPE (1-10)", "$rpe", rpe, 1..10) { rpe = it }
-        Spacer(Modifier.height(8.dp))
-        FeelRow("Readiness (1-5)", "$readiness", readiness, 1..5) { readiness = it }
-        Spacer(Modifier.height(8.dp))
-        FeelRow("Mood (1-5)", "$mood", mood, 1..5) { mood = it }
-        Spacer(Modifier.height(8.dp))
-        FeelRow("Soreness (0-3)", "$soreness", soreness, 0..3) { soreness = it }
-        Spacer(Modifier.height(8.dp))
-        Text("Sleep last night: ${sleep.toInt()}h", style = ProType.small, color = c.text3)
-        SliderRow(value = sleep, range = 0f..12f, onValueChange = { sleep = it })
-        Spacer(Modifier.height(8.dp))
-        Text("Notes (optional)", style = ProType.small, color = c.text3)
-        ProTextField(value = notes, onValueChange = { notes = it }, placeholder = "Anything to remember for next time?")
-        Spacer(Modifier.height(12.dp))
-        val multiplier = SelfAssessment.recommendedLoadMultiplier(
-            SelfAssessment(rpe = rpe, readiness = readiness, mood = mood, soreness = soreness, sleepHours = sleep.toDouble())
-        )
-        Text(
-            "Next session recommendation: " +
-                if (multiplier > 1.0) "push +${((multiplier - 1) * 100).toInt()}%"
-                else if (multiplier < 1.0) "back off -${((1 - multiplier) * 100).toInt()}%"
-                else "hold the same load",
-            style = ProType.small, color = c.accent,
-        )
-        Spacer(Modifier.height(10.dp))
-        P4Button("Save and apply to next session", icon = "fa-save", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth()) {
-            val a = SelfAssessment(
-                rpe = rpe, readiness = readiness, soreness = soreness,
-                sleepHours = sleep.toDouble(), mood = mood, notes = notes,
-                timestamp = ProState.nowIso(),
+        Column(
+            Modifier.fillMaxWidth().align(Alignment.BottomCenter)
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(c.surface)
+                .border(1.dp, c.hairline, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .padding(16.dp)
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                com.peakform.fitness.ui.FaIcon("fa-comment-dots", size = 16.sp, tint = c.accent)
+                Spacer(Modifier.width(8.dp))
+                Text("How did that feel?", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
+                P4Button("Close", style = BtnStyle.GHOST, onClick = onDismiss)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("Rate the session — effort you put in, readiness for next time, soreness you expect.",
+                style = ProType.small, color = c.text3)
+            Spacer(Modifier.height(12.dp))
+            RatingRow("Effort", effort, 1..10, c) { effort = it }
+            Spacer(Modifier.height(8.dp))
+            RatingRow("Readiness next time", readiness, 1..10, c) { readiness = it }
+            Spacer(Modifier.height(8.dp))
+            RatingRow("Soreness expected", soreness, 1..5, c) { soreness = it }
+            Spacer(Modifier.height(12.dp))
+            com.peakform.fitness.ui.screens.ProTextField(
+                value = note,
+                onValueChange = { note = it },
+                placeholder = "Optional note (how did it really go?)",
             )
-            SelfAssessment.save(ctx, a)
-            onSave(a)
-            onDismiss()
-        }
-    }
-}
-
-@Composable
-private fun FeelRow(label: String, value: String, current: Int, range: IntRange, onPick: (Int) -> Unit) {
-    val c = LocalProColors.current
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = ProType.small, color = c.text3, modifier = Modifier.weight(1f))
-            Text(value, style = ProType.label, color = c.accent)
-        }
-        Spacer(Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            range.forEach { v ->
-                val active = v == current
-                Box(
-                    Modifier.weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (active) c.accentSoft else c.surface2)
-                        .border(1.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(6.dp))
-                        .clickable { onPick(v) }
-                        .padding(vertical = 6.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("$v", fontSize = 11.sp, color = if (active) c.accent else c.text2, fontWeight = FontWeight.SemiBold)
-                }
+            Spacer(Modifier.height(12.dp))
+            P4Button(
+                "Save feel",
+                icon = "fa-save",
+                style = BtnStyle.PRIMARY,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                SelfAssessment.save(
+                    ctx,
+                    SelfAssessment.Feel(
+                        sessionId = sessionId,
+                        atIso = ProState.nowIso(),
+                        effort = effort,
+                        readinessNext = readiness,
+                        sorenessExpected = soreness,
+                        note = note.takeIf { it.isNotBlank() },
+                    ),
+                )
+                onDismiss()
             }
         }
     }
 }
 
 @Composable
-private fun SliderRow(value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
-    androidx.compose.material3.Slider(
-        value = value,
-        onValueChange = onValueChange,
-        valueRange = range,
-    )
+private fun RatingRow(label: String, value: Int, range: IntRange, c: com.peakform.fitness.ui.ProColors, onSet: (Int) -> Unit) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
+            Text("$value", style = ProType.statValue, color = c.accent, fontSize = 18.sp)
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+            range.forEach { n ->
+                val active = n == value
+                Box(
+                    Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(6.dp))
+                        .background(if (active) c.accentSoft else c.surface2)
+                        .border(1.dp, if (active) c.accent else c.hairline, RoundedCornerShape(6.dp))
+                        .clickable { onSet(n) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("$n", fontSize = 11.sp, color = if (active) c.accent else c.text2, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
 }

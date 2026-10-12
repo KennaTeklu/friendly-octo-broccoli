@@ -83,20 +83,17 @@ class MainActivity : ComponentActivity() {
             com.peakform.fitness.engine.Fatigue.calculateMuscleLastTrained()
             com.peakform.fitness.engine.Sessions.recomputeAggregates()
         }
-        // BATCH-12: theme load — load(p4_theme) + loadDynamic(p4_dynamic) +
-        // resolveDark so the host activity picks the right scheme before the
-        // first composition. ThemeController.reload(this) does all three.
-        ThemeController.reload(this)
-        // BATCH-6: in case the system dark setting changed since init, observe
-        // and call setSystemDark. This is a no-op when mode != SYSTEM.
-        ThemeController.setSystemDark(ThemeController.dark)
+        ThemeController.load(ProPrefs.get(this, "p4_theme"))
+        ThemeController.loadDynamic(ProPrefs.get(this, "p4_dynamic"))
+        // BATCH-5B: per-profile v22 migration + theme reload + system-dark resolve.
+        try {
+            com.peakform.fitness.core.ProfileState.migrateFromPrefs(this)
+            com.peakform.fitness.core.ProfileSettings.migrateFromPrefs(this)
+            ThemeController.reload(this)
+            ThemeController.resolveDark(this)
+        } catch (_: Exception) {}
         Vocab.init(this)
         Badges.init(this)
-        // BATCH-5A/5B: one-shot v22 prefs migration — copy legacy global p4_onboarded /
-        // p4_health_* / workoutEmergencyBackup values from ProPrefs into every
-        // profile's per-profile SharedPrefs (p4_ls_<profileId>). Idempotent —
-        // gated on the global p4_v22_migrated flag.
-        try { com.peakform.fitness.core.ProfileState.migrateFromPrefs(this) } catch (_: Exception) {}
         applyScreenshotSafeMode()
         // resume section from launcher shortcut / notification / tile
         if (intent?.getStringExtra("section") != null) {
@@ -190,7 +187,8 @@ class MainActivity : ComponentActivity() {
 
     /** NA7: screenshot-safe mode hides content in the recents strip and screenshots. */
     private fun applyScreenshotSafeMode() {
-        if (ProPrefs.get(this, "p4_secure") == "on") {
+        // BATCH-5B: read p4_secure from per-profile prefs.
+        if (com.peakform.fitness.core.ProfileSettings.get(this, com.peakform.fitness.core.ProfileSettings.K_SECURE) == "on") {
             window.setFlags(
                 android.view.WindowManager.LayoutParams.FLAG_SECURE,
                 android.view.WindowManager.LayoutParams.FLAG_SECURE,
@@ -472,8 +470,10 @@ fun AppShell(
                         "feedback" -> FeedbackScreen(onClose = { go("settings") })
                         "mycycle" -> MyCycleScreen(onClose = { go("dashboard") })
                         "badges" -> BadgeGalleryScreen()
-                        // BATCH-14/15: 1RM Audit screen — opened from Settings → Danger zone.
-                        "1rm_audit" -> com.peakform.fitness.ui.screens.OneRMAuditScreen(onClose = { go("settings") })
+                        // BATCH-5B: 1RM Audit + Lab consoles reachable from Settings.
+                        "1rm_audit" -> OneRMAuditScreen(onClose = { go("settings") })
+                        "1rm_lab" -> OneRmLabScreen(onClose = { go("settings") })
+                        "ref_gaps" -> ReferenceGapsScreen(onClose = { go("library") })
                     }
                 }
             }

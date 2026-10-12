@@ -10,8 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.invisibleToUser
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -70,18 +68,16 @@ object Fa {
 @Composable
 fun FaIcon(cls: String, modifier: Modifier = Modifier, size: TextUnit = 16.sp, tint: Color = LocalProColors.current.text, contentDescription: String? = null) {
     val ch = remember(cls) { Fa.glyph(cls) }
-    // BATCH-13: wire contentDescription to Modifier.semantics so screen readers
-    // announce the icon's purpose. When contentDescription is null, the icon is
-    // decorative and we mark it as invisible to accessibility services.
-    val a11yModifier = if (contentDescription != null) {
-        Modifier.semantics {
+    // BATCH-5B: wire contentDescription through Modifier.semantics so TalkBack
+    // announces the icon's role + label. We do NOT use invisibleToUser() —
+    // that experimental API requires @OptIn and is unstable across Compose
+    // versions. Plain contentDescription is stable.
+    val semanticsModifier = if (contentDescription != null) {
+        modifier.then(Modifier.semantics {
             this.contentDescription = contentDescription
-            this.role = androidx.compose.ui.semantics.Role.Image
-        }
-    } else {
-        Modifier
-    }
-    Box(modifier.then(a11yModifier)) {
+        })
+    } else modifier
+    Box(semanticsModifier) {
         if (ch != null) {
             Text(
                 text = ch,

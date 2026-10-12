@@ -1,62 +1,34 @@
 package com.peakform.fitness.coach
 
-import com.peakform.fitness.core.ExerciseRecord
-import com.peakform.fitness.core.UserProfile
-import com.peakform.fitness.core.WorkoutData
+import com.peakform.fitness.core.CoachingEngine
 
 /**
- * ExerciseCoach — a per-exercise rule engine.
+ * ExerciseCoach — per-exercise rules engine interface.
  *
- * BATCH-18: every coach (specific or generic) implements this interface. The
- * CoachingEngine asks each registered coach "given this exercise record + user,
- * what tips do you have?" and the coach returns a list of CoachingTip objects
- * with priority (1=high, 5=low), category, and a short title + body.
+ * BATCH-18: every exercise has a coach that knows the movement's specific
+ * progression curve, deload triggers, common form mistakes, and the
+ * "coach voice" for that movement.
  *
- * Specific coaches live in `coach/exercises/AllCoaches.kt` and hardcode the
- * rules for one exercise (e.g. SquatCoach only fires on the squat). Generic
- * coaches apply to any exercise that matches a tag (e.g. BarbellCoach applies
- * to all barbell lifts).
+ * Concrete coaches live in `coach/exercises/AllCoaches.kt` — 29 specific
+ * coaches (one per major movement) plus 8 generic coaches that handle the
+ * long tail (by muscle group / equipment).
  */
 interface ExerciseCoach {
-    /** Unique id (matches the exercise id when this is a specific coach). */
-    val id: String
-    /** Display name. */
-    val name: String
-    /** Tags this coach matches (e.g. "barbell", "lower-body", "compound"). */
-    val tags: Set<String>
+    /** The exercise id(s) this coach handles. */
+    val exerciseIds: Set<String>
 
-    /**
-     * Evaluate the exercise record + user profile and return tips.
-     *
-     * Implementations should be pure functions — no side effects, no I/O.
-     * The CoachingEngine handles persistence + logging.
-     */
-    fun evaluate(record: ExerciseRecord, user: UserProfile): List<RawTip>
-}
+    /** Friendly movement name (e.g. "Barbell Back Squat"). */
+    val movementName: String
 
-/**
- * Raw coaching tip — the raw form before the CoachingEngine wraps it with
- * the exercise id + a stable id. Coaches return these; the engine converts.
- */
-data class RawTip(
-    val id: String,
-    val category: TipCategory,
-    val priority: Int,
-    val title: String,
-    val body: String,
-)
+    /** Short coach-voice one-liner (rendered above the prescription). */
+    fun message(input: CoachingEngine.CoachInput): String
 
-enum class TipCategory { FORM, LOAD, RECOVERY, MOTIVATION, SAFETY }
+    /** Per-exercise progression factor (default 1.0 — bump sets/reps only). */
+    fun progressionFactor(input: CoachingEngine.CoachInput): Double = 1.0
 
-/**
- * OverallCoachInterface — cross-exercise tips that don't belong to any single coach.
- *
- * Examples: "you've trained chest three days in a row — back day tomorrow",
- * "your average RPE is 9.5 — schedule a deload", "streak is at 14 days — keep
- * it going", "you missed your last two scheduled days — pick a small win".
- */
-interface OverallCoachInterface {
-    val id: String
-    val name: String
-    fun evaluate(data: WorkoutData, exerciseTips: List<com.peakform.fitness.core.CoachingEngine.CoachingTip>): List<RawTip>
+    /** Per-exercise deload trigger — return true to force a 10% load drop. */
+    fun deloadTrigger(input: CoachingEngine.CoachInput): Boolean = false
+
+    /** Common form cues (rendered in the workout card on long-press). */
+    val formCues: List<String>
 }

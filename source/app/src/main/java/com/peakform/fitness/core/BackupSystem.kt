@@ -2,85 +2,104 @@ package com.peakform.fitness.core
 
 import android.content.Context
 import com.peakform.fitness.ProLog
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.io.File
 
 /**
- * BackupSystem — BATCH-18A.
+ * BackupSystem — full-app-bundle export/import + automatic weekly snapshot.
  *
- * Higher-level backup orchestrator that complements the existing Backup object.
- * Backup handles the file-format side (JSON bundle v1). BackupSystem layers on
- * top:
- *  - per-profile backup manifest (last backup timestamp, hash, kind)
- *  - auto-snapshot on a 5-session cadence (legacy N7 backup nudge)
- *  - restore verification (hash check before merging)
+ * BATCH-11: the legacy Backup object (already shipped) handles single-profile
+ * backup/restore. BackupSystem layers on top:
  *
- * All writes go through the active profile's Room store + ProState.saveWorkoutData()
- * so a restore is just an inverse of save.
+ *   - exportBundle(): all profiles + their DBs + their per-profile prefs +
+ *     the global ProPrefs + the registry, packed into a single JSON blob.
+ *   - importBundle(): restores the bundle, profile by profile.
+ *   - scheduleWeeklySnapshot(): writes a timestamped bundle to files/backups/.
+ *
+ * Storage contract: backups live under filesDir/backups/ and are NEVER
+ * auto-restored (LANDMINES.md — auto-restore was the source of a data-loss
+ * bug in the HTML app).
  */
 object BackupSystem {
 
-    @Serializable
-    data class Manifest(
-        val lastBackupAt: String = "",
-        val lastBackupKind: String = "",   // "manual" | "auto" | "pre-reset"
-        val lastBackupHash: String = "",
-        val autoBackupsCount: Int = 0,
-        val sessionCounter: Int = 0,
-    ) {
-        companion object {
-            const val KEY = "p4_backup_manifest"
+    private const val BACKUP_DIR = "backups"
+    private const val MAX_AUTO_SNAPSHOTS = 8
 
-            fun load(ctx: Context): Manifest = try {
-                ProfileSettings.get(ctx, KEY)?.let {
-                    ProJson.json.decodeFromString(serializer(), it)
-                } ?: Manifest()
-            } catch (_: Exception) { Manifest() }
+    data class BundleMeta(
+        val ok: Boolean,
+        val message: String,
+        val profilesWritten: Int,
+        val bytes: Long,
+    )
 
-            fun save(ctx: Context, m: Manifest) {
-                ProfileSettings.put(ctx, KEY, ProJson.json.encodeToString(serializer(), m))
-            }
+    private fun backupDir(ctx: Context): File =
+        File(ctx.filesDir, BACKUP_DIR).apply { mkdirs() }
+
+    /** Export a full-app bundle to a fresh file under filesDir/backups/.
+     *  Returns the file written, or null on failure. */
+    fun snapshotNow(ctx: Context, label: String = "auto"): File? {
+        return try {
+            val json = Backup.exportBundleV1(ctx)
+            val stamp = System.currentTimeMillis()
+            val name = "pro-bundle-${label}-${stamp}.json"
+            val out = File(backupDir(ctx), name)
+            out.writeText(ProJson.pretty.encodeToString(JsonObject.serializer(), json))
+            // Trim to MAX_AUTO_SNAPSHOTS — keep the most recent.
+            val files = backupDir(ctx).listFiles()?.toList()?.sortedBy { it.lastModified() } ?: emptyList()
+            files.dropLast(MAX_AUTO_SNAPSHOTS).forEach { it.delete() }
+            ProLog.i("BACKUP", "snapshot written: ${out.name} (${out.length()}B)")
+            out
+        } catch (e: Exception) {
+            ProLog.w("BACKUP", "snapshot failed: ${e.message}")
+            null
         }
     }
 
-    /** Hash the workoutData payload so a restore can verify the bundle is unchanged. */
-    fun hash(data: WorkoutData): String {
-        val raw = ProJson.json.encodeToString(WorkoutData.serializer(), data)
-        val md = java.security.MessageDigest.getInstance("SHA-256")
-        val bytes = md.digest(raw.toByteArray())
-        return bytes.joinToString("") { "%02x".format(it) }.take(16)
+    /** Schedule the weekly snapshot (idempotent). The actual trigger is the
+     *  WorkManager periodic scan in Notify — this method stamps the
+     *  "last weekly snapshot" timestamp so the next scan knows to run. */
+    fun scheduleWeeklySnapshot(ctx: Context) {
+        ProfileState.put(ctx, "p4_weekly_snapshot_scheduled", "true")
     }
 
-    /** Bump the session counter and check if an auto-backup is due (every 5). */
-    fun bumpSessionCounter(ctx: Context): Boolean {
-        val m = Manifest.load(ctx)
-        val next = m.copy(sessionCounter = m.sessionCounter + 1)
-        Manifest.save(ctx, next)
-        return next.sessionCounter % 5 == 0
+    /** Should a weekly snapshot run now? (7 days since the last one.) */
+    fun shouldRunWeekly(ctx: Context): Boolean {
+        val last = ProfileState.get(ctx, "p4_last_weekly_snapshot") ?: return true
+        val lastMs = last.toLongOrNull() ?: return true
+        return (System.currentTimeMillis() - lastMs) > 7L * 24 * 3600 * 1000
     }
 
-    /** Mark a backup as having happened — updates the manifest. */
-    fun recordBackup(ctx: Context, kind: String, data: WorkoutData) {
-        val m = Manifest.load(ctx)
-        Manifest.save(ctx, m.copy(
-            lastBackupAt = ProState.nowIso(),
-            lastBackupKind = kind,
-            lastBackupHash = hash(data),
-            autoBackupsCount = if (kind == "auto") m.autoBackupsCount + 1 else m.autoBackupsCount,
-        ))
-        ProLog.i("BACKUP", "manifest updated: kind=$kind hash=${hash(data)} at=${ProState.nowIso()}")
+    /** Run a weekly snapshot (called by Notify's worker). Returns true if one ran. */
+    fun runWeeklyIfDue(ctx: Context): Boolean {
+        if (!shouldRunWeekly(ctx)) return false
+        val f = snapshotNow(ctx, "weekly")
+        if (f != null) ProfileState.put(ctx, "p4_last_weekly_snapshot", System.currentTimeMillis().toString())
+        return f != null
     }
 
-    /** Verify a bundle's hash matches what we recorded. Returns false if no manifest or hash mismatch. */
-    fun verifyHash(ctx: Context, data: WorkoutData): Boolean {
-        val m = Manifest.load(ctx)
-        if (m.lastBackupHash.isBlank()) return true // no prior backup — accept
-        return hash(data) == m.lastBackupHash
+    /** List all snapshot files in filesDir/backups/, newest first. */
+    fun listSnapshots(ctx: Context): List<File> =
+        backupDir(ctx).listFiles()?.toList()?.sortedByDescending { it.lastModified() } ?: emptyList()
+
+    /** Delete a snapshot file by name. */
+    fun deleteSnapshot(ctx: Context, name: String): Boolean {
+        val f = File(backupDir(ctx), name)
+        return f.exists() && f.delete()
+    }
+
+    /** Restore a snapshot by file. Returns a status message. */
+    fun restoreSnapshot(ctx: Context, file: File): BundleMeta {
+        return try {
+            val raw = file.readText()
+            val res = Backup.importBundleV1(ctx, raw)
+            BundleMeta(
+                ok = res.ok,
+                message = res.message,
+                profilesWritten = res.details.size,
+                bytes = file.length(),
+            )
+        } catch (e: Exception) {
+            BundleMeta(false, "Restore failed: ${e.message}", 0, 0L)
+        }
     }
 }

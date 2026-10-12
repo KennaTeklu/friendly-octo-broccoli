@@ -68,10 +68,6 @@ fun ProgressScreen(onOpenSection: (String) -> Unit, onRequireGenerate: (String) 
         Spacer(Modifier.height(4.dp))
         SectionTitle("fa-chart-line", "Progress Analytics")
 
-        // BATCH-17: monthly summary + trend arrows at the top of the screen.
-        val summary = remember(ver.intValue) { com.peakform.fitness.core.ProgressSummary.compute() }
-        MonthlySummaryCard(summary)
-
         // hero: longevity circle + radar
         GlassCard(padding = PaddingValues(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -160,12 +156,6 @@ fun ProgressScreen(onOpenSection: (String) -> Unit, onRequireGenerate: (String) 
         GlassCard(padding = PaddingValues(16.dp)) {
             SectionTitle("fa-bullseye", "11-Component Radar", Modifier)
             ComponentRadar(ver.intValue)
-        }
-
-        // BATCH-17: radar with comparison overlay (current vs last month).
-        GlassCard(padding = PaddingValues(16.dp)) {
-            SectionTitle("fa-arrows-left-right-to-line", "Radar — This vs Last Month", Modifier)
-            ComponentRadarWithComparison(ver.intValue)
         }
 
         // SC2: workout frequency strip
@@ -337,133 +327,6 @@ fun ComponentRadar(ver: Int = 0) {
     val labels = listOf("Cardio", "Strength", "Mobility", "Balance", "Core", "Power", "Agility", "Coordination", "Flexibility", "Endurance", "Reaction")
     Text(labels.joinToString(" · "), style = ProType.small, color = c.text3, maxLines = 2)
 }
-
-/**
- * BATCH-17: ComponentRadarWithComparison — overlays the previous month's
- * radar polygon on top of the current month's, so the user can see the
- * trend at a glance. Uses the same 11-component layout as ComponentRadar.
- *
- * The "current" polygon is drawn in the user's accent color (filled);
- * the "previous" polygon is drawn in the secondary text color (outline only).
- */
-@Composable
-fun ComponentRadarWithComparison(ver: Int = 0) {
-    val c = LocalProColors.current
-    val now = System.currentTimeMillis()
-    val monthAgo = now - 30L * 24 * 3600 * 1000
-    val twoMonthsAgo = now - 60L * 24 * 3600 * 1000
-
-    val current = remember(ver) {
-        val sub = Stats.calculateLongevityScore().sub
-        val keys = listOf("cardio_endurance", "strength", "mobility", "balance", "core_stability",
-            "power", "agility", "coordination", "flexibility", "muscular_endurance", "reaction_time")
-        keys.map { k -> (sub[k] ?: 40).toDouble().coerceIn(5.0, 100.0) }
-    }
-    val previous = remember(ver) {
-        // Approximation — previous month is current * 0.9 (since we don't store
-        // historical radar snapshots). In a future iteration, persist the radar
-        // values on workout completion and read the last month's snapshot here.
-        current.map { (it * 0.9).coerceIn(5.0, 100.0) }
-    }
-
-    Canvas(Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(12.dp)).background(c.bg2)) {
-        val n = current.size
-        if (n < 3) return@Canvas
-        val cx = size.width / 2
-        val cy = size.height / 2
-        val r = min(size.width, size.height) / 2 * 0.78f
-        // grid rings
-        for (ring in 1..4) {
-            val rr = r * ring / 4
-            val path = Path()
-            for (i in 0..n) {
-                val ang = (2 * Math.PI * (i % n) / n) - Math.PI / 2
-                val x = cx + cos(ang).toFloat() * rr
-                val y = cy + sin(ang).toFloat() * rr
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            drawPath(path, c.hairline2, style = Stroke(width = 2f))
-        }
-        // previous-month polygon (outline)
-        val prevPath = Path()
-        for (i in 0..n) {
-            val idx = i % n
-            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
-            val v = (previous[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
-            val x = cx + cos(ang).toFloat() * r * v
-            val y = cy + sin(ang).toFloat() * r * v
-            if (i == 0) prevPath.moveTo(x, y) else prevPath.lineTo(x, y)
-        }
-        drawPath(prevPath, c.text3.copy(alpha = 0.5f), style = Stroke(width = 2f))
-        // current-month polygon (filled)
-        val dataPath = Path()
-        for (i in 0..n) {
-            val idx = i % n
-            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
-            val v = (current[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
-            val x = cx + cos(ang).toFloat() * r * v
-            val y = cy + sin(ang).toFloat() * r * v
-            if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
-        }
-        drawPath(dataPath, c.accent.copy(alpha = 0.22f))
-        drawPath(dataPath, c.accent, style = Stroke(width = 4f))
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(c.accent))
-            Spacer(Modifier.width(4.dp))
-            Text("This month", style = ProType.small, color = c.text2)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(c.text3.copy(alpha = 0.5f)))
-            Spacer(Modifier.width(4.dp))
-            Text("Last month", style = ProType.small, color = c.text3)
-        }
-    }
-}
-
-/**
- * BATCH-17: MonthlySummaryCard — top-of-screen summary with trend arrows.
- * Pulls from ProgressSummary.compute() so the numbers are consistent with
- * the engine's view of the data.
- */
-@Composable
-fun MonthlySummaryCard(summary: com.peakform.fitness.core.ProgressSummary.Snapshot) {
-    val c = LocalProColors.current
-    GlassCard(padding = PaddingValues(14.dp)) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("This month", style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
-                Text(summary.trendDirection.symbol + " " + summary.trendDirection.label, style = ProType.small, color = c.accent)
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SummaryTile("Workouts", "${summary.totalWorkouts}", Modifier.weight(1f))
-                SummaryTile("Volume", "%.1fk".format(summary.totalVolume / 1000.0), Modifier.weight(1f))
-                SummaryTile("Avg RPE", "%.1f".format(summary.avgRpe), Modifier.weight(1f))
-                SummaryTile("PRs", "${summary.prsThisMonth}", Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Δ vs last month:", style = ProType.small, color = c.text3)
-                Spacer(Modifier.width(6.dp))
-                val deltaColor = if (summary.monthlyDeltaPct > 0) c.ok else if (summary.monthlyDeltaPct < 0) c.bad else c.text3
-                val arrow = if (summary.monthlyDeltaPct > 0) "↑" else if (summary.monthlyDeltaPct < 0) "↓" else "→"
-                Text("$arrow ${"%.1f".format(kotlin.math.abs(summary.monthlyDeltaPct))}%", style = ProType.label, color = deltaColor)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SummaryTile(label: String, value: String, modifier: Modifier = Modifier) {
-    val c = LocalProColors.current
-    Column(modifier.clip(RoundedCornerShape(10.dp)).background(c.surface2).padding(horizontal = 8.dp, vertical = 8.dp)) {
-        Text(value, style = ProType.statValue, color = c.accent, fontSize = 18.sp)
-        Text(label, style = ProType.small, color = c.text3, fontSize = 9.sp)
-    }
-}
-
 
 /** SC2: workouts per week over 8 weeks. */
 @Composable

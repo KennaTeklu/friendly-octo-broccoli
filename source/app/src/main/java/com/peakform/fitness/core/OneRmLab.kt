@@ -1,64 +1,116 @@
 package com.peakform.fitness.core
 
-import kotlin.math.pow
+import android.content.Context
+import com.peakform.fitness.ProLog
 import kotlin.math.roundToInt
 
 /**
- * OneRmLab — BATCH-18A.
+ * OneRmLab — calibrated 1RM estimation + retest scheduling.
  *
- * Pure-function 1RM estimation laboratory. Wraps the legacy Epley / Brzycki /
- * Lombardi / Mayhew formulas in one place so the OneRmLabScreen and the
- * CoachingEngine can ask "given weight × reps, what's the 1RM?" without
- * pulling in the full Kalman engine.
+ * BATCH-12: the legacy HTML app had a "1RM Lab" overlay that let the user
+ *   - compute a fresh 1RM from a recent heavy set (Epley / Brzycki / Lombardi)
+ *   - see when the next retest is due (6-week window from the last test)
+ *   - audit every "tested 1RM" entry and remove outliers
  *
- * Each formula returns pounds (input unit). The "consensus" output is the
- * median of all four — more robust than picking one.
- *
- * Also exposes the inverse: given a target 1RM, what weight × reps combo
- * trains it for a given RPE / percentage.
+ * The native app stores tested 1RMs per-exercise in ExerciseRecord.tested1RM.
+ * The Lab pulls those + the last 6 weeks of heavy sets and surfaces a list of
+ * "retest recommended" exercises, plus an audit report for the user to
+ * delete entries that look wrong.
  */
 object OneRmLab {
 
-    /** Epley: 1RM = w × (1 + reps/30) */
-    fun epley(weight: Double, reps: Int): Double = weight * (1 + reps / 30.0)
+    /** Formula identifiers. */
+    const val F_EPLEY = "epley"
+    const val F_BRZYCKI = "brzycki"
+    const val F_LOMBARDI = "lombardi"
 
-    /** Brzycki: 1RM = w × 36 / (37 - reps) */
-    fun brzycki(weight: Double, reps: Int): Double = weight * 36.0 / (37 - reps).coerceAtLeast(1)
+    data class Estimate(
+        val exerciseId: String,
+        val exerciseName: String,
+        val weight: Double,
+        val reps: Int,
+        val formula: String,
+        val estimated1Rm: Double,
+    )
 
-    /** Lombardi: 1RM = w × reps^0.10 */
-    fun lombardi(weight: Double, reps: Int): Double = weight * reps.toDouble().pow(0.10)
+    data class AuditRow(
+        val exerciseId: String,
+        val exerciseName: String,
+        val tested1Rm: Double,
+        val estimated1Rm: Double,
+        val deltaLbs: Double,
+        val lastTestedAt: String?,
+        val retestDue: Boolean,
+        val suspicious: Boolean,
+    )
 
-    /** Mayhew: 1RM = 100 × w / (52.2 + 41.9 × e^(-0.055 × reps)) */
-    fun mayhew(weight: Double, reps: Int): Double {
-        val denom = 52.2 + 41.9 * kotlin.math.exp(-0.055 * reps)
-        return 100.0 * weight / denom
+    data class LabReport(
+        val rows: List<AuditRow>,
+        val retestDueCount: Int,
+        val suspiciousCount: Int,
+        val avgDeltaPct: Double,
+    )
+
+    /** Estimate a 1RM from a single heavy set. Returns 0.0 if inputs are bad. */
+    fun estimate(weight: Double, reps: Int, formula: String = F_EPLEY): Double {
+        if (weight <= 0 || reps < 1 || reps > 15) return 0.0
+        return when (formula) {
+            F_BRZYCKI -> weight * (36.0 / (37.0 - reps))
+            F_LOMBARDI -> weight * Math.pow(reps.toDouble(), 0.10)
+            else -> weight * (1.0 + reps / 30.0)  // Epley
+        }
     }
 
-    /** Consensus — median of all four formulas. */
-    fun consensus(weight: Double, reps: Int): Double {
-        val list = listOf(
-            epley(weight, reps),
-            brzycki(weight, reps),
-            lombardi(weight, reps),
-            mayhew(weight, reps),
-        ).sorted()
-        return list[1] + list[2] / 2.0  // average of middle two = median
+    /** Per-exercise audit row from the user's record + recent heavy sets. */
+    fun auditRow(exerciseId: String, record: ExerciseRecord): AuditRow? {
+        val tested = record.tested1RM?.takeIf { it > 0 } ?: return null
+        val mu = record.mu?.takeIf { it > 0 } ?: run {
+            val heaviest = record.history
+                .filter { !it.skipped && it.weight > 0 && it.reps.isNotEmpty() }
+                .maxByOrNull { it.weight * (1.0 + (it.reps.maxOrNull() ?: 1.0) / 30.0) }
+            heaviest?.let { h -> estimate(h.weight, (h.reps.maxOrNull() ?: 1.0).toInt()) } ?: tested
+        }
+        val delta = tested - mu
+        val lastTestedAt = record.testDate
+        val retestDue = lastTestedAt == null ||
+            (System.currentTimeMillis() - ProState.utcDayMillis(lastTestedAt) > 6L * 7 * 24 * 3600 * 1000)
+        val suspicious = kotlin.math.abs(delta) > tested * 0.20  // >20% off the estimate
+        return AuditRow(
+            exerciseId = exerciseId,
+            exerciseName = exerciseId,  // engine resolves the friendly name
+            tested1Rm = tested,
+            estimated1Rm = mu,
+            deltaLbs = delta,
+            lastTestedAt = lastTestedAt,
+            retestDue = retestDue,
+            suspicious = suspicious,
+        )
     }
 
-    /** RPE-adjusted 1RM — accounts for reps in reserve. */
-    fun adjusted(weight: Double, reps: Int, rpe: Int): Double {
-        val rir = 10 - rpe.coerceIn(1, 10)
-        val totalReps = reps + rir
-        return consensus(weight, totalReps)
+    /** Build a full audit report across every exercise with a tested 1RM. */
+    fun auditAll(ctx: Context): LabReport {
+        val rows = ProState.data.exercises.entries.mapNotNull { (id, rec) -> auditRow(id, rec) }
+        val retest = rows.count { it.retestDue }
+        val susp = rows.count { it.suspicious }
+        val avg = if (rows.isEmpty()) 0.0 else rows.map { kotlin.math.abs(it.deltaLbs) / it.tested1Rm * 100.0 }.average()
+        ProLog.i("1RMLAB", "audit: ${rows.size} tested, $retest retest, $susp suspicious, avg Δ=${"%.1f".format(avg)}%")
+        return LabReport(rows, retest, susp, avg)
     }
 
-    /** Percentage table for a given 1RM (50%-100% in 5% steps). */
-    fun percentageTable(oneRm: Double): List<Pair<Int, Double>> =
-        (50..100 step 5).map { pct -> pct to (oneRm * pct / 100.0).roundToInt().toDouble() }
+    /** Reset a single exercise's tested 1RM to null (audit fix-up). */
+    fun resetOne(ctx: Context, exerciseId: String) {
+        val d = ProState.data
+        val rec = d.exercises[exerciseId] ?: return
+        val updated = rec.copy(tested1RM = null, testDate = null)
+        ProState.data = d.copy(exercises = d.exercises + (exerciseId to updated))
+        ProState.saveWorkoutData()
+        ProState.notifyChanged()
+    }
 
-    /** Inverse — given a 1RM and target %, return the weight × reps prescription. */
-    fun prescription(oneRm: Double, pct: Int, repTarget: Int): Pair<Double, Int> {
-        val w = (oneRm * pct / 100.0).roundToInt().toDouble()
-        return w to repTarget
+    /** Reset every suspicious 1RM entry (audit cleanup). */
+    fun resetSuspicious(ctx: Context): Int {
+        val report = auditAll(ctx)
+        report.rows.filter { it.suspicious }.forEach { resetOne(ctx, it.exerciseId) }
+        return report.suspiciousCount
     }
 }

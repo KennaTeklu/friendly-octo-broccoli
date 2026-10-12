@@ -170,8 +170,8 @@ class Batch4CScreenshots {
     @Test
     fun libraryHonorsGroupPref() {
         // Set the pref to "equipment" and verify the Library opens to that grouping.
-        // Screenshot captures the group-by chip highlighting "Equipment".
-        com.peakform.fitness.core.ProPrefs.put(ctx, "p4_lib_group", "equipment")
+        // BATCH-5B: p4_lib_group is now per-profile (ProfileSettings).
+        com.peakform.fitness.core.ProfileSettings.put(ctx, com.peakform.fitness.core.ProfileSettings.K_LIB_GROUP, "equipment")
         snap("batch4c-04-library-group-pref") {
             com.peakform.fitness.ui.screens.LibraryScreen(onAddToWorkout = {})
         }

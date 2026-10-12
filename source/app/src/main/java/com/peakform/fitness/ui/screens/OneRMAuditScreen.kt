@@ -18,187 +18,99 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.peakform.fitness.core.OneRmLab
 import com.peakform.fitness.core.ProState
-import com.peakform.fitness.engine.Library
-import com.peakform.fitness.ui.*
-import com.peakform.fitness.ui.components.*
+import com.peakform.fitness.ui.LocalProColors
+import com.peakform.fitness.ui.ProType
+import com.peakform.fitness.ui.components.P4Button
+import com.peakform.fitness.ui.components.BtnStyle
 
 /**
- * OneRMAuditScreen — BATCH-14/15.
+ * OneRMAuditScreen — BATCH-8 1RM audit console.
  *
- * Lists every exercise the active profile has logged at least one set of,
- * with the tested / estimated 1RM, when it was last calibrated, and a
- * "stale" flag if the estimate is older than 6 weeks.
+ * Lists every exercise that has a tested 1RM, with the estimated 1RM, delta,
+ * last-tested date, and a "retest due" flag. The user can:
+ *   - reset a single exercise's tested 1RM (audit fix-up),
+ *   - reset every suspicious entry (>20% off the estimate).
  *
- * Each row offers:
- *  - Mark as 1RM-tested (sets tested1RM = mu, testDate = today)
- *  - Reset the estimate (sets mu = 0)
- *
- * Top-of-screen tiles summarize the count of stale estimates + total volume
- * calibrated across the library.
- *
- * The audit takes no destructive action without user confirmation — every
- * write goes through ProState.saveWorkoutData() so the change lands on the
- * active profile's Room namespace.
+ * Reachable from Settings → "1RM Audit" button.
  */
 @Composable
 fun OneRMAuditScreen(onClose: () -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
+    val report = remember { OneRmLab.auditAll(ctx) }
+    var resetCount by remember { mutableIntStateOf(0) }
     val ver = remember { mutableIntStateOf(0) }
-    DisposableEffect(Unit) {
-        val l: () -> Unit = { ver.intValue++ }
-        synchronized(ProState.listeners) { ProState.listeners.add(l) }
-        onDispose { synchronized(ProState.listeners) { ProState.listeners.remove(l) } }
-    }
-    val _tick = ver.intValue
 
-    val rows = remember(_tick) {
-        ProState.data.exercises.entries
-            .mapNotNull { (id, rec) ->
-                val lib = Library.augmented(Library.findExercise(id) ?: return@mapNotNull null)
-                AuditRow(
-                    id = id,
-                    name = lib.name,
-                    tested1RM = rec.tested1RM ?: 0.0,
-                    estimated1RM = rec.mu ?: 0.0,
-                    lastCalibrated = rec.lastUpdate ?: rec.testDate,
-                    testDate = rec.testDate,
-                    isStale = run {
-                        val ts = rec.lastUpdate ?: rec.testDate
-                        if (ts == null) false
-                        else (System.currentTimeMillis() - ProState.utcDayMillis(ts)) > 6L * 7 * 24 * 3600 * 1000
-                    },
-                )
-            }
-            .sortedByDescending { it.estimated1RM + it.tested1RM }
-    }
-    val staleCount = rows.count { it.isStale }
-    val testedCount = rows.count { it.tested1RM > 0 }
-
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item(key = "hdr", contentType = "header") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    FaIcon("fa-magnifying-glass-chart", size = 18.sp, tint = c.accent)
-                    Spacer(Modifier.width(10.dp))
-                    Text("1RM Audit", style = ProType.sectionTitle, color = c.text, modifier = Modifier.weight(1f))
-                    FaIcon("fa-xmark", size = 16.sp, tint = c.text3, modifier = Modifier.clickable { onClose() })
-                }
-            }
-            item(key = "summary", contentType = "summary") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f)) { AuditTile("Tracked lifts", "${rows.size}", c.accent) }
-                    Box(Modifier.weight(1f)) { AuditTile("1RM-tested", "$testedCount", c.ok) }
-                    Box(Modifier.weight(1f)) { AuditTile("Stale (>6w)", "$staleCount", if (staleCount > 0) c.warn else c.text3) }
-                }
-            }
-            item(key = "intro", contentType = "intro") {
-                Text(
-                    "Each row shows your calibrated (tested) and estimated (modeled) 1-rep max. Tap a row to mark it as tested today, or reset the estimate.",
-                    style = ProType.small, color = c.text3,
-                )
-            }
-            items(items = rows, key = { it.id }, contentType = { "row" }) { row ->
-                AuditCard(row, onMarkTested = {
-                    val cur = ProState.data.exercises[row.id] ?: return@AuditCard
-                    val testedVal = if (row.estimated1RM > 0) row.estimated1RM else row.tested1RM
-                    if (testedVal > 0) {
-                        ProState.data = ProState.data.copy(
-                            exercises = ProState.data.exercises.toMutableMap().apply {
-                                this[row.id] = cur.copy(tested1RM = testedVal, testDate = ProState.todayLocal())
-                            }
-                        )
-                        ProState.saveWorkoutData()
-                        ProState.notifyChanged()
-                    }
-                }, onReset = {
-                    val cur = ProState.data.exercises[row.id] ?: return@AuditCard
-                    ProState.data = ProState.data.copy(
-                        exercises = ProState.data.exercises.toMutableMap().apply {
-                            this[row.id] = cur.copy(mu = 0.0, sigma2 = 1.0, lastUpdate = null, tested1RM = null, testDate = null)
-                        }
-                    )
-                    ProState.saveWorkoutData()
-                    ProState.notifyChanged()
-                })
-            }
-            if (rows.isEmpty()) {
-                item(key = "empty", contentType = "empty") {
-                    EmptyState("fa-dumbbell", "No tracked lifts yet", "Log a few sets in a workout, then come back to audit your 1RM estimates.")
-                }
-            }
-            item(key = "spacer", contentType = "spacer") { Spacer(Modifier.height(120.dp)) }
-        }
-    }
-}
-
-private data class AuditRow(
-    val id: String,
-    val name: String,
-    val tested1RM: Double,
-    val estimated1RM: Double,
-    val lastCalibrated: String?,
-    val testDate: String?,
-    val isStale: Boolean,
-)
-
-@Composable
-private fun BoxScope.AuditTile(label: String, value: String, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
-    val c = LocalProColors.current
-    Column(
-        modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(c.surface)
-            .border(1.dp, c.hairline, RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        Text(value, style = ProType.statValue, color = color, fontSize = 22.sp)
-        Text(label, style = ProType.small, color = c.text3)
-    }
-}
-
-@Composable
-private fun AuditCard(row: AuditRow, onMarkTested: () -> Unit, onReset: () -> Unit) {
-    val c = LocalProColors.current
-    Column(
-        Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(c.surface)
-            .border(1.dp, if (row.isStale) c.warn.copy(alpha = 0.4f) else c.hairline, RoundedCornerShape(14.dp))
-            .padding(13.dp),
-    ) {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(row.name, style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
-            if (row.isStale) {
-                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.warn.copy(alpha = 0.15f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
-                    Text("stale", fontSize = 10.sp, color = c.warn, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text("Tested 1RM", style = ProType.small, color = c.text3)
-                Text(if (row.tested1RM > 0) "${row.tested1RM.toInt()} lbs" else "—", style = ProType.body2, color = c.ok)
-            }
-            Column(Modifier.weight(1f)) {
-                Text("Est. 1RM", style = ProType.small, color = c.text3)
-                Text(if (row.estimated1RM > 0) "${row.estimated1RM.toInt()} lbs" else "—", style = ProType.body2, color = c.accent)
-            }
-            Column(Modifier.weight(1f)) {
-                Text("Last calibrated", style = ProType.small, color = c.text3)
-                Text(row.lastCalibrated?.take(10) ?: "—", style = ProType.small, color = c.text2)
-            }
+            com.peakform.fitness.ui.FaIcon("fa-flask-vial", size = 18.sp, tint = c.accent)
+            Spacer(Modifier.width(8.dp))
+            Text("1RM Audit", style = ProType.cardTitle, color = c.text)
+            Spacer(Modifier.weight(1f))
+            P4Button("Close", style = BtnStyle.GHOST, onClick = onClose)
         }
         Spacer(Modifier.height(8.dp))
+        Text(
+            "${report.rows.size} exercises have a tested 1RM. ${report.retestDueCount} retest due, ${report.suspiciousCount} look suspicious (off the estimate by >20%).",
+            style = ProType.body2, color = c.text2,
+        )
+        Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            P4Button("Mark tested today", icon = "fa-check", style = BtnStyle.SUCCESS, minHeight = 32, modifier = Modifier.weight(1f)) { onMarkTested() }
-            P4Button("Reset estimate", icon = "fa-arrow-rotate-left", style = BtnStyle.SECONDARY, minHeight = 32, modifier = Modifier.weight(1f)) { onReset() }
+            P4Button(
+                "Reset suspicious entries (${report.suspiciousCount})",
+                icon = "fa-triangle-exclamation",
+                style = BtnStyle.DANGER,
+                modifier = Modifier.weight(1f),
+                enabled = report.suspiciousCount > 0,
+            ) {
+                val n = OneRmLab.resetSuspicious(ctx)
+                resetCount += n
+                ver.intValue++
+            }
+            P4Button("Done", icon = "fa-check", style = BtnStyle.PRIMARY, modifier = Modifier.weight(1f), onClick = onClose)
+        }
+        if (resetCount > 0) {
+            Spacer(Modifier.height(8.dp))
+            Text("Reset $resetCount suspicious entries.", style = ProType.small, color = c.ok)
+        }
+        Spacer(Modifier.height(12.dp))
+        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(report.rows, key = { it.exerciseId }) { row ->
+                val _tick = ver.intValue
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(c.surface2).border(1.dp, c.hairline, RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(row.exerciseName, style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
+                        if (row.retestDue) {
+                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.warn.copy(alpha = 0.15f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                                Text("retest due", fontSize = 10.sp, color = c.warn, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        if (row.suspicious) {
+                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.bad.copy(alpha = 0.15f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                                Text("suspicious", fontSize = 10.sp, color = c.bad, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text("Tested: ${row.tested1Rm.toInt()} lbs · Est: ${row.estimated1Rm.toInt()} lbs · Δ ${"%+.0f".format(row.deltaLbs)} lbs",
+                        style = ProType.small, color = c.text3)
+                    if (row.lastTestedAt != null) {
+                        Text("Last tested: ${row.lastTestedAt.take(10)}", style = ProType.small, color = c.text3)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    P4Button("Reset this 1RM", icon = "fa-rotate-left", style = BtnStyle.GHOST, minHeight = 32) {
+                        OneRmLab.resetOne(ctx, row.exerciseId)
+                        ver.intValue++
+                    }
+                }
+            }
         }
     }
 }

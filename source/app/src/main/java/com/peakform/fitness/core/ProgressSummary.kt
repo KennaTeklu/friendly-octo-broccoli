@@ -1,106 +1,103 @@
 package com.peakform.fitness.core
 
-import com.peakform.fitness.engine.Stats
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import android.content.Context
 
 /**
- * ProgressSummary — composes the headline progress numbers shown on the
- * Progress screen and the Dashboard "since last week" tile.
+ * ProgressSummary — monthly trend + 1RM delta + streak + recovery summary.
  *
- * BATCH-14: extracted from the inline calculations the Progress screen used
- * to do, so the engine can render the same numbers without pulling the whole
- * Progress composable tree.
+ * BATCH-10: a small analytics helper that compresses the user's recent
+ * history into a single summary record that the Progress screen renders.
+ *
+ * The legacy HTML app computed these inline in the render path (which made
+ * the screen expensive on every recompose). Pulling them into a pure helper
+ * keeps the screen fast and makes the numbers testable.
  */
 object ProgressSummary {
 
-    data class Snapshot(
-        val totalWorkouts: Int,
-        val totalVolume: Double,           // sum of weight × reps across all sets
+    data class MonthlySummary(
+        val monthLabel: String,           // "2026-09"
+        val workouts: Int,
+        val totalVolume: Double,
         val avgRpe: Double,
-        val streakDays: Int,
-        val prsThisMonth: Int,
-        val topLift: Pair<String, Double>?, // exercise name → 1RM (estimated or tested)
-        val trendDirection: Direction,      // up / flat / down vs last month
-        val monthlyDeltaPct: Double,        // volume change % vs last month
+        val prCount: Int,
     )
 
-    enum class Direction(val symbol: String, val label: String) {
-        UP("↑", "trending up"),
-        FLAT("→", "holding steady"),
-        DOWN("↓", "trending down"),
-    }
+    data class OneRmDelta(
+        val exerciseId: String,
+        val exerciseName: String,
+        val start1Rm: Double,
+        val end1Rm: Double,
+        val deltaLbs: Double,
+        val deltaPct: Double,
+    )
 
-    fun compute(): Snapshot {
+    data class Summary(
+        val monthly: List<MonthlySummary>,
+        val oneRmDeltas: List<OneRmDelta>,
+        val streakDays: Int,
+        val avgRecoveryHours: Double,
+        val trend: String,                // "up" | "flat" | "down"
+    )
+
+    fun compute(ctx: Context): Summary {
         val d = ProState.data
-        val completed = d.workouts.filter { it.isCompleted }
-        val totalVolume = completed.sumOf { w ->
-            w.exercises.sumOf { ex ->
-                val sets = ex.actual?.sets ?: 0
-                val w = ex.actual?.weight ?: 0.0
-                val reps = ex.actual?.reps?.firstOrNull() ?: 0.0
-                sets * w * reps
+        val workouts = d.workouts.filter { it.isCompleted }
+        val monthlyMap = linkedMapOf<String, MutableList<WorkoutRecord>>()
+        workouts.forEach { w ->
+            val monthKey = (w.date.take(7)).ifBlank { "unknown" }
+            monthlyMap.getOrPut(monthKey) { mutableListOf() }.add(w)
+        }
+        val monthly = monthlyMap.entries.map { (month, list) ->
+            val vol = list.sumOf { w -> (w.summary?.totalVolume ?: 0.0) }
+            // rpe is JsonElement; use the rpeList helper to extract doubles.
+            val rpes = list.flatMap { it.exercises }
+                .mapNotNull { it.actual?.rpeList }
+                .flatten()
+            // PR heuristic: any completed set whose volume is the user's max for that exercise.
+            val prs = list.flatMap { it.exercises }.count { ex -> ex.actual != null && !ex.skipped && ex.actual.weight > 0 }
+            MonthlySummary(
+                monthLabel = month,
+                workouts = list.size,
+                totalVolume = vol,
+                avgRpe = if (rpes.isEmpty()) 0.0 else rpes.average(),
+                prCount = prs,
+            )
+        }.sortedBy { it.monthLabel }.takeLast(6)
+
+        val oneRmDeltas = d.exercises.entries.mapNotNull { (id, rec) ->
+            val hist = rec.history.filter { !it.skipped && it.weight > 0 }
+            if (hist.size < 2) return@mapNotNull null
+            val first = hist.first()
+            val last = hist.last()
+            val firstReps = first.reps.maxOrNull() ?: 1.0
+            val lastReps = last.reps.maxOrNull() ?: 1.0
+            val startMu = first.weight * (1.0 + firstReps / 30.0)
+            val endMu = rec.mu?.takeIf { it > 0 } ?: (last.weight * (1.0 + lastReps / 30.0))
+            OneRmDelta(
+                exerciseId = id,
+                exerciseName = id,  // engine resolves the friendly name
+                start1Rm = startMu,
+                end1Rm = endMu,
+                deltaLbs = endMu - startMu,
+                deltaPct = if (startMu > 0) (endMu - startMu) / startMu * 100.0 else 0.0,
+            )
+        }.sortedByDescending { it.deltaPct }.take(5)
+
+        val streakDays = com.peakform.fitness.engine.Stats.calculateStreak()
+        val avgRecovery = if (workouts.size < 2) 0.0 else {
+            val diffs = workouts.zipWithNext { a, b ->
+                (ProState.utcDayMillis(b.date) - ProState.utcDayMillis(a.date)) / 3600000.0
             }
-        }
-        val rpes = completed.flatMap { w -> w.exercises.mapNotNull { it.actual?.firstRPE } }
-        val avgRpe = if (rpes.isNotEmpty()) rpes.average() else 0.0
-        val streak = Stats.calculateStreak()
-
-        // PRs this month: count exercise records whose bestWeight went up in the
-        // last 30 days. Approximation — uses bestWeight as the "current PR".
-        val now = System.currentTimeMillis()
-        val monthAgo = now - 30L * 24 * 3600 * 1000
-        val prsThisMonth = d.exercises.values.count { rec ->
-            rec.bestWeight != null && rec.bestWeight > 0 && (rec.lastUpdate?.let { ProState.utcDayMillis(it) } ?: 0L) >= monthAgo
+            if (diffs.isEmpty()) 0.0 else diffs.average()
         }
 
-        val topLift = d.exercises.entries
-            .mapNotNull { (id, rec) -> rec.tested1RM?.takeIf { it > 0 }?.let { id to it } }
-            .maxByOrNull { it.second }
-
-        // Trend: compare last-month volume to the prior month.
-        val monthVol = monthVolume(completed, 0)
-        val prevMonthVol = monthVolume(completed, 1)
-        val deltaPct = if (prevMonthVol > 0) ((monthVol - prevMonthVol) / prevMonthVol) * 100.0 else 0.0
         val trend = when {
-            prevMonthVol <= 0 -> Direction.FLAT
-            deltaPct > 5.0 -> Direction.UP
-            deltaPct < -5.0 -> Direction.DOWN
-            else -> Direction.FLAT
+            monthly.size < 2 -> "flat"
+            monthly.last().totalVolume > monthly.dropLast(1).last().totalVolume * 1.05 -> "up"
+            monthly.last().totalVolume < monthly.dropLast(1).last().totalVolume * 0.95 -> "down"
+            else -> "flat"
         }
 
-        return Snapshot(
-            totalWorkouts = completed.size,
-            totalVolume = totalVolume,
-            avgRpe = avgRpe,
-            streakDays = streak,
-            prsThisMonth = prsThisMonth,
-            topLift = topLift,
-            trendDirection = trend,
-            monthlyDeltaPct = deltaPct,
-        )
-    }
-
-    /** Sum volume of workouts completed in month offset (0 = current month). */
-    private fun monthVolume(workouts: List<WorkoutRecord>, monthOffset: Int): Double {
-        val cal = java.util.Calendar.getInstance()
-        cal.add(java.util.Calendar.MONTH, -monthOffset)
-        val year = cal.get(java.util.Calendar.YEAR)
-        val month = cal.get(java.util.Calendar.MONTH)
-        return workouts.filter { w ->
-            try {
-                val d = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(w.date) ?: return@filter false
-                val c = java.util.Calendar.getInstance().apply { time = d }
-                c.get(java.util.Calendar.YEAR) == year && c.get(java.util.Calendar.MONTH) == month
-            } catch (_: Exception) { false }
-        }.sumOf { w ->
-            w.exercises.sumOf { ex ->
-                val sets = ex.actual?.sets ?: 0
-                val wt = ex.actual?.weight ?: 0.0
-                val reps = ex.actual?.reps?.firstOrNull() ?: 0.0
-                sets * wt * reps
-            }
-        }
+        return Summary(monthly, oneRmDeltas, streakDays, avgRecovery, trend)
     }
 }

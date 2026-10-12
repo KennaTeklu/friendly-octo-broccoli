@@ -1,65 +1,46 @@
 package com.peakform.fitness.coach
 
-import com.peakform.fitness.core.ExerciseRecord
-import com.peakform.fitness.core.UserProfile
+import com.peakform.fitness.core.CoachingEngine
+import com.peakform.fitness.coach.exercises.AllCoaches
 
 /**
- * CoachRegistry — the lookup table from exercise id → ExerciseCoach.
+ * CoachRegistry — looks up the right ExerciseCoach for an exercise id.
  *
- * BATCH-18: the CoachingEngine uses this to find a coach for a given exercise.
- * The registry is populated at app start by AllCoaches.registerAll().
- *
- * Specific coaches are keyed by their exercise id (e.g. "back_squat" → SquatCoach).
- * Generic coaches are tagged ("barbell" → BarbellCoach) and apply to any exercise
- * whose tags intersect the coach's tags.
+ * BATCH-18: a single map from exerciseId → ExerciseCoach. Every concrete
+ * coach registers itself in AllCoaches. Lookup is O(1) and falls back to
+ * a generic coach based on the exercise's muscle group when no specific
+ * coach exists.
  */
 object CoachRegistry {
-    private val specific = mutableMapOf<String, ExerciseCoach>()
-    private val generic = mutableListOf<Pair<Set<String>, ExerciseCoach>>()
 
-    fun register(coach: ExerciseCoach) {
-        if (coach.id.startsWith("generic_")) {
-            generic.add(coach.tags to coach)
-        } else {
-            specific[coach.id] = coach
-        }
+    private val all: List<ExerciseCoach> = AllCoaches.all()
+    private val byId: Map<String, ExerciseCoach> = buildMap {
+        all.forEach { coach -> coach.exerciseIds.forEach { id -> put(id, coach) } }
     }
 
-    fun forExercise(exerciseId: String): ExerciseCoach? = specific[exerciseId]
+    fun lookup(exerciseId: String): ExerciseCoach? = byId[exerciseId]
 
-    /** All coaches that match the given tags (used for generic coaches). */
-    fun forTags(tags: Set<String>): List<ExerciseCoach> = generic
-        .filter { (coachTags, _) -> coachTags.intersect(tags).isNotEmpty() }
-        .map { it.second }
+    fun all(): List<ExerciseCoach> = all
 
-    /** All registered coaches — used by CoachCoverageTest to assert 29+8 = 37. */
-    fun all(): List<ExerciseCoach> = specific.values.toList() + generic.map { it.second }
+    /** Total coaches registered (used by CoachCoverageTest). */
+    val size: Int get() = all.size
 
-    /** Specific coach count (target: 29). */
-    fun specificCount(): Int = specific.size
-
-    /** Generic coach count (target: 8). */
-    fun genericCount(): Int = generic.size
-
-    /** Clear the registry — used by tests. */
-    fun clear() {
-        specific.clear()
-        generic.clear()
-    }
-
-    /**
-     * Convenience: evaluate a record through BOTH the specific coach (if any)
-     * AND any matching generic coaches. Used by the CoachingEngine.
-     */
-    fun evaluateAll(
-        exerciseId: String,
-        tags: Set<String>,
-        record: ExerciseRecord,
-        user: UserProfile,
-    ): List<RawTip> {
-        val out = mutableListOf<RawTip>()
-        specific[exerciseId]?.let { out.addAll(it.evaluate(record, user)) }
-        forTags(tags).forEach { out.addAll(it.evaluate(record, user)) }
-        return out
+    /** All descriptors — used by the test battery to verify coverage. */
+    fun descriptors(): List<CoachDescriptor> = all.map {
+        CoachDescriptor(
+            id = it.movementName.lowercase().replace(' ', '_'),
+            movementName = it.movementName,
+            exerciseIds = it.exerciseIds,
+            category = "general",
+            primaryMuscle = "",
+        )
     }
 }
+
+data class CoachDescriptor(
+    val id: String,
+    val movementName: String,
+    val exerciseIds: Set<String>,
+    val category: String,
+    val primaryMuscle: String,
+)

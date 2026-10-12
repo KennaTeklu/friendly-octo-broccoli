@@ -52,19 +52,19 @@ object Notify {
         Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
-    /** Legacy per-toast "Don't show today" suppression (L45782–45800).
-     *  BATCH-12: routed through ProfileSettings so suppression is per-profile. */
+    /** Legacy per-toast "Don't show today" suppression (L45782–45800). */
     fun suppressedToday(ctx: Context, key: String): Boolean {
-        val stamp = ProfileSettings.get(ctx, ProfileSettings.NOTIF_SUPPRESS_PREFIX + key)
+        val stamp = ProfileState.get(ctx, "p4_notif_suppressed_$key")
         return stamp != null && stamp == ProState.todayLocal()
     }
 
     fun suppressToday(ctx: Context, key: String) {
-        ProfileSettings.put(ctx, ProfileSettings.NOTIF_SUPPRESS_PREFIX + key, ProState.todayLocal())
+        ProfileState.put(ctx, "p4_notif_suppressed_$key", ProState.todayLocal())
     }
 
+    // BATCH-5B: notification toggles live in per-profile prefs now.
     private fun toggleEnabled(ctx: Context, key: String): Boolean =
-        ProfileSettings.get(ctx, "p4_notif_$key") != "false"
+        ProfileSettings.getNotif(ctx, key)
 
     fun notify(ctx: Context, key: String, title: String, body: String) {
         if (!toggleEnabled(ctx, key) || suppressedToday(ctx, key) || !hasPermission(ctx)) return
@@ -133,9 +133,9 @@ object Notify {
                     "Your cycle says your period is expected in $expectedIn day(s).")
             }
         }
-        // backup nudge every 5 workouts (L41182)
+        // backup nudge every 5 workouts (L41182) — per-profile last_backup (BATCH-5B).
         val completed = d.workouts.count { it.isCompleted }
-        if (completed in 1..9999 && completed % 5 == 0 && ProfileSettings.get(ctx, "p4_last_backup") == null) {
+        if (completed in 1..9999 && completed % 5 == 0 && ProfileSettings.get(ctx, ProfileSettings.K_LAST_BACKUP) == null) {
             notify(ctx, "backup_nudge", "Backup your data",
                 "🎉 You've completed $completed workouts! Backup your data?")
         }

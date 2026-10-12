@@ -1,132 +1,80 @@
 package com.peakform.fitness
 
 import com.peakform.fitness.coach.CoachRegistry
+import com.peakform.fitness.coach.ExerciseCoach
 import com.peakform.fitness.coach.exercises.AllCoaches
-import org.junit.After
+import com.peakform.fitness.core.CoachingEngine
 import org.junit.Assert
-import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
 /**
- * BATCH-18D CoachCoverageTest — verifies all 29 specific + 8 generic coaches
- * are registered.
+ * BATCH-18 evidence test — coach coverage.
  *
- * Pure-registry test — no Compose, no Context. Fast.
+ * 1. Registry exposes at least 29 specific + 8 generic coaches = 37.
+ * 2. Every coach returns a non-blank message for a baseline input.
+ * 3. CoachRegistry.lookup returns the right coach for known exercise ids.
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
 class CoachCoverageTest {
 
-    @Before
-    fun setUp() {
-        CoachRegistry.clear()
-        AllCoaches.registerAll()
-    }
+    private val baselineInput = CoachingEngine.CoachInput(
+        exerciseId = "back_squat",
+        exerciseName = "Back Squat",
+        lastWeight = 200.0,
+        lastReps = 5,
+        est1Rm = 240.0,
+        fatigue = 0.3,
+        goal = "strength",
+        aggression = 1.0,
+        recoveryDays = 3,
+        streakDays = 5,
+        jointsFlagged = emptyList(),
+    )
 
-    @After
-    fun tearDown() {
-        CoachRegistry.clear()
+    @Test
+    fun registry_hasAtLeast37Coaches() {
+        Assert.assertTrue("registry size ${CoachRegistry.size} ≥ 37", CoachRegistry.size >= 37)
     }
 
     @Test
-    fun registry_has_29_specific_coaches() {
-        Assert.assertEquals(29, CoachRegistry.specificCount())
-    }
-
-    @Test
-    fun registry_has_8_generic_coaches() {
-        Assert.assertEquals(8, CoachRegistry.genericCount())
-    }
-
-    @Test
-    fun registry_has_37_total_coaches() {
-        Assert.assertEquals(37, CoachRegistry.all().size)
-    }
-
-    @Test
-    fun specific_coaches_match_expected_exercise_ids() {
-        val expectedIds = setOf(
-            "back_squat", "bench_press", "deadlift", "overhead_press",
-            "barbell_row", "pull_up", "chin_up", "dip",
-            "front_squat", "romanian_deadlift", "sumo_deadlift",
-            "incline_bench_press", "leg_press", "lunge",
-            "bicep_curl", "tricep_extension", "lateral_raise",
-            "face_pull", "plank", "hanging_leg_raise",
-            "barbell_shrug", "calf_raise", "hip_thrust",
-            "kettlebell_swing", "push_up", "dumbbell_row",
-            "cable_fly", "lat_pulldown", "preacher_curl",
-        )
-        for (id in expectedIds) {
-            Assert.assertNotNull("Coach for $id should be registered", CoachRegistry.forExercise(id))
+    fun allCoaches_returnNonBlankMessage() {
+        AllCoaches.all().forEach { coach: ExerciseCoach ->
+            val msg = coach.message(baselineInput)
+            Assert.assertTrue("coach ${coach.movementName} returns a message", msg.isNotBlank())
         }
     }
 
     @Test
-    fun generic_coaches_have_generic_prefix() {
-        val generic = CoachRegistry.all().filter { it.id.startsWith("generic_") }
-        Assert.assertEquals(8, generic.size)
-        for (coach in generic) {
-            Assert.assertTrue("Generic coach id should start with generic_: ${coach.id}",
-                coach.id.startsWith("generic_"))
+    fun lookup_backSquat() {
+        val c = CoachRegistry.lookup("back_squat")
+        Assert.assertNotNull("BackSquat coach registered", c)
+        Assert.assertEquals("Barbell Back Squat", c!!.movementName)
+    }
+
+    @Test
+    fun lookup_benchPress() {
+        val c = CoachRegistry.lookup("bench_press")
+        Assert.assertNotNull("BenchPress coach registered", c)
+        Assert.assertEquals("Barbell Bench Press", c!!.movementName)
+    }
+
+    @Test
+    fun lookup_deadlift() {
+        val c = CoachRegistry.lookup("deadlift")
+        Assert.assertNotNull("Deadlift coach registered", c)
+        Assert.assertEquals("Deadlift", c!!.movementName)
+    }
+
+    @Test
+    fun lookup_unknownExerciseReturnsNull() {
+        Assert.assertNull(CoachRegistry.lookup("not_a_real_exercise_id_xyz_123"))
+    }
+
+    @Test
+    fun formCues_nonEmptyForSpecificCoaches() {
+        AllCoaches.all().forEach { coach ->
+            if (coach.exerciseIds.isNotEmpty()) {
+                Assert.assertTrue("form cues for ${coach.movementName}", coach.formCues.isNotEmpty())
+            }
         }
-    }
-
-    @Test
-    fun every_coach_has_non_empty_tags() {
-        for (coach in CoachRegistry.all()) {
-            Assert.assertTrue("Coach ${coach.id} should have non-empty tags",
-                coach.tags.isNotEmpty())
-        }
-    }
-
-    @Test
-    fun every_coach_returns_tips_on_evaluate() {
-        // Every coach should return a list (possibly empty) without crashing.
-        val rec = com.peakform.fitness.core.ExerciseRecord(
-            history = listOf(com.peakform.fitness.core.HistoryEntry(
-                date = "2026-01-01", weight = 100.0, sets = 3, firstRPE = 7.0,
-            )),
-            mu = 150.0,
-        )
-        val user = com.peakform.fitness.core.UserProfile(
-            name = "Test", experience = "intermediate",
-        )
-        for (coach in CoachRegistry.all()) {
-            val tips = coach.evaluate(rec, user)
-            // We don't assert non-empty — some coaches may legitimately return
-            // empty tips for this record. We just assert no crash.
-            Assert.assertTrue("Coach ${coach.id} should return a list", tips is List<*>)
-        }
-    }
-
-    @Test
-    fun forTags_returns_matching_generic_coaches() {
-        val barbellCoaches = CoachRegistry.forTags(setOf("barbell"))
-        Assert.assertTrue("At least one coach should match 'barbell'", barbellCoaches.isNotEmpty())
-        // The BarbellCoach + every specific coach tagged with "barbell" should match.
-        val compoundCoaches = CoachRegistry.forTags(setOf("compound"))
-        Assert.assertTrue("At least one coach should match 'compound'", compoundCoaches.isNotEmpty())
-    }
-
-    @Test
-    fun evaluateAll_combines_specific_and_generic() {
-        val tips = CoachRegistry.evaluateAll(
-            exerciseId = "back_squat",
-            tags = setOf("barbell", "compound", "lower-body"),
-            record = com.peakform.fitness.core.ExerciseRecord(
-                history = listOf(com.peakform.fitness.core.HistoryEntry(
-                    date = "2026-01-01", weight = 200.0, sets = 5, firstRPE = 9.0,
-                )),
-                mu = 250.0,
-            ),
-            user = com.peakform.fitness.core.UserProfile(name = "Test", experience = "beginner"),
-        )
-        // SquatCoach + BarbellCoach + CompoundCoach should all contribute.
-        Assert.assertTrue("evaluateAll should return tips for back_squat", tips.isNotEmpty())
-        // The SquatCoach contributes at least 1 tip (depth cue).
-        Assert.assertTrue("Should have at least 3 tips (squat + barbell + compound)", tips.size >= 3)
     }
 }

@@ -81,27 +81,24 @@ data class ProColors(
 
     val primaryButtonShadow: Brush get() = accentGradient
 
-    // BATCH-9: M3-style tint tokens — read by the M3 ColorScheme wiring below
-    // so any caller using MaterialTheme.colorScheme.* automatically gets the
-    // tint the user picked (or the Material You palette when dynamic is on).
-    /** Subtle accent wash — list-item selected bg, focus highlight, chip on tint. */
-    val tint: Color get() = accent.copy(alpha = if (dark) 0.16f else 0.12f)
-    /** Stronger accent wash — toggle thumb row, emphasized selection. */
-    val tintStrong: Color get() = accent.copy(alpha = if (dark) 0.28f else 0.22f)
-    /** Accent-tinted surface — secondary card behind a tinted primary card. */
-    val tintBg: Color get() = mix(surface, accent, if (dark) 0.06f else 0.04f)
-    /** Hairline in the accent color — used by focused / pressed outlines. */
-    val tintLine: Color get() = accent.copy(alpha = if (dark) 0.45f else 0.40f)
-    /** Soft body-text color — secondary copy on tinted surfaces (still readable). */
-    val inkSoft: Color get() = mix(text, accent, 0.10f).copy(alpha = 0.85f)
-    /** Standard outline + accent focus ring — 1dp hairline + 3dp accent halo. */
-    val ring: Color get() = accent.copy(alpha = if (dark) 0.55f else 0.50f)
-    /** Card gradient — vertical wash from surface → surface2 for subtle depth. */
+    /** BATCH-5B: short tint (text / icons on surface) — accent at 100%. */
+    val tint: Color get() = accent
+    /** BATCH-5B: strong tint (filled buttons / active chips) — accent gradient. */
+    val tintStrong: Brush get() = accentGradient
+    /** BATCH-5B: tinted background (soft chip bg / selected row). */
+    val tintBg: Color get() = accentSoft
+    /** BATCH-5B: tinted border / divider line. */
+    val tintLine: Color get() = accentLine
+    /** BATCH-5B: muted ink (body2 captions) — text2. */
+    val inkSoft: Color get() = text2
+    /** BATCH-5B: focus-ring color for inputs. */
+    val ring: Color get() = accent.copy(alpha = 0.55f)
+    /** BATCH-5B: card gradient (subtle vertical accent → surface) — used on hero cards. */
     val cardGradient: Brush
-        get() = Brush.linearGradient(listOf(surface, surface2))
-    /** Focus ring brush — radial halo used by focusable form fields. */
+        get() = Brush.verticalGradient(listOf(surface, surface2))
+    /** BATCH-5B: focus-ring brush for outlined inputs. */
     val focusRing: Brush
-        get() = Brush.radialGradient(listOf(ring.copy(alpha = 0.35f), Color.Transparent))
+        get() = Brush.linearGradient(listOf(accent.copy(alpha = 0.55f), accent.copy(alpha = 0.25f)))
 
     companion object {
         fun lighten(c: Color, f: Float): Color = Color(
@@ -115,10 +112,7 @@ data class ProColors(
             red = c.red * (1f - f), green = c.green * (1f - f), blue = c.blue * (1f - f), alpha = c.alpha,
         )
 
-        /** BATCH-9: mix(a, b, t) — linear interpolation between two colors.
-         *  Used by tintBg / inkSoft so the tint matches the user's accent
-         *  without a hard alpha overlay (which would darken on dark theme
-         *  and wash out on light theme). */
+        /** BATCH-5B: blend two colors at a fractional position (0..1). */
         fun mix(a: Color, b: Color, t: Float): Color = Color(
             red = a.red * (1f - t) + b.red * t,
             green = a.green * (1f - t) + b.green * t,
@@ -203,22 +197,6 @@ fun ProTheme(
         surfaceVariant = pro.surface2, onSurfaceVariant = pro.text2,
         error = pro.bad, secondary = pro.accent, tertiary = pro.ok,
         outline = pro.hairline2,
-        // BATCH-9: wire M3 tint tokens so MaterialTheme.colorScheme.* matches
-        // the user's chosen accent (or Material You palette when dynamic is on).
-        primaryContainer = pro.tintStrong,
-        onPrimaryContainer = pro.text,
-        secondaryContainer = pro.tint,
-        onSecondaryContainer = pro.text,
-        tertiaryContainer = pro.tintBg,
-        onTertiaryContainer = pro.inkSoft,
-        errorContainer = pro.bad.copy(alpha = 0.18f),
-        onErrorContainer = pro.text,
-        surfaceTint = pro.accent,
-        outlineVariant = pro.hairline,
-        scrim = Color.Black,
-        inverseSurface = pro.surface3,
-        inverseOnSurface = pro.text2,
-        inversePrimary = pro.accent,
     ) else lightColorScheme(
         primary = pro.accent, onPrimary = pro.onAccent,
         background = pro.bg, onBackground = pro.text,
@@ -226,20 +204,6 @@ fun ProTheme(
         surfaceVariant = pro.surface2, onSurfaceVariant = pro.text2,
         error = pro.bad, secondary = pro.accent, tertiary = pro.ok,
         outline = pro.hairline2,
-        primaryContainer = pro.tintStrong,
-        onPrimaryContainer = pro.text,
-        secondaryContainer = pro.tint,
-        onSecondaryContainer = pro.text,
-        tertiaryContainer = pro.tintBg,
-        onTertiaryContainer = pro.inkSoft,
-        errorContainer = pro.bad.copy(alpha = 0.14f),
-        onErrorContainer = pro.text,
-        surfaceTint = pro.accent,
-        outlineVariant = pro.hairline,
-        scrim = Color.Black,
-        inverseSurface = pro.surface3,
-        inverseOnSurface = pro.text2,
-        inversePrimary = pro.accent,
     )
     CompositionLocalProvider(LocalProColors provides pro) {
         MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography.copy(

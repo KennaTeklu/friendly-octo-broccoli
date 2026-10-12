@@ -122,7 +122,7 @@ fun SettingsScreen(onOpenSection: (String) -> Unit) {
         val data = pendingExport
         if (uri != null && data != null) {
             val ok = Backup.writeJsonToUri(ctx, uri, data)
-            if (ok) ProPrefs.put(ctx, "p4_last_backup", ProState.nowIso())
+            if (ok) ProfileSettings.put(ctx, ProfileSettings.K_LAST_BACKUP, ProState.nowIso())
             toast = if (ok) "Backup exported ✓" else "Export failed"
         }
         pendingExport = null
@@ -544,33 +544,20 @@ private fun ColumnScope.SettingsCardBody(
             val c = LocalProColors.current
             Text("Reset all data — workouts, exercises, profile stats and snapshots. Your license and app settings are preserved.", style = ProType.small, color = c.text3)
             Spacer(Modifier.height(10.dp))
-            P4Button("Reset all data", icon = "fa-trash", style = BtnStyle.DANGER) { onReset() }
-            Spacer(Modifier.height(14.dp))
-            // BATCH-14/15: 1RM Audit + Reset buttons — open the OneRMAuditScreen,
-            // and offer a one-tap reset of every 1RM estimate in the profile.
-            Text("1RM Audit — review every calibrated / estimated 1RM in your profile, mark stale estimates, and reset ones that drifted from reality.", style = ProType.small, color = c.text3)
-            Spacer(Modifier.height(8.dp))
-            P4Button("Run 1RM Audit", icon = "fa-magnifying-glass-chart", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
-                onOpenSection("1rm_audit")
+            // BATCH-5B: 1RM Audit + Reset buttons. Reachable from Settings
+            // because the audit is a one-off maintenance task, not part of
+            // the workout flow.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                P4Button("1RM Audit", icon = "fa-clipboard-check", style = BtnStyle.INFO, modifier = Modifier.weight(1f)) {
+                    onOpenSection("1rm_audit")
+                }
+                P4Button("1RM Lab", icon = "fa-flask-vial", style = BtnStyle.SECONDARY, modifier = Modifier.weight(1f)) {
+                    onOpenSection("1rm_lab")
+                }
             }
             Spacer(Modifier.height(8.dp))
-            P4Button("Reset 1RM estimates", icon = "fa-arrow-rotate-left", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
-                var touched = 0
-                val updated = ProState.data.exercises.mapValues { (_, rec) ->
-                    val mu = rec.mu
-                    if (mu != null && mu > 0) {
-                        touched++
-                        rec.copy(mu = 0.0, sigma2 = 1.0, lastUpdate = null)
-                    } else rec
-                }
-                if (touched > 0) {
-                    ProState.data = ProState.data.copy(exercises = updated)
-                    ProState.saveWorkoutData()
-                    ProState.notifyChanged()
-                    onToast("Reset $touched 1RM estimates — they'll re-calibrate on next set.")
-                } else {
-                    onToast("No 1RM estimates to reset — log a few sets first.")
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                P4Button("Reset all data", icon = "fa-trash", style = BtnStyle.DANGER, modifier = Modifier.fillMaxWidth()) { onReset() }
             }
         }
     }
@@ -636,32 +623,23 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
     // P4E-UI-02: renamed from "Appearance" to "Change theme".
-    // P4E-UI-05: read straight from ThemeController so the picker can never
-    // lag behind the source of truth, and so a swatch tap re-colors the whole
-    // app instantly. The tap writes accent + p4_dynamic atomically (see
-    // ThemeController.setAccentAndDynamic).
-    // BATCH-6: 3-mode toggle (system / dark / light) — writes the new mode
-    // token AND re-resolves dark synchronously so the host recomposes
-    // immediately with the right scheme.
-    val mode = ThemeController.modeToken
+    // BATCH-5B: 3-mode toggle (system / dark / light) — write-through via
+    // ThemeController.set which persists to ProfileSettings in the same call.
+    val mode = ThemeController.mode
     val accentId = ThemeController.accentId
     val dynamic = ThemeController.dynamic
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(
-            Triple("system", "fa-circle-half-stroke", "System"),
-            Triple("dark", "fa-moon", "Dark"),
-            Triple("light", "fa-sun", "Light"),
-        ).forEach { (m, ic, label) ->
+        listOf("system" to "fa-desktop", "dark" to "fa-moon", "light" to "fa-sun").forEach { (m, ic) ->
             val active = mode == m
             Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(2.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
                 ThemeController.set(m, accentId, ctx)
-                onToast("Theme updated — $label · ${ACCENTS.firstOrNull { it.id == accentId }?.name ?: "Material You"}")
+                onToast("Theme updated — $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name}")
             }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     com.peakform.fitness.ui.FaIcon(ic, size = 13.sp, tint = if (active) c.accent else c.text2)
                     Spacer(Modifier.width(6.dp))
-                    Text(label, fontSize = 12.sp, color = if (active) c.accent else c.text2)
+                    Text(m.replaceFirstChar { it.uppercase() }, fontSize = 12.sp, color = if (active) c.accent else c.text2)
                 }
             }
         }
@@ -671,9 +649,6 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     // Material You. Tapping any non-Material-You swatch writes accent AND
     // p4_dynamic=off in one atomic commit (setAccentAndDynamic). Tapping the
     // Material You tile writes p4_dynamic=on in the same atomic write.
-    // P4E-UI-06: the 4D banner is removed — the user never sees text telling
-    // them their choice is being ignored, because their choice is applied the
-    // moment they tap.
     ACCENTS.chunked(8).forEach { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
             row.forEach { a ->
@@ -685,8 +660,6 @@ private fun appearanceInner(onToast: (String) -> Unit) {
                         .background(if (ThemeController.dark) a.darkHex else a.lightHex)
                         .border(if (active) 3.dp else 1.dp, if (active) c.text else c.hairline2, androidx.compose.foundation.shape.CircleShape)
                         .clickable {
-                            // P4E-UI-05: atomic write — accent + p4_dynamic=off
-                            // in a single SharedPreferences commit().
                             ThemeController.setAccentAndDynamic(mode, a.id, dynamic = false, ctx = ctx)
                             onToast("Theme updated — $mode · ${a.name}")
                         }
@@ -713,7 +686,6 @@ private fun appearanceInner(onToast: (String) -> Unit) {
                     .background(gradient)
                     .border(if (active) 3.dp else 1.dp, if (active) c.text else c.hairline2, androidx.compose.foundation.shape.CircleShape)
                     .clickable {
-                        // P4E-UI-05: atomic write — p4_dynamic=on, accent unchanged
                         ThemeController.setAccentAndDynamic(mode, accentId, dynamic = true, ctx = ctx)
                         onToast("Material You color on — wallpaper palette applied.")
                     }
@@ -725,8 +697,9 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     val accentName = if (dynamic) "Material You" else (ACCENTS.firstOrNull { it.id == accentId }?.name ?: "")
     Text(accentName, fontSize = 12.sp, color = c.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
     Spacer(Modifier.height(12.dp))
-    ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProPrefs.get(LocalContext.current, "p4_gym") == "on") { on ->
-        ProPrefs.put(ctx, "p4_gym", if (on) "on" else "off")
+    // BATCH-5B: route Gym Mode through ProfileSettings (per-profile).
+    ToggleRow("Gym Mode", "Giant buttons, no waiting on animations", checked = ProfileSettings.get(ctx, ProfileSettings.K_GYM) == "on") { on ->
+        ProfileSettings.put(ctx, ProfileSettings.K_GYM, if (on) "on" else "off")
         onToast(if (on) "Gym Mode ON — huge buttons, no waiting on animations." else "Gym Mode off.")
     }
     // P4E-UI-07: the Material You toggle stays alongside the tile. The tile
@@ -751,14 +724,14 @@ fun ReadingCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
     val levels = Library.readingLevels
-    var level by remember { mutableIntStateOf(ProPrefs.get(ctx, "p4_vocab")?.toIntOrNull() ?: 5) }
+    var level by remember { mutableIntStateOf(ProfileSettings.get(ctx, ProfileSettings.K_VOCAB)?.toIntOrNull() ?: 5) }
     Text("The app speaks at your level — from super simple (1) to fancy English (10).", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(8.dp))
     levels.forEach { l ->
         val active = level == l.id
         Row(Modifier.fillMaxWidth().clickable {
             level = l.id
-            ProPrefs.put(ctx, "p4_vocab", l.id.toString())
+            ProfileSettings.put(ctx, ProfileSettings.K_VOCAB, l.id.toString())
             onToast("Words set to Level ${l.id} — ${l.name}")
         }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(18.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (active) c.accent else c.surface3).border(1.dp, c.hairline2, androidx.compose.foundation.shape.CircleShape))
@@ -808,14 +781,14 @@ fun VocabularyCardBody(
 fun LanguageCardBody(onToast: (String) -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    var lang by remember { mutableStateOf(ProPrefs.get(ctx, "p4_lang") ?: "auto") }
+    var lang by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LANG) ?: "auto") }
     Text("Also works with your system translation — labels and buttons are structured for clean translation.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(8.dp))
     Library.langs.forEach { l ->
         val active = lang == l.code
         Row(Modifier.fillMaxWidth().clickable {
             lang = l.code
-            ProPrefs.put(ctx, "p4_lang", l.code)
+            ProfileSettings.put(ctx, ProfileSettings.K_LANG, l.code)
             onToast("Language set to ${l.name}.")
         }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(15.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (active) c.accent else c.surface3))
@@ -842,7 +815,7 @@ fun LookLangCardBody(onToast: (String) -> Unit) {
 @Composable
 fun PowerCardBody(onToast: (String) -> Unit) {
     val ctx = LocalContext.current
-    val raw = ProPrefs.get(ctx, "p4_power_settings")
+    val raw = ProfileSettings.get(ctx, ProfileSettings.K_POWER_SETTINGS)
     val power = remember(raw) {
         try {
             val o = ProJson.json.parseToJsonElement(raw ?: "{}") as JsonObject
@@ -855,7 +828,7 @@ fun PowerCardBody(onToast: (String) -> Unit) {
     }
     fun save(autoRest: Boolean, haptics: Boolean, swipe: Boolean) {
         val json = """{"autoRest":$autoRest,"haptics":$haptics,"swipe":$swipe,"dock":true}"""
-        ProPrefs.put(ctx, "p4_power_settings", json)
+        ProfileSettings.put(ctx, ProfileSettings.K_POWER_SETTINGS, json)
     }
     ToggleRow("Auto rest timer after logging effort", checked = power.first) { on ->
         save(on, power.second, power.third); onToast(if (on) "Enabled — saved" else "Disabled — saved")
@@ -1070,7 +1043,7 @@ fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
     val dayNames = listOf("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
     var express by remember { mutableStateOf(user.settings.expressMode) }
     var aggression by remember { mutableStateOf(user.settings.aggression) }
-    var competition by remember { mutableStateOf(ProPrefs.get(ctx, "p4_competition") ?: user.competition?.date ?: "") }
+    var competition by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_COMPETITION) ?: user.competition?.date ?: "") }
 
     Text("Height (inches)", style = ProType.small, color = c.text3)
     ProTextField(value = height, onValueChange = { height = it.filter { ch -> ch.isDigit() } }, placeholder = "e.g. 70")
@@ -1138,7 +1111,7 @@ fun TrainingPrefsCardBody(onToast: (String) -> Unit) {
                 aggression = aggression.coerceIn(0.6, 1.4),
             ),
         ))
-        ProPrefs.put(ctx, "p4_competition", competition)
+        ProfileSettings.put(ctx, ProfileSettings.K_COMPETITION, competition)
         ProState.saveWorkoutData()
         onToast("Training preferences saved")
     }
@@ -1155,15 +1128,16 @@ fun NotificationsCardBody(onToast: (String) -> Unit) {
         NotifOpt("period_notice", "Show period phase notices (My Cycle — coming soon)"),
     )
     opts.forEach { o ->
-        val checked = ProPrefs.get(ctx, "p4_notif_" + o.key) != "false"
+        // BATCH-5B: route via ProfileSettings.getNotif/setNotif (per-profile).
+        val checked = ProfileSettings.getNotif(ctx, o.key)
         ToggleRow(o.label, checked = checked) { on ->
-            ProPrefs.put(ctx, "p4_notif_" + o.key, if (on) "true" else "false")
+            ProfileSettings.setNotif(ctx, o.key, on)
             onToast(if (on) "Showing ${o.key.replace('_', ' ')}" else "Hiding ${o.key.replace('_', ' ')}")
         }
     }
     Spacer(Modifier.height(6.dp))
-    ToggleRow("Deliver as system notifications", "Background reminders via Android (not just in-app)", checked = ProPrefs.get(ctx, "p4_notif_system") != "false") { on ->
-        ProPrefs.put(ctx, "p4_notif_system", if (on) "true" else "false")
+    ToggleRow("Deliver as system notifications", "Background reminders via Android (not just in-app)", checked = ProfileSettings.get(ctx, ProfileSettings.K_NOTIF_SYSTEM) != "false") { on ->
+        ProfileSettings.put(ctx, ProfileSettings.K_NOTIF_SYSTEM, if (on) "true" else "false")
         onToast(if (on) "System notifications on — reminders arrive even with Pro closed." else "System notifications off.")
     }
     Text("Each reminder also has a \"Don't show today\" option when it appears.", style = ProType.small, color = c.text3)
@@ -1198,10 +1172,11 @@ fun StreamGroupCardBody(onToast: (String) -> Unit) {
             "component" to "Component",
         )
     }
-    var groupByKey by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.LIB_GROUP) ?: "muscleGroup") }
-    var chunkSize by remember { mutableIntStateOf(ProfileSettings.getInt(ctx, ProfileSettings.LIB_CHUNK, 20)) }
-    var expandAll by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.LIB_EXPAND_ALL) == "true") }
-    var streamingOn by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.LIB_STREAM) != "false") }
+    // BATCH-5B: route via ProfileSettings (per-profile).
+    var groupByKey by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LIB_GROUP) ?: "muscleGroup") }
+    var chunkSize by remember { mutableIntStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LIB_CHUNK)?.toIntOrNull() ?: 20) }
+    var expandAll by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LIB_EXPAND_ALL) == "true") }
+    var streamingOn by remember { mutableStateOf(ProfileSettings.get(ctx, ProfileSettings.K_LIB_STREAM) != "false") }
 
     Text("Default group-by mode for the Library screen. Streaming loads exercises in chunks to keep the screen fast.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(8.dp))
@@ -1211,7 +1186,7 @@ fun StreamGroupCardBody(onToast: (String) -> Unit) {
             val active = groupByKey == key
             Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (active) c.accentSoft else c.surface2).border(1.dp, if (active) c.accentLine else c.hairline2, RoundedCornerShape(999.dp)).clickable {
                 groupByKey = key
-                ProfileSettings.put(ctx, ProfileSettings.LIB_GROUP, key)
+                ProfileSettings.put(ctx, ProfileSettings.K_LIB_GROUP, key)
                 onToast("Default group-by: $label")
             }.padding(horizontal = 10.dp, vertical = 7.dp)) {
                 Text(label, fontSize = 11.sp, color = if (active) c.accent else c.text2)
@@ -1222,19 +1197,19 @@ fun StreamGroupCardBody(onToast: (String) -> Unit) {
     Text("Streaming chunk size: $chunkSize exercises per batch", style = ProType.small, color = c.text3)
     Slider(
         value = chunkSize.toFloat(),
-        onValueChange = { chunkSize = it.toInt(); ProfileSettings.putInt(ctx, ProfileSettings.LIB_CHUNK, chunkSize) },
+        onValueChange = { chunkSize = it.toInt(); ProfileSettings.put(ctx, ProfileSettings.K_LIB_CHUNK, chunkSize.toString()) },
         valueRange = 10f..60f,
         steps = 10,
     )
     Spacer(Modifier.height(6.dp))
     ToggleRow("Stream exercises (load in chunks)", "Faster Library screen on large databases", checked = streamingOn) { on ->
         streamingOn = on
-        ProfileSettings.put(ctx, ProfileSettings.LIB_STREAM, if (on) "true" else "false")
+        ProfileSettings.put(ctx, ProfileSettings.K_LIB_STREAM, if (on) "true" else "false")
         onToast(if (on) "Streaming on" else "Streaming off — all cards load at once")
     }
     ToggleRow("Expand all groups on open", "Skip the per-group tap-to-expand step", checked = expandAll) { on ->
         expandAll = on
-        ProfileSettings.put(ctx, ProfileSettings.LIB_EXPAND_ALL, if (on) "true" else "false")
+        ProfileSettings.put(ctx, ProfileSettings.K_LIB_EXPAND_ALL, if (on) "true" else "false")
         onToast(if (on) "Expand-all on" else "Expand-all off")
     }
 }
@@ -1386,8 +1361,8 @@ fun PrivacyCardBody(onToast: (String) -> Unit) {
     val ctx = LocalContext.current
     Text("Pro has no internet permission. Your data never leaves this device except when you export it.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(10.dp))
-    ToggleRow("Screenshot-safe mode", "Hide content in screenshots and the recents strip (takes effect next launch)", checked = ProPrefs.get(ctx, "p4_secure") == "on") { on ->
-        ProPrefs.put(ctx, "p4_secure", if (on) "on" else "off")
+    ToggleRow("Screenshot-safe mode", "Hide content in screenshots and the recents strip (takes effect next launch)", checked = ProfileSettings.get(ctx, ProfileSettings.K_SECURE) == "on") { on ->
+        ProfileSettings.put(ctx, ProfileSettings.K_SECURE, if (on) "on" else "off")
         onToast(if (on) "Screenshot-safe mode on — restart to apply." else "Screenshot-safe mode off.")
     }
     ToggleRow("Predictive back gesture", "Preview the previous screen when swiping back (Android 14+)", checked = true) { _ ->

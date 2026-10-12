@@ -30,8 +30,12 @@ class Batch4EAppearanceTest {
     @Before
     fun setUp() {
         ctx = ApplicationProvider.getApplicationContext()
-        // Simulate a fresh install: clear all prefs.
+        // Simulate a fresh install: clear all prefs (global + per-profile).
         ProPrefs.clearAll(ctx)
+        ctx.deleteSharedPreferences(com.peakform.fitness.core.ProfileState.prefsName(com.peakform.fitness.core.Profiles.DEFAULT))
+        // BATCH-5B: clear v22 migration flag so the per-profile migration reruns.
+        com.peakform.fitness.core.ProfileState.remove(ctx, com.peakform.fitness.core.ProfileState.K_V22_MIGRATED)
+        com.peakform.fitness.core.ProfileState.remove(ctx, com.peakform.fitness.core.ProfileState.K_V18_MIGRATED)
         // Reset ThemeController to defaults — load() with null returns early,
         // so we load a known-default JSON to force accentId back to "blue".
         ThemeController.load("""{"mode":"dark","accent":"blue"}""")
@@ -57,11 +61,10 @@ class Batch4EAppearanceTest {
      */
     @Test
     fun freshInstall_materialYouOff_defaultAccentApplied() {
-        // Simulate the exact cold-start path from MainActivity.kt:86-87:
-        //   ThemeController.load(ProPrefs.get(this, "p4_theme"))
-        //   ThemeController.loadDynamic(ProPrefs.get(this, "p4_dynamic"))
-        val p4Theme = ProPrefs.get(ctx, "p4_theme")  // null on fresh install
-        val p4Dynamic = ProPrefs.get(ctx, "p4_dynamic")  // null on fresh install
+        // BATCH-5B: theme prefs now live in the per-profile SharedPreferences
+        // file (p4_ls_default), not the global ProPrefs (p4_ls).
+        val p4Theme = com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_THEME)
+        val p4Dynamic = com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_DYNAMIC)
 
         ThemeController.load(p4Theme)
         ThemeController.loadDynamic(p4Dynamic)
@@ -90,16 +93,15 @@ class Batch4EAppearanceTest {
         // Setup: Material You was ON
         ThemeController.setDynamic(true, ctx)
         Assert.assertTrue("Precondition: dynamic should be ON", ThemeController.dynamic)
-        Assert.assertEquals("Precondition: p4_dynamic should be 'on'", "on", ProPrefs.get(ctx, "p4_dynamic"))
+        Assert.assertEquals("Precondition: p4_dynamic should be 'on'", "on", com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_DYNAMIC))
 
         // Action: tap the "green" swatch — this should atomically write
         // accent="green" AND p4_dynamic="off" in one commit.
-        // Code path: ThemeController.setAccentAndDynamic() at ThemeController.kt:83
         ThemeController.setAccentAndDynamic("dark", "green", dynamic = false, ctx = ctx)
 
         // Assert: both keys are written atomically
-        val p4Theme = ProPrefs.get(ctx, "p4_theme")
-        val p4Dynamic = ProPrefs.get(ctx, "p4_dynamic")
+        val p4Theme = com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_THEME)
+        val p4Dynamic = com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_DYNAMIC)
 
         Assert.assertNotNull("p4_theme should be written", p4Theme)
         Assert.assertTrue("p4_theme should contain accent 'green'", p4Theme!!.contains("\"accent\":\"green\""))
@@ -125,7 +127,7 @@ class Batch4EAppearanceTest {
         ThemeController.setAccentAndDynamic("dark", "red", dynamic = true, ctx = ctx)
 
         // Assert: p4_dynamic is "on", accent stays "red"
-        Assert.assertEquals("p4_dynamic should be 'on'", "on", ProPrefs.get(ctx, "p4_dynamic"))
+        Assert.assertEquals("p4_dynamic should be 'on'", "on", com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_DYNAMIC))
         Assert.assertEquals("Accent should still be 'red'", "red", ThemeController.accentId)
         Assert.assertTrue("ThemeController.dynamic should be true", ThemeController.dynamic)
     }

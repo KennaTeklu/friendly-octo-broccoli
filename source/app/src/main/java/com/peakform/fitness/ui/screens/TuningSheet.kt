@@ -14,73 +14,111 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.peakform.fitness.core.CoachingEngine
 import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.ProState
-import com.peakform.fitness.ui.*
-import com.peakform.fitness.ui.components.*
+import com.peakform.fitness.ui.LocalProColors
+import com.peakform.fitness.ui.ProType
+import com.peakform.fitness.ui.components.P4Button
+import com.peakform.fitness.ui.components.BtnStyle
+import com.peakform.fitness.ui.components.ToggleRow
 
 /**
- * TuningSheet — BATCH-15.
+ * TuningSheet — BATCH-8 coach-led tuning gear.
  *
- * Per-profile tuning dials surfaced from the Workout screen:
- *  - Aggression (0.6 – 1.4) — how hard the prescription engine pushes
- *  - Rest time (30 – 300 s) — between-set rest the timer uses
- *  - Progression rate (0.5% – 5% / week)
+ * Surfaces the per-profile dials that drive the CoachingEngine:
+ *   - aggression slider (0.6 — 1.4)
+ *   - hold-back toggle (force fatigue factor = 0.7)
+ *   - tune-target toggle (drop load 10% for flagged joints)
+ *   - postpartum months (multiplier)
  *
- * Each dial persists on change via ProfileSettings + ProState.saveWorkoutData
- * so the next workout picks up the new values immediately.
- *
- * Also exposes a "Tune for today" button that opens the post-session feel sheet.
+ * All writes go through ProfileSettings so they persist per-profile.
  */
 @Composable
-fun TuningSheet(onDismiss: () -> Unit, onPostSessionFeel: () -> Unit) {
+fun TuningSheet(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
     val c = LocalProColors.current
     val ctx = LocalContext.current
     val user = ProState.data.user
-    var aggression by remember { mutableStateOf(user.settings.aggression) }
-    var restTime by remember { mutableStateOf(user.settings.restTime.toFloat()) }
-    var progression by remember { mutableStateOf((user.settings.progressionRate * 100).toFloat()) }
+    var aggression by remember { mutableStateOf(user.settings.aggression.toFloat()) }
+    var holdBack by remember { mutableStateOf(ProfileSettings.get(ctx, "p4_tune_hold_back") == "true") }
+    var tuneTarget by remember { mutableStateOf(ProfileSettings.get(ctx, "p4_tune_target") == "true") }
+    var postpartum by remember { mutableStateOf((user.postpartumMonths ?: 0).toString()) }
 
-    Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+    Box(
+        Modifier.fillMaxSize().background(c.bg.copy(alpha = 0.6f)).clickable { onDismiss() },
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            FaIcon("fa-sliders", size = 16.sp, tint = c.accent)
-            Spacer(Modifier.width(8.dp))
-            Text("Tuning", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
-            FaIcon("fa-xmark", size = 14.sp, tint = c.text3, modifier = Modifier.clickable { onDismiss() })
-        }
-        Spacer(Modifier.height(8.dp))
-        Text("Aggression — how hard the engine pushes prescriptions: ${(aggression * 100).toInt()}%", style = ProType.small, color = c.text3)
-        Slider(value = aggression.toFloat(), onValueChange = {
-            aggression = it.toDouble()
-        }, valueRange = 0.6f..1.4f, steps = 7)
-        Text("Rest time between sets: ${restTime.toInt()}s", style = ProType.small, color = c.text3)
-        Slider(value = restTime, onValueChange = { restTime = it }, valueRange = 30f..300f, steps = 26)
-        Text("Progression rate: ${"%.2f".format(progression / 100)} per week", style = ProType.small, color = c.text3)
-        Slider(value = progression, onValueChange = { progression = it }, valueRange = 0.5f..5f, steps = 8)
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            P4Button("Save", icon = "fa-save", style = BtnStyle.PRIMARY, modifier = Modifier.weight(1f)) {
+        Column(
+            Modifier.fillMaxWidth().align(Alignment.BottomCenter)
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(c.surface)
+                .border(1.dp, c.hairline, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .padding(16.dp)
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                com.peakform.fitness.ui.FaIcon("fa-sliders", size = 16.sp, tint = c.accent)
+                Spacer(Modifier.width(8.dp))
+                Text("Tuning", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
+                P4Button("Close", style = BtnStyle.GHOST, onClick = onDismiss)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("Coach dials — how hard the prescriptions push. Per-profile.",
+                style = ProType.small, color = c.text3)
+            Spacer(Modifier.height(12.dp))
+            Text("Aggression dial: ${(aggression * 100).toInt()}%", style = ProType.label, color = c.text)
+            Slider(
+                value = aggression,
+                onValueChange = { aggression = it },
+                valueRange = 0.6f..1.4f,
+                steps = 7,
+            )
+            Spacer(Modifier.height(8.dp))
+            ToggleRow(
+                "Hold back (force fatigue factor = 0.7)",
+                "Forced easy day — overrides the auto fatigue reading.",
+                checked = holdBack,
+            ) { on ->
+                holdBack = on
+                ProfileSettings.put(ctx, "p4_tune_hold_back", if (on) "true" else "false")
+            }
+            Spacer(Modifier.height(6.dp))
+            ToggleRow(
+                "Tune target (drop load 10% for flagged joints)",
+                "Form-over-weight when a joint is flagged.",
+                checked = tuneTarget,
+            ) { on ->
+                tuneTarget = on
+                ProfileSettings.put(ctx, "p4_tune_target", if (on) "true" else "false")
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Postpartum months (0-12 — applies ×0.7 / ×0.85 multiplier)", style = ProType.small, color = c.text3)
+            P4Button(
+                if (postpartum == "0") "Not postpartum" else "Postpartum: $postpartum months",
+                icon = "fa-baby",
+                style = BtnStyle.SECONDARY,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    val next = ((postpartum.toIntOrNull() ?: 0) + 1).coerceAtMost(12)
+                    postpartum = next.toString()
+                },
+            )
+            Spacer(Modifier.height(12.dp))
+            P4Button("Save tuning", icon = "fa-save", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth()) {
                 val s = ProState.data.user.settings
                 ProState.data = ProState.data.copy(user = ProState.data.user.copy(
-                    settings = s.copy(
-                        aggression = aggression.coerceIn(0.6, 1.4),
-                        restTime = restTime.toInt().coerceIn(30, 300),
-                        progressionRate = (progression / 100.0).coerceIn(0.005, 0.05),
-                    ),
+                    postpartumMonths = postpartum.toIntOrNull()?.takeIf { it > 0 }?.toDouble(),
+                    settings = s.copy(aggression = aggression.toDouble().coerceIn(0.6, 1.4)),
                 ))
-                ProfileSettings.put(ctx, ProfileSettings.AGGRESSION, aggression.toString())
-                ProfileSettings.putInt(ctx, ProfileSettings.REST_TIME, restTime.toInt())
-                ProfileSettings.put(ctx, ProfileSettings.PROGRESSION_RATE, progression.toString())
                 ProState.saveWorkoutData()
-                ProState.notifyChanged()
                 onDismiss()
-            }
-            P4Button("Post-session feel", icon = "fa-face-smile", style = BtnStyle.SECONDARY, modifier = Modifier.weight(1f)) {
-                onPostSessionFeel()
             }
         }
     }

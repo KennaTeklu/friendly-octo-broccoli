@@ -1,34 +1,17 @@
-# Reference Note: 01-per-profile-state
+# Reference Note: 01 Per Profile State
 
-**Batch:** v2.0.0 (versionCode 30)
-**Status:** Shipped
+## Summary
+This note documents the design contract for the feature shipped in BATCH-5A/5B and later batches.
 
-## Purpose
+## Storage contract
+- Per-profile state lives in `p4_ls_<profileId>` SharedPreferences.
+- Global state (active profile id, default profile id, device id, consent log) stays in `p4_ls`.
 
-This note documents the design contract, public API, and migration story for
-the module identified by the file name. It is the single source of truth for
-the audit — code paths that disagree with this note are bugs.
+## Invariants
+- All writes are write-through: the runtime state and the persisted state change in the same call.
+- All reads resolve through the active profile's prefs file.
+- Migration is one-shot and idempotent (gated on `p4_v22_migrated`).
 
-## Public API
-
-See the corresponding Kotlin file under
-`app/src/main/java/com/peakform/fitness/`. The public functions and constants
-listed in that file are the contract; callers may not reach past them into
-private state.
-
-## Migration Story
-
-- v1.x: previous design (see "Before" section below)
-- v2.0.0: this module ships with the new contract
-- Forward-compat: storage formats are versioned; future upgrades read the
-  version tag and apply the appropriate migration
-
-## Test Coverage
-
-The relevant `Batch{N}Test.kt` exercises every public entry point. See
-`app/src/test/java/com/peakform/fitness/` for the test list.
-
-## Before
-
-(Description of the previous design — what changed, why, and what the
-migration does for existing users on upgrade.)
+## References
+- BATCHES.md (root)
+- DESIGN-CONTRACT.md

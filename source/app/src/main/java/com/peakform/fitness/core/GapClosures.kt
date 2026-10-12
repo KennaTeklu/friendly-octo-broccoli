@@ -1,184 +1,95 @@
 package com.peakform.fitness.core
 
-import kotlin.math.abs
-import kotlin.math.min
-
 /**
- * GapClosures — BATCH-18C.
+ * GapClosures — small stateless helpers that close the last batch of gaps
+ * the reference HTML app had but the native port didn't.
  *
- * A collection of small, focused helpers that close specific UX / data gaps
- * surfaced by the v2.0 architecture audit. Each closure is its own class so
- * the test battery can target it individually.
+ * BATCH-13: gender-filtered library view, fuzzy exercise search, RPE color
+ * band, competition-date countdown, postpartum intensity multiplier, and
+ * the "next progression suggestion" formatter.
  *
- *  - GenderFilter     — filter the exercise library by gender suitability
- *  - FuzzySearch      — Levenshtein-distance-based exercise name search
- *  - RpeColor         — RPE 1-10 → Tailwind color token
- *  - CompetitionDate  — countdown days + taper-week flag
- *  - SkillFactorBucket — categorize an exercise as Easy/Medium/Hard
- *  - AgeBucket        — under-16 / 16-64 / 65+ bucket from birth date
- *  - PostpartumFlag   — flag a profile as postpartum (0-6 months)
- *  - VolumeBucket     — light/moderate/heavy from total tonnage
+ * Pure functions only — no ProState writes, no side effects. The UI calls
+ * these from any thread.
  */
 object GapClosures {
 
-    // ---------------- GenderFilter ----------------
-
-    object GenderFilter {
-        /** Returns true if the exercise is suitable for the given gender. */
-        fun accepts(ex: LibraryExercise, gender: String): Boolean {
-            // genderSuitability ∈ {both, male, female, unspecified}
-            val suit = ex.genderSuitability.ifBlank { "both" }
-            return suit == "both" || suit == gender
-        }
-
-        /** Apply the filter to a list — keeps only the exercises suitable for gender. */
-        fun apply(list: List<LibraryExercise>, gender: String): List<LibraryExercise> =
-            list.filter { accepts(it, gender) }
-    }
-
-    // ---------------- FuzzySearch ----------------
-
-    object FuzzySearch {
-        /** Levenshtein distance — classic DP, O(n*m). */
-        fun distance(a: String, b: String): Int {
-            val la = a.lowercase()
-            val lb = b.lowercase()
-            val n = la.length; val m = lb.length
-            if (n == 0) return m; if (m == 0) return n
-            val prev = IntArray(m + 1) { it }
-            val curr = IntArray(m + 1)
-            for (i in 1..n) {
-                curr[0] = i
-                for (j in 1..m) {
-                    val cost = if (la[i - 1] == lb[j - 1]) 0 else 1
-                    curr[j] = minOf(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
-                }
-                prev.indices.forEach { prev[it] = curr[it] }
-            }
-            return prev[m]
-        }
-
-        /** Score 0..1 — 1 = perfect match, 0 = no similarity. */
-        fun score(query: String, target: String): Double {
-            if (query.isBlank() && target.isBlank()) return 1.0
-            val maxLen = maxOf(query.length, target.length)
-            if (maxLen == 0) return 1.0
-            return 1.0 - distance(query, target).toDouble() / maxLen
-        }
-
-        /** Search a list — returns items sorted by score (best first). */
-        fun search(query: String, list: List<LibraryExercise>, threshold: Double = 0.3): List<LibraryExercise> =
-            list.map { it to score(query, it.name) }
-                .filter { it.second >= threshold }
-                .sortedByDescending { it.second }
-                .map { it.first }
-
-        /** Convenience — also matches muscle tags. */
-        fun searchWithMuscles(query: String, list: List<LibraryExercise>, threshold: Double = 0.3): List<LibraryExercise> =
-            list.map { ex ->
-                val nameScore = score(query, ex.name)
-                val muscleScore = ex.muscles.maxOfOrNull { score(query, it) } ?: 0.0
-                ex to maxOf(nameScore, muscleScore)
-            }
-                .filter { it.second >= threshold }
-                .sortedByDescending { it.second }
-                .map { it.first }
-    }
-
-    // ---------------- RpeColor ----------------
-
-    object RpeColor {
-        /** Returns a hex color string for the given RPE (1-10). */
-        fun hex(rpe: Int): String = when (rpe.coerceIn(1, 10)) {
-            in 1..4 -> "#34D399"  // green — easy
-            in 5..6 -> "#A3E635"  // lime — moderate
-            7 -> "#FACC15"        // yellow — challenging
-            8 -> "#FB923C"        // orange — hard
-            9 -> "#F87171"        // red — very hard
-            10 -> "#DC2626"       // dark red — max
-            else -> "#8A919E"
-        }
-
-        /** Returns the legacy token name (matches the HTML app's color tokens). */
-        fun token(rpe: Int): String = when (rpe.coerceIn(1, 10)) {
-            in 1..4 -> "ok"
-            in 5..6 -> "lime"
-            7 -> "warn"
-            else -> "bad"
-        }
-    }
-
-    // ---------------- CompetitionDate ----------------
-
-    object CompetitionDate {
-        data class Plan(
-            val daysOut: Int,
-            val isInTaperWindow: Boolean,  // last 7 days
-            val isInPeakBlock: Boolean,    // last 4 weeks
-            val suggestedTaperPct: Double, // volume % to drop in taper
-        )
-
-        /** Compute the taper plan from a competition date string (yyyy-MM-dd). */
-        fun plan(compDate: String): Plan {
-            val targetMs = try {
-                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-                    .parse(compDate)?.time ?: return Plan(-1, false, false, 0.0)
-            } catch (_: Exception) { return Plan(-1, false, false, 0.0) }
-            val nowMs = System.currentTimeMillis()
-            val daysOut = ((targetMs - nowMs) / (24L * 3600 * 1000)).toInt()
-            val taper = daysOut in 0..7
-            val peak = daysOut in 0..28
-            val pct = when {
-                daysOut < 0 -> 0.0
-                daysOut <= 3 -> 0.5   // half volume in the last 3 days
-                daysOut <= 7 -> 0.7   // 70% in the last week
-                else -> 1.0
-            }
-            return Plan(daysOut, taper, peak, pct)
-        }
-    }
-
-    // ---------------- SkillFactorBucket ----------------
-
-    object SkillFactorBucket {
-        fun label(sf: Double): String = when {
-            sf < 0.5 -> "Hard"
-            sf < 0.7 -> "Medium"
-            else -> "Easy"
-        }
-    }
-
-    // ---------------- AgeBucket ----------------
-
-    object AgeBucket {
-        fun fromBirthDate(birth: String?): String? {
-            if (birth.isNullOrBlank()) return null
-            val d = try {
-                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(birth)
-            } catch (_: Exception) { return null } ?: return null
-            val age = ((System.currentTimeMillis() - d.time) / 31557600000.0).toInt()
-            return when {
-                age < 16 -> "youth"
-                age >= 65 -> "senior"
-                else -> "adult"
+    /** Filter the library to movements appropriate for the user's gender
+     *  (legacy "genderFilter" — drops movements tagged for the other gender). */
+    fun filterByGender(exercises: List<LibraryExercise>, gender: String?): List<LibraryExercise> {
+        if (gender == null || gender == "unspecified") return exercises
+        return exercises.filter { ex ->
+            val tags = ex.fitnessComponents + ex.muscles
+            // Legacy tag system: "mens_only" / "womens_only" / "pelvic_safe"
+            val mensOnly = tags.any { it.equals("mens_only", ignoreCase = true) }
+            val womensOnly = tags.any { it.equals("womens_only", ignoreCase = true) }
+            when (gender) {
+                "male" -> !womensOnly
+                "female" -> !mensOnly
+                else -> true
             }
         }
     }
 
-    // ---------------- PostpartumFlag ----------------
-
-    object PostpartumFlag {
-        fun isPostpartum(monthsPostpartum: Int?): Boolean =
-            monthsPostpartum != null && monthsPostpartum in 0..6
+    /** Fuzzy search: substring match on name + muscles + equipment, with a
+     *  Levenshtein fallback for short queries (< 4 chars). */
+    fun fuzzySearch(exercises: List<LibraryExercise>, query: String): List<LibraryExercise> {
+        val q = query.trim().lowercase()
+        if (q.length < 2) return exercises
+        val direct = exercises.filter {
+            it.name.lowercase().contains(q) ||
+                it.muscles.any { m -> m.lowercase().contains(q) } ||
+                it.equipment.lowercase().contains(q) ||
+                it.primaryMuscle.lowercase().contains(q)
+        }
+        if (direct.isNotEmpty() || q.length >= 4) return direct
+        // Short query with no direct hit — fuzzy edit distance ≤ 1.
+        return exercises.filter { levenshtein(it.name.lowercase(), q) <= 1 }
     }
 
-    // ---------------- VolumeBucket ----------------
+    /** RPE color band: green (≤6), yellow (7-8), orange (9), red (10). */
+    fun rpeColor(rpe: Double): String = when {
+        rpe <= 6.0 -> "green"
+        rpe <= 8.0 -> "yellow"
+        rpe <= 9.0 -> "orange"
+        else -> "red"
+    }
 
-    object VolumeBucket {
-        fun label(totalVolume: Double): String = when {
-            totalVolume < 5000 -> "light"
-            totalVolume < 20000 -> "moderate"
-            else -> "heavy"
+    /** Days until the user's competition date (negative if past). */
+    fun competitionCountdown(competitionDate: String?): Int? {
+        if (competitionDate.isNullOrBlank()) return null
+        return try {
+            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val target = fmt.parse(competitionDate) ?: return null
+            val days = ((target.time - System.currentTimeMillis()) / (24L * 3600 * 1000)).toInt()
+            days
+        } catch (_: Exception) { null }
+    }
+
+    /** Postpartum intensity multiplier (0-6 months → 0.7, 6-12 → 0.85, else 1.0). */
+    fun postpartumMultiplier(monthsPostpartum: Int?): Double = when {
+        monthsPostpartum == null -> 1.0
+        monthsPostpartum <= 6 -> 0.7
+        monthsPostpartum <= 12 -> 0.85
+        else -> 1.0
+    }
+
+    /** Format the "next progression" suggestion for a single exercise. */
+    fun nextProgressionLabel(rec: ExerciseRecord?): String {
+        if (rec == null) return "Start light — 2 sets × 10 reps at 50% 1RM"
+        val next = rec.nextWeight?.takeIf { it > 0 } ?: return "Hold the load — log another session"
+        val lastReps = rec.history.lastOrNull { !it.skipped }?.reps?.maxOrNull()?.toInt() ?: 8
+        return "Next: ${next.toInt()} lbs × $lastReps reps"
+    }
+
+    // ---- Levenshtein (small, inlined) ----
+    private fun levenshtein(a: String, b: String): Int {
+        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
+        for (i in 0..a.length) dp[i][0] = i
+        for (j in 0..b.length) dp[0][j] = j
+        for (i in 1..a.length) for (j in 1..b.length) {
+            val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+            dp[i][j] = minOf(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
         }
+        return dp[a.length][b.length]
     }
 }

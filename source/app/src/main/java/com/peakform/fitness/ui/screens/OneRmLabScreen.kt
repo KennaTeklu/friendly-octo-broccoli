@@ -7,154 +7,105 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.OneRmLab
-import com.peakform.fitness.core.ProState
-import com.peakform.fitness.engine.Library
-import com.peakform.fitness.ui.*
-import com.peakform.fitness.ui.components.*
+import com.peakform.fitness.ui.LocalProColors
+import com.peakform.fitness.ui.ProType
+import com.peakform.fitness.ui.components.P4Button
+import com.peakform.fitness.ui.components.BtnStyle
 
 /**
- * OneRmLabScreen — BATCH-18A.
+ * OneRmLabScreen — BATCH-12 1RM Lab calculator + audit console.
  *
- * Interactive 1RM calculator: enter weight × reps, pick a formula
- * (Epley / Brzycki / Lombardi / Mayhew / Consensus), see the 1RM + a
- * percentage table (50%-100% in 5% steps) for programming the next
- * session.
- *
- * Also lists every exercise the profile has logged, with the current
- * consensus 1RM pulled from the last logged set. Tapping a row pre-fills
- * the calculator with that exercise's last weight × reps.
+ * Reachable from Settings → "1RM Lab" button.
  */
 @Composable
 fun OneRmLabScreen(onClose: () -> Unit) {
     val c = LocalProColors.current
-    var weight by remember { mutableStateOf("135") }
+    val ctx = LocalContext.current
+    var weight by remember { mutableStateOf("") }
     var reps by remember { mutableStateOf("5") }
-    var rpe by remember { mutableStateOf("8") }
-    var formula by remember { mutableStateOf("Consensus") }
-    val w = weight.toDoubleOrNull() ?: 0.0
-    val r = reps.toIntOrNull() ?: 0
-    val rp = rpe.toIntOrNull() ?: 0
-    val oneRm = when (formula) {
-        "Epley" -> OneRmLab.epley(w, r)
-        "Brzycki" -> OneRmLab.brzycki(w, r)
-        "Lombardi" -> OneRmLab.lombardi(w, r)
-        "Mayhew" -> OneRmLab.mayhew(w, r)
-        else -> OneRmLab.consensus(w, r)
+    var formula by remember { mutableStateOf(OneRmLab.F_EPLEY) }
+    val estimate = remember(weight, reps, formula) {
+        val w = weight.toDoubleOrNull() ?: 0.0
+        val r = reps.toIntOrNull() ?: 0
+        OneRmLab.estimate(w, r, formula)
     }
-    val oneRmAdj = if (rp > 0) OneRmLab.adjusted(w, r, rp) else oneRm
-    val table = OneRmLab.percentageTable(oneRmAdj)
+    val audit = remember { OneRmLab.auditAll(ctx) }
 
-    val history = remember {
-        ProState.data.exercises.entries
-            .mapNotNull { (id, rec) ->
-                val last = rec.history.lastOrNull { !it.skipped && it.weight > 0 } ?: return@mapNotNull null
-                val lib = Library.findExercise(id) ?: return@mapNotNull null
-                Triple(lib.name, last.weight, last.sets)
-            }
-            .sortedByDescending { it.second }
-    }
-
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            com.peakform.fitness.ui.FaIcon("fa-flask-vial", size = 18.sp, tint = c.accent)
+            Spacer(Modifier.width(8.dp))
+            Text("1RM Lab", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
+            P4Button("Close", style = BtnStyle.GHOST, onClick = onClose)
+        }
+        Spacer(Modifier.height(12.dp))
+        // Calculator
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                .background(c.surface2).border(1.dp, c.hairline, RoundedCornerShape(14.dp))
+                .padding(14.dp)
         ) {
-            item(key = "hdr", contentType = "header") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    FaIcon("fa-flask", size = 18.sp, tint = c.accent)
-                    Spacer(Modifier.width(10.dp))
-                    Text("1RM Lab", style = ProType.sectionTitle, color = c.text, modifier = Modifier.weight(1f))
-                    FaIcon("fa-xmark", size = 16.sp, tint = c.text3, modifier = Modifier.clickable { onClose() })
+            Text("Calculator", style = ProType.label, color = c.text)
+            Spacer(Modifier.height(8.dp))
+            com.peakform.fitness.ui.screens.ProTextField(
+                value = weight,
+                onValueChange = { weight = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                placeholder = "Weight lifted (lbs)",
+            )
+            Spacer(Modifier.height(8.dp))
+            com.peakform.fitness.ui.screens.ProTextField(
+                value = reps,
+                onValueChange = { reps = it.filter { ch -> ch.isDigit() } },
+                placeholder = "Reps (1-15)",
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(OneRmLab.F_EPLEY to "Epley", OneRmLab.F_BRZYCKI to "Brzycki", OneRmLab.F_LOMBARDI to "Lombardi").forEach { (f, label) ->
+                    val active = formula == f
+                    Box(
+                        Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(if (active) c.accentSoft else c.surface3)
+                            .border(1.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(999.dp))
+                            .clickable { formula = f }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) { Text(label, fontSize = 11.sp, color = if (active) c.accent else c.text2) }
                 }
             }
-            item(key = "inputs", contentType = "inputs") {
-                Column {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = weight, onValueChange = { weight = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                            label = { Text("Weight (lbs)") }, modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
-                        OutlinedTextField(value = reps, onValueChange = { reps = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Reps") }, modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
-                        OutlinedTextField(value = rpe, onValueChange = { rpe = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("RPE") }, modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("Consensus", "Epley", "Brzycki", "Lombardi", "Mayhew").forEach { f ->
-                            val active = formula == f
-                            Box(Modifier.clip(RoundedCornerShape(999.dp))
-                                .background(if (active) c.accentSoft else c.surface2)
-                                .border(1.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(999.dp))
-                                .clickable { formula = f }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)) {
-                                Text(f, fontSize = 11.sp, color = if (active) c.accent else c.text2, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    }
-                }
-            }
-            item(key = "result", contentType = "result") {
+            Spacer(Modifier.height(10.dp))
+            Text("Estimated 1RM: ${estimate.toInt()} lbs", style = ProType.statValue, color = c.accent)
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Audit — every tested 1RM vs estimate", style = ProType.label, color = c.text)
+        Spacer(Modifier.height(6.dp))
+        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(audit.rows, key = { it.exerciseId }) { row ->
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                        .background(c.tintBg).border(1.dp, c.tintLine, RoundedCornerShape(14.dp))
-                        .padding(16.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(c.surface2).border(1.dp, c.hairline, RoundedCornerShape(12.dp))
+                        .padding(12.dp)
                 ) {
-                    Text("Estimated 1RM", style = ProType.small, color = c.text3)
-                    Text("${oneRmAdj.toInt()} lbs", style = ProType.statValue, color = c.accent, fontSize = 38.sp)
-                    if (rp > 0 && oneRm != oneRmAdj) {
-                        Text("RPE-adjusted from $rp (was ${oneRm.toInt()} lbs unadjusted)", style = ProType.small, color = c.text3)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(row.exerciseName, style = ProType.label, color = c.text, modifier = Modifier.weight(1f))
+                        if (row.retestDue) Text("retest", fontSize = 10.sp, color = c.warn, fontWeight = FontWeight.Bold)
                     }
-                }
-            }
-            item(key = "table", contentType = "table") {
-                Column {
-                    Text("Percentage table", style = ProType.label, color = c.text)
+                    Text("Tested ${row.tested1Rm.toInt()} · Est ${row.estimated1Rm.toInt()} · Δ ${"%+.0f".format(row.deltaLbs)} lbs",
+                        style = ProType.small, color = c.text3)
                     Spacer(Modifier.height(6.dp))
-                    table.forEach { (pct, w) ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("$pct%", style = ProType.small, color = c.text3, modifier = Modifier.width(56.dp))
-                            Text("${w.toInt()} lbs", style = ProType.body2, color = c.text)
-                            Spacer(Modifier.weight(1f))
-                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.surface2).padding(horizontal = 8.dp, vertical = 2.dp)) {
-                                Text("~${(100 / pct.toDouble()).toInt()} reps at 1RM×${pct}%", fontSize = 10.sp, color = c.text3)
-                            }
-                        }
+                    P4Button("Reset", icon = "fa-rotate-left", style = BtnStyle.GHOST, minHeight = 30) {
+                        OneRmLab.resetOne(ctx, row.exerciseId)
                     }
                 }
             }
-            item(key = "history", contentType = "history_h") {
-                Text("Recent lifts (tap to load)", style = ProType.label, color = c.text)
-            }
-            items(items = history, key = { it.first }, contentType = { "history_row" }) { (name, w, sets) ->
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                        .background(c.surface).border(1.dp, c.hairline, RoundedCornerShape(10.dp))
-                        .clickable { weight = w.toString(); reps = sets.toString() }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(name, style = ProType.body2, color = c.text, modifier = Modifier.weight(1f))
-                    Text("${w.toInt()} × $sets", style = ProType.small, color = c.accent)
-                    Spacer(Modifier.width(8.dp))
-                    Text("${OneRmLab.consensus(w, sets).toInt()} lbs", style = ProType.label, color = c.ok)
-                }
-            }
-            item(key = "spacer", contentType = "spacer") { Spacer(Modifier.height(120.dp)) }
         }
     }
 }

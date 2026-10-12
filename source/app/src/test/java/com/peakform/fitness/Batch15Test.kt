@@ -1,105 +1,101 @@
 package com.peakform.fitness
 
 import android.content.Context
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.core.app.ApplicationProvider
-import com.peakform.fitness.core.ProfileSettings
+import com.peakform.fitness.core.GapClosures
+import com.peakform.fitness.core.LibraryExercise
 import com.peakform.fitness.core.ProfileState
 import com.peakform.fitness.core.Profiles
 import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.core.ProState
-import com.peakform.fitness.engine.Library
-import com.peakform.fitness.ui.ProTheme
-import com.peakform.fitness.ui.screens.OneRMAuditScreen
-import com.peakform.fitness.ui.screens.PostSessionFeelSheet
-import com.peakform.fitness.ui.screens.QuickActionsSheet
-import com.peakform.fitness.ui.screens.TuningSheet
+import org.junit.After
+import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 /**
- * BATCH-15 evidence test — the four new UI surfaces.
+ * BATCH-15 evidence test — GapClosures helpers.
  *
- * Renders each in isolation inside a ProTheme host and asserts the
- * compose rule completes (no crash). Captures no screenshots — that is the
- * screenshot battery's job. This test verifies the screens exist and render.
+ * 1. filterByGender drops womens_only for males and vice-versa.
+ * 2. fuzzySearch substring match works.
+ * 3. rpeColor returns the right band.
+ * 4. competitionCountdown returns null for blank date.
+ * 5. postpartumMultiplier scales correctly.
  */
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w412dp-h892dp-xhdpi")
+@Config(sdk = [34])
 class Batch15Test {
-
-    @get:org.junit.Rule
-    val compose = createAndroidComposeRule(EmptyTestActivity::class.java)
 
     private lateinit var ctx: Context
 
+    private fun mkEx(id: String, components: List<String> = emptyList()): LibraryExercise =
+        LibraryExercise(
+            name = id, muscles = emptyList(), primaryMuscle = "", equipment = "",
+            skillFactor = 0.7, fitnessComponents = components,
+        )
+
     @Before
-    fun setup() {
-        ctx = RuntimeEnvironment.getApplication()
-        com.peakform.fitness.ui.Fa.appContext = ctx
-        ProPrefs.clearAll(ctx)
-        val sp = ctx.getSharedPreferences(ProfileState.prefsName(Profiles.DEFAULT), Context.MODE_PRIVATE)
-        sp.edit().clear().commit()
-        ProfileState.invalidate(Profiles.DEFAULT)
+    fun setUp() {
+        ctx = ApplicationProvider.getApplicationContext()
         ProState.init(ctx)
-        kotlinx.coroutines.runBlocking { if (!ProState.initialized) ProState.loadAll() }
-        Library.ensure(ctx)
+        ProPrefs.clearAll(ctx)
+        ctx.deleteSharedPreferences(ProfileState.prefsName(Profiles.DEFAULT))
     }
 
-    private fun render(content: @androidx.compose.runtime.Composable () -> Unit) {
-        compose.setContent {
-            ProTheme(dark = true, accent = com.peakform.fitness.ui.ACCENTS[0]) {
-                Box(Modifier.fillMaxSize()) { content() }
-            }
-        }
-        compose.waitForIdle()
+    @After
+    fun tearDown() {
+        ProPrefs.clearAll(ctx)
+        ctx.deleteSharedPreferences(ProfileState.prefsName(Profiles.DEFAULT))
     }
 
     @Test
-    fun oneRmAuditScreen_renders() {
-        render { OneRMAuditScreen(onClose = {}) }
-        // If the screen renders without throwing, the test passes.
-        Assert_true("OneRMAuditScreen rendered")
+    fun filterByGender_unspecifiedKeepsAll() {
+        val list = listOf(mkEx("a", listOf("mens_only")), mkEx("b", listOf("womens_only")))
+        Assert.assertEquals(2, GapClosures.filterByGender(list, "unspecified").size)
     }
 
     @Test
-    fun quickActionsSheet_renders() {
-        render {
-            QuickActionsSheet(
-                onDismiss = {},
-                onResume = {},
-                onToggleTheme = {},
-                onExport = {},
-                onOneRmAudit = {},
-            )
-        }
-        Assert_true("QuickActionsSheet rendered")
+    fun filterByGender_dropsOpposite() {
+        val list = listOf(mkEx("a", listOf("mens_only")), mkEx("b", listOf("womens_only")))
+        Assert.assertEquals(1, GapClosures.filterByGender(list, "male").size)
+        Assert.assertEquals("b", GapClosures.filterByGender(list, "female").first().id)
     }
 
     @Test
-    fun tuningSheet_renders() {
-        render { TuningSheet(onDismiss = {}, onPostSessionFeel = {}) }
-        Assert_true("TuningSheet rendered")
+    fun fuzzySearch_substringMatch() {
+        val list = listOf(
+            mkEx("bench_press"),
+            mkEx("squat"),
+            mkEx("deadlift"),
+        )
+        val r = GapClosures.fuzzySearch(list, "bench")
+        Assert.assertEquals(1, r.size)
+        Assert.assertEquals("bench_press", r.first().id)
     }
 
     @Test
-    fun postSessionFeelSheet_renders() {
-        render { PostSessionFeelSheet(onDismiss = {}, onSave = {}) }
-        Assert_true("PostSessionFeelSheet rendered")
+    fun rpeColor_returnsBands() {
+        Assert.assertEquals("green", GapClosures.rpeColor(5.0))
+        Assert.assertEquals("yellow", GapClosures.rpeColor(7.5))
+        Assert.assertEquals("orange", GapClosures.rpeColor(9.0))
+        Assert.assertEquals("red", GapClosures.rpeColor(10.0))
     }
 
-    private fun Assert_true(msg: String) {
-        // Tiny helper so the test method body asserts something — render() above
-        // already throws if the screen fails to compose.
-        org.junit.Assert.assertTrue(msg, true)
+    @Test
+    fun competitionCountdown_nullForBlank() {
+        Assert.assertNull(GapClosures.competitionCountdown(null))
+        Assert.assertNull(GapClosures.competitionCountdown(""))
+        Assert.assertNull(GapClosures.competitionCountdown("not-a-date"))
+    }
+
+    @Test
+    fun postpartumMultiplier() {
+        Assert.assertEquals(1.0, GapClosures.postpartumMultiplier(null), 0.001)
+        Assert.assertEquals(0.7, GapClosures.postpartumMultiplier(3), 0.001)
+        Assert.assertEquals(0.85, GapClosures.postpartumMultiplier(9), 0.001)
+        Assert.assertEquals(1.0, GapClosures.postpartumMultiplier(15), 0.001)
     }
 }
