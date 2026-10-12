@@ -52,7 +52,9 @@ object Notify {
         Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
-    /** Legacy per-toast "Don't show today" suppression (L45782–45800). */
+    /** Legacy per-toast "Don't show today" suppression (L45782–45800).
+     *  BATCH-5A: suppression stamps now live in per-profile storage so a
+     *  suppression on Profile A does not silence the same nudge on Profile B. */
     fun suppressedToday(ctx: Context, key: String): Boolean {
         val stamp = ProfileSettings.getNotifSuppressed(ctx, key)
         return stamp != null && stamp == ProState.todayLocal()
@@ -63,7 +65,7 @@ object Notify {
     }
 
     private fun toggleEnabled(ctx: Context, key: String): Boolean =
-        ProfileSettings.getNotif(ctx, key) != "false"
+        ProfileSettings.getNotif(ctx, key)
 
     fun notify(ctx: Context, key: String, title: String, body: String) {
         if (!toggleEnabled(ctx, key) || suppressedToday(ctx, key) || !hasPermission(ctx)) return
@@ -133,6 +135,8 @@ object Notify {
             }
         }
         // backup nudge every 5 workouts (L41182)
+        // BATCH-5A: p4_last_backup is per-profile — each profile's backup nudge
+        // schedule tracks its own workouts.
         val completed = d.workouts.count { it.isCompleted }
         if (completed in 1..9999 && completed % 5 == 0 && ProfileSettings.get(ctx, ProfileSettings.K_LAST_BACKUP) == null) {
             notify(ctx, "backup_nudge", "Backup your data",

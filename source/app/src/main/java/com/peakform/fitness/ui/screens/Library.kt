@@ -20,7 +20,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.LibraryExercise
 import com.peakform.fitness.core.ProState
-import com.peakform.fitness.core.ProPrefs
 import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.ProJson
 import kotlinx.serialization.builtins.ListSerializer
@@ -79,16 +78,28 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     var wikiFor by remember { mutableStateOf<String?>(null) }
     var componentFilter by remember { mutableStateOf<String?>(null) }
 
-    // BATCH-5A: collapsed state defaults to ALL-COLLAPSED. Previously the init
-    // read p4_library_collapsed + p4_lib_expand_all from prefs at first compose;
-    // those reads now go through ProfileSettings (per-profile SharedPreferences),
-    // and the default-on-empty behavior is "every group collapsed" so the user
-    // sees a clean overview instead of a giant list.
-    var collapsedGroups by remember(Library.groups) { mutableStateOf(Library.groups.keys.toSet()) }
+    // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806).
+    // BATCH-4C Gap 1: honor p4_lib_expand_all pref — when "true", start with all
+    // groups EXPANDED (empty collapsed set) instead of the default all-collapsed.
+    // BATCH-5A: prefs read from per-profile SharedPreferences via ProfileSettings.
+    // Default to all-collapsed so the user sees group headers first and taps to
+    // expand the ones they care about — keeps the Library fast on cold start.
+    var collapsedGroups by remember(Library.groups) {
+        val expandAllPref = ProfileSettings.get(ctx, ProfileSettings.K_LIB_EXPAND_ALL) == "true"
+        val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
+        mutableStateOf(
+            try {
+                ProfileSettings.get(ctx, ProfileSettings.K_LIBRARY_COLLAPSED)?.let {
+                    ProJson.json.decodeFromString(ListSerializer(String.serializer()), it).toSet()
+                } ?: defaultSet
+            } catch (_: Exception) { defaultSet }
+        )
+    }
     fun persistCollapse() {
         ProfileSettings.put(ctx, ProfileSettings.K_LIBRARY_COLLAPSED,
             ProJson.json.encodeToString(ListSerializer(String.serializer()), collapsedGroups.toList()))
     }
+    fun changeGroupBy(idx: Int) { groupBy = idx }
 
     val mode = ProState.data.user.settings.trainingMode
     val all = remember(ver.intValue, mode) { Library.allLibraryExercises(mode).map { Library.augmented(it) } }
@@ -154,19 +165,11 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         }
     }
 
-    // BATCH-5A: changeGroupBy() — switching group-by mode resets the collapse
-    // state to ALL-COLLAPSED for the freshly-grouped list (so the user sees a
-    // clean overview of the new grouping) and persists the new collapse set.
-    fun changeGroupBy(idx: Int) {
-        groupBy = idx
-        collapsedGroups = grouped.map { it.first }.toSet()
-        persistCollapse()
-    }
-
     // BATCH-4C Gap 1: honor p4_lib_chunk + p4_lib_stream prefs.
     // When streaming is ON (default), cap each group at the chunk size (default 20)
     // so the Library loads fast on large databases. When streaming is OFF, show all
     // (200 / 60 legacy caps). Search always bumps to 200 to avoid hiding matches.
+    // BATCH-5A: prefs read from per-profile SharedPreferences via ProfileSettings.
     val cap = run {
         if (search.isNotBlank()) return@run 200
         val streamingOn = ProfileSettings.get(ctx, ProfileSettings.K_LIB_STREAM) != "false"
@@ -219,19 +222,20 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
                 }
             }
         }
+        // BATCH-5A: smart button visibility — only show Expand All when at
+        // least one group is collapsed (otherwise the button is a no-op);
+        // only show Collapse All when at least one group is expanded. Reduces
+        // visual noise on small libraries with a single group.
         item(key = "hdr_expand_collapse", contentType = "header") {
-            // BATCH-5A: only show Expand All / Collapse All when there is
-            // something to do (avoid a no-op button). allCollapsed → only
-            // Expand All is hidden; allExpanded → only Collapse All is hidden.
-            val allCollapsed = collapsedGroups.containsAll(grouped.map { it.first })
-            val allExpanded = grouped.all { it.first !in collapsedGroups }
+            val collapsedCount = grouped.count { it.first in collapsedGroups }
+            val expandedCount = grouped.size - collapsedCount
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!allCollapsed) {
+                if (expandedCount < grouped.size) {
                     P4Button("Expand All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
                         collapsedGroups = emptySet(); persistCollapse()
                     }
                 }
-                if (!allExpanded) {
+                if (collapsedCount < grouped.size) {
                     P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
                         collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
                     }

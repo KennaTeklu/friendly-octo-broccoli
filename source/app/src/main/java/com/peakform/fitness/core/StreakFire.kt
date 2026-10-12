@@ -61,6 +61,8 @@ object StreakFire {
         )
         ProState.data = ProState.data.copy(workouts = (ProState.data.workouts + rec).sortedBy { it.date })
         ProState.saveWorkoutData()
+        // BATCH-5A: streak recovery timestamp is per-profile — each profile
+        // can claim one honor-system recovery per day.
         ProfileSettings.put(com.peakform.fitness.ui.Fa.appContext!!, ProfileSettings.K_LAST_STREAK_RECOVER, ProState.nowIso())
         ProState.notifyChanged()
         return rec

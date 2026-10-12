@@ -28,9 +28,9 @@ import androidx.compose.ui.unit.sp
 import com.peakform.fitness.engine.Library
 import com.peakform.fitness.core.MigrationBridge
 import com.peakform.fitness.ProLog
+import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.ProState
 import com.peakform.fitness.core.ProPrefs
-import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.ui.components.BtnStyle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -77,11 +77,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         Fa.appContext = applicationContext
         ProState.init(this)
-        // BATCH-5A: one-shot v22 migration — copies every per-profile key from
-        // the global ProPrefs file into the DEFAULT profile's per-profile
-        // SharedPreferences ("p4_ls_default"). Idempotent. Existing users keep
-        // their settings; new profiles start clean. Routes through ProfileState
-        // (SharedPreferences), so it is safe on the main thread.
+        // BATCH-5A: one-shot v22 migration — copy legacy global p4_* settings
+        // (theme, gym, lang, vocab, library prefs, notif prefs, ...) into the
+        // DEFAULT profile's per-profile SharedPreferences (`p4_ls_default`).
+        // Idempotent — gated on `p4_v22_migrated` in global ProPrefs.
         ProfileSettings.migrateFromPrefs(this)
         // FIX (audit): EngineHooks.rebuildDerived was never assigned — after imports the
         // derived aggregates/fatigue were not rebuilt until some other engine call happened.
@@ -90,13 +89,16 @@ class MainActivity : ComponentActivity() {
             com.peakform.fitness.engine.Fatigue.calculateMuscleLastTrained()
             com.peakform.fitness.engine.Sessions.recomputeAggregates()
         }
+        // BATCH-5B: theme now reads from the active profile's per-profile storage
+        // (ProfileSettings → ProfileState → `p4_ls_$profileId`). The v22
+        // migration above ensured legacy global values landed in p4_ls_default
+        // so a returning user sees their saved theme on the first cold start.
         ThemeController.load(ProfileSettings.get(this, ProfileSettings.K_THEME))
         ThemeController.loadDynamic(ProfileSettings.get(this, ProfileSettings.K_DYNAMIC))
-        // BATCH-5A: resolve the system uiMode once at cold start so the very
-        // first frame renders with the right dark/light value for "system" mode.
-        // For "dark" / "light" the resolve pins the explicit value regardless.
-        val systemDarkBoot = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        ThemeController.resolveDark(systemDarkBoot)
+        // BATCH-5B: resolve `dark` from the system at boot — a fresh install
+        // starts in mode="system", so `dark` must follow the OS dark state.
+        val bootSystemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        ThemeController.setSystemDark(bootSystemDark)
         Vocab.init(this)
         Badges.init(this)
         applyScreenshotSafeMode()
@@ -148,14 +150,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // BATCH-5A: keep ThemeController's `dark` flag in sync with the system
-            // uiMode on every recomposition. For "system" mode this is what flips
-            // dark/light when the user changes the OS theme at runtime. For
-            // "dark" / "light" the explicit mode wins, so setSystemDark is a no-op.
-            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
-            ThemeController.setSystemDark(systemDark)
-
             ProTheme(dark = ThemeController.dark, accent = ThemeController.accent(), dynamic = ThemeController.dynamic) {
+                // BATCH-5B: re-feed the system dark state into ThemeController so
+                // mode="system" follows the OS dark/light setting in real time.
+                val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+                ThemeController.setSystemDark(systemDark)
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -199,6 +198,7 @@ class MainActivity : ComponentActivity() {
 
     /** NA7: screenshot-safe mode hides content in the recents strip and screenshots. */
     private fun applyScreenshotSafeMode() {
+        // BATCH-5A: p4_secure is now per-profile (ProfileSettings → p4_ls_$profileId).
         if (ProfileSettings.get(this, ProfileSettings.K_SECURE) == "on") {
             window.setFlags(
                 android.view.WindowManager.LayoutParams.FLAG_SECURE,
@@ -481,6 +481,7 @@ fun AppShell(
                         "feedback" -> FeedbackScreen(onClose = { go("settings") })
                         "mycycle" -> MyCycleScreen(onClose = { go("dashboard") })
                         "badges" -> BadgeGalleryScreen()
+                        "1rm_audit" -> com.peakform.fitness.ui.screens.OneRMAuditScreen(onClose = { go("settings") })
                     }
                 }
             }

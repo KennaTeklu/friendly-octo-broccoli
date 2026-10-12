@@ -16,6 +16,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Slider
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -614,17 +616,23 @@ private fun appearanceInner(onToast: (String) -> Unit) {
     // lag behind the source of truth, and so a swatch tap re-colors the whole
     // app instantly. The tap writes accent + p4_dynamic atomically (see
     // ThemeController.setAccentAndDynamic).
+    // BATCH-5B: 3-mode toggle (system/dark/light) — mode is read directly
+    // from ThemeController.mode. Tapping a tile calls ThemeController.set
+    // which updates in-memory state AND writes K_THEME in the same call.
     val mode = ThemeController.mode
     val accentId = ThemeController.accentId
     val dynamic = ThemeController.dynamic
 
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        // BATCH-5A: three-way mode toggle — system / dark / light.
-        listOf("system" to "fa-circle-half-stroke", "dark" to "fa-moon", "light" to "fa-sun").forEach { (m, ic) ->
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(
+            "system" to "fa-circle-half-stroke",
+            "dark" to "fa-moon",
+            "light" to "fa-sun",
+        ).forEach { (m, ic) ->
             val active = mode == m
             Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (active) c.accentSoft else c.surface2).border(2.dp, if (active) c.accent else c.hairline2, RoundedCornerShape(10.dp)).clickable {
                 ThemeController.set(m, accentId, ctx)
-                onToast("Theme updated — $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name}")
+                onToast("Theme updated — $m · ${ACCENTS.firstOrNull { it.id == accentId }?.name ?: "Material You"}")
             }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     com.peakform.fitness.ui.FaIcon(ic, size = 13.sp, tint = if (active) c.accent else c.text2)
@@ -1009,10 +1017,16 @@ fun LibraryMgmtCardBody(
     onImportLibrary: () -> Unit,
 ) {
     val c = LocalProColors.current
+    val ctx = LocalContext.current
+    var showResetConfirm by remember { mutableStateOf(false) }
     Text("Add your own exercises, edit defaults, or restore the original list.", style = ProType.small, color = c.text3)
     Spacer(Modifier.height(10.dp))
     P4Button("Library Studio", icon = "fa-flask-vial", style = BtnStyle.INFO, modifier = Modifier.fillMaxWidth()) {
         onOpenSection("studio")
+    }
+    Spacer(Modifier.height(8.dp))
+    P4Button("1RM Audit", icon = "fa-dumbbell", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
+        onOpenSection("1rm_audit")
     }
     Spacer(Modifier.height(8.dp))
     P4Button("Export library", icon = "fa-file-export", style = BtnStyle.SUCCESS, modifier = Modifier.fillMaxWidth()) {
@@ -1021,6 +1035,27 @@ fun LibraryMgmtCardBody(
     Spacer(Modifier.height(8.dp))
     P4Button("Import library", icon = "fa-folder-open", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
         onImportLibrary()
+    }
+    Spacer(Modifier.height(8.dp))
+    P4Button("Reset to default library", icon = "fa-rotate-left", style = BtnStyle.DANGER, modifier = Modifier.fillMaxWidth()) {
+        showResetConfirm = true
+    }
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text("Reset Library?") },
+            text = { Text("This removes all custom exercises and restores the default library. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    com.peakform.fitness.engine.Library.resetToDefault(ctx)
+                    com.peakform.fitness.core.ProState.notifyChanged()
+                    showResetConfirm = false
+                }) { Text("Reset") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -1123,9 +1158,9 @@ fun NotificationsCardBody(onToast: (String) -> Unit) {
         NotifOpt("period_notice", "Show period phase notices (My Cycle — coming soon)"),
     )
     opts.forEach { o ->
-        val checked = ProfileSettings.getNotif(ctx, o.key) != "false"
+        val checked = ProfileSettings.getNotif(ctx, o.key)
         ToggleRow(o.label, checked = checked) { on ->
-            ProfileSettings.setNotif(ctx, o.key, if (on) "true" else "false")
+            ProfileSettings.setNotif(ctx, o.key, on)
             onToast(if (on) "Showing ${o.key.replace('_', ' ')}" else "Hiding ${o.key.replace('_', ' ')}")
         }
     }
@@ -1265,7 +1300,15 @@ private fun ResetFlowDialog(onCancel: () -> Unit, onDone: (String) -> Unit, ctx:
                     } catch (_: Exception) { "All data erased (snapshot failed)" }
                     try {
                         ProStore(ctx).wipeAllData()
-                        val preserve = setOf("deviceId", "p4_theme", "p4_gym", "p4_lang", "p4_vocab", "p4_onboarded", "p4_power_settings", "p4_app_id", "p4_license")
+                        // BATCH-5A: per-profile state (onboarding, health, theme,
+                        // library prefs, etc.) lives in `p4_ls_$profileId`
+                        // SharedPreferences — wipe that too so a reset truly
+                        // resets the active profile. Global ProPrefs keeps
+                        // deviceId, license and migration gates only.
+                        ProfileState.prefs(ctx).edit().clear().commit()
+                        val preserve = setOf("deviceId", "p4_app_id", "p4_license",
+                            ProfileState.K_V18_MIGRATED, ProfileState.K_V22_MIGRATED,
+                            Profiles.ACTIVE_KEY, Profiles.DEFAULT_PROFILE_KEY)
                         ProPrefs.all(ctx).keys.filter { it !in preserve }.forEach { ProPrefs.remove(ctx, it) }
                     } catch (_: Exception) {}
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -1307,7 +1350,7 @@ fun HealthClearanceCardBody(onToast: (String) -> Unit, onOpenSection: (String) -
     val ctx = LocalContext.current
     val tier = remember { Health.tier(ctx) }
     val locked = remember { Health.isGenerationLocked(ctx) }
-    val screenedAt = remember { ProPrefs.get(ctx, Health.K_SCREENED) }
+    val screenedAt = remember { ProfileState.get(ctx, Health.K_SCREENED) }
     when {
         tier == null -> {
             Text("You haven't run the health screen yet. It takes about a minute.", style = ProType.body2, color = c.text2)

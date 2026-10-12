@@ -18,7 +18,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.ProState
-import com.peakform.fitness.core.ProfileSettings
 import com.peakform.fitness.core.WorkoutExercise
 import com.peakform.fitness.core.WorkoutRecord
 import com.peakform.fitness.engine.Generator
@@ -604,7 +603,8 @@ fun ExerciseCard(
     }
 }
 
-/** Reads a boolean from the p4_power_settings JSON (default when absent). */
+/** Reads a boolean from the p4_power_settings JSON (default when absent).
+ *  BATCH-5A: p4_power_settings is now per-profile (ProfileSettings.K_POWER_SETTINGS). */
 internal fun powerFlag(key: String, default: Boolean): Boolean {
     val ctx = com.peakform.fitness.ui.Fa.appContext ?: return default
     return try {
@@ -619,10 +619,11 @@ internal fun powerFlag(key: String, default: Boolean): Boolean {
 
 /** Reads a notification preference (p4_notif_<key>, absent = on) — FIX (audit): the
  * Settings notification toggles persisted but nothing read them; the retest banner and
- * the Deload chip are now wired to their switches. */
+ * the Deload chip are now wired to their switches.
+ * BATCH-5A: notif prefs are now per-profile (ProfileSettings.getNotif). */
 internal fun notifFlag(key: String, default: Boolean = true): Boolean {
     val ctx = com.peakform.fitness.ui.Fa.appContext ?: return default
-    return com.peakform.fitness.core.ProfileSettings.getNotif(ctx, key) != "false"
+    return com.peakform.fitness.core.ProfileSettings.getNotif(ctx, key, default)
 }
 
 @Composable
