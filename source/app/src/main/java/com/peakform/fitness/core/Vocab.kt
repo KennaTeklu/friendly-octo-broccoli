@@ -27,6 +27,7 @@ object Vocab {
     const val PREF_KEY = "p4_vocab"
     const val CUSTOM_KEY = "p4_vocab_custom"
     private var ladders: Map<String, List<String>> = emptyMap()
+
     fun init(ctx: Context) {
         if (ladders.isNotEmpty()) return
         ladders = try {
@@ -46,7 +47,7 @@ object Vocab {
     }
 
     private fun readCustom(ctx: Context): Map<String, List<String>> = try {
-        val raw = ProfileSettings.get(ctx, CUSTOM_KEY) ?: return emptyMap()
+        val raw = ProPrefs.get(ctx, CUSTOM_KEY) ?: return emptyMap()
         if (raw.isBlank()) emptyMap() else {
             ProJson.json.parseToJsonElement(raw).jsonObject.mapValues { (_, v) ->
                 v.jsonArray.map { (it as JsonPrimitive).content }
@@ -64,7 +65,7 @@ object Vocab {
 
     private fun persistCustom(ctx: Context) {
         val custom = ladders.filterKeys { key -> key !in ASSET_LADDER_KEYS || customDiffersFromAsset(key) }
-        ProfileSettings.put(ctx, CUSTOM_KEY, ProJson.json.encodeToString(
+        ProPrefs.put(ctx, CUSTOM_KEY, ProJson.json.encodeToString(
             JsonObject.serializer(),
             JsonObject(custom.mapValues { (_, v) -> JsonArray(v.map { JsonPrimitive(it) }) })))
     }
@@ -77,10 +78,10 @@ object Vocab {
         return ladders[key] != asset
     }
 
-    fun currentLevel(ctx: Context): Int = ProfileSettings.get(ctx, PREF_KEY)?.toIntOrNull()?.coerceIn(1, 10) ?: 5
+    fun currentLevel(ctx: Context): Int = ProPrefs.get(ctx, PREF_KEY)?.toIntOrNull()?.coerceIn(1, 10) ?: 5
 
     fun setLevel(ctx: Context, level: Int) {
-        ProfileSettings.put(ctx, PREF_KEY, level.coerceIn(1, 10).toString())
+        ProPrefs.put(ctx, PREF_KEY, level.coerceIn(1, 10).toString())
     }
 
     /** Legacy invariant: L5 always equals the authored default (no-op level). */

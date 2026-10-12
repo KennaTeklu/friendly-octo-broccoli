@@ -1,122 +1,139 @@
 package com.peakform.fitness.core
 
 import android.content.Context
-
-import kotlin.math.pow
-import kotlin.math.roundToInt
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 
 /**
- * BATCH-13 Item 4A: 1RM Lab.
+ * OneRmLab — 1-rep-max estimation lab (BATCH-12).
  *
- * Estimation methods: Epley, Brzycki, Lombardi, RPE-based.
- * Confidence interval based on reps.
- * Working weight recommendations at 65/75/85/95% 1RM.
+ * Implements the four standard 1RM estimation formulas, an RPE-based
+ * adjustment, a confidence interval, working-weight percentages for
+ * programming (65/75/85/95%), and a per-exercise snapshot history.
+ *
+ * All snapshot data is per-profile, stored via ProfileSettings (SharedPreferences).
  */
 object OneRmLab {
+    private const val K_SNAPSHOTS = "p4_1rm_snapshots"
 
-    @kotlinx.serialization.Serializable
+    @Serializable
     data class EstimateResult(
+        val weightLifted: Double,
+        val reps: Int,
+        val rpe: Double?,
         val epley: Double,
         val brzycki: Double,
         val lombardi: Double,
-        val rpeBased: Double,
+        val rpeBased: Double?,
         val average: Double,
         val confidenceLow: Double,
         val confidenceHigh: Double,
-    )
-
-    @kotlinx.serialization.Serializable
-    data class WorkingWeight(
-        val pct: Int,
-        val weight: Double,
-    )
-
-    @kotlinx.serialization.Serializable
-    data class Snapshot(
+        val at: String,
         val exerciseId: String,
-        val date: String,
-        val weight: Double,
-        val reps: Int,
-        val rpe: Double?,
-        val estimate: EstimateResult,
-    )
-
-    private const val SNAPSHOT_KEY = "p13_1rm_snapshots"
-
-    /** Epley: 1RM = w * (1 + r/30) */
-    fun epley(weight: Double, reps: Int): Double = weight * (1 + reps.toDouble() / 30)
-
-    /** Brzycki: 1RM = w * 36 / (37 - r) */
-    fun brzycki(weight: Double, reps: Int): Double = weight * 36.0 / (37 - reps)
-
-    /** Lombardi: 1RM = w * r^0.10 */
-    fun lombardi(weight: Double, reps: Int): Double = weight * reps.toDouble().pow(0.10)
-
-    /** RPE-based: if RPE < 10, estimate what 10 RPE would be (1RM).
-     *  RPE 10 = max effort. Each RPE below 10 = ~3% less than 1RM per rep. */
-    fun rpeBased(weight: Double, reps: Int, rpe: Double?): Double {
-        if (rpe == null) return epley(weight, reps)
-        val rpeDeficit = (10.0 - rpe) * 0.03 * reps
-        return weight / (1 - rpeDeficit)
+        val exerciseName: String,
+    ) {
+        /** Working-weight percentages for programming. */
+        fun workingWeight(pct: Double): Double = average * pct
     }
 
-    /** Full estimate with confidence interval. */
-    fun estimate(weight: Double, reps: Int, rpe: Double? = null): EstimateResult {
-        val e = epley(weight, reps)
-        val b = brzycki(weight, reps)
-        val l = lombardi(weight, reps)
-        val r = rpeBased(weight, reps, rpe)
-        val avg = listOf(e, b, l, r).average()
-        // Confidence: lower reps = higher confidence. CI widens with reps.
-        val spread = when {
-            reps <= 3 -> 0.02
-            reps <= 5 -> 0.04
-            reps <= 8 -> 0.06
-            reps <= 12 -> 0.10
-            else -> 0.15
-        }
+    @Serializable
+    data class Snapshot(
+        val exerciseId: String,
+        val exerciseName: String,
+        val result: EstimateResult,
+    )
+
+    /**
+     * Epley: 1RM = w × (1 + reps/30)
+     * Best for reps ≤ 10. Confidence drops sharply above 10 reps.
+     */
+    fun epley(weight: Double, reps: Int): Double = weight * (1 + reps / 30.0)
+
+    /**
+     * Brzycki: 1RM = w × 36 / (37 - reps)
+     * Best for reps ≤ 12. Most accurate in the 1–10 rep range.
+     */
+    fun brzycki(weight: Double, reps: Int): Double {
+        if (reps >= 37) return weight * 36.0 / 1.0  // saturate
+        return weight * 36.0 / (37.0 - reps)
+    }
+
+    /**
+     * Lombardi: 1RM = w × reps^0.10
+     * Tends to overestimate at high reps — used as an upper-bound cross-check.
+     */
+    fun lombardi(weight: Double, reps: Int): Double = weight * Math.pow(reps.toDouble(), 0.10)
+
+    /**
+     * RPE-based estimation (Helms / RPE chart): if the user reports an RPE,
+     * estimate how many MORE reps they could have done and adjust.
+     *
+     * RPE 10 = 0 reps in reserve (RIR), 9 = 1, 8 = 2, ... so we can compute
+     * an "all-out" 1RM using the same formulas with reps + RIR.
+     */
+    fun rpeBased(weight: Double, reps: Int, rpe: Double): Double? {
+        if (rpe <= 0 || rpe > 10) return null
+        val rir = (10 - rpe).toInt().coerceAtLeast(0)
+        val effectiveReps = reps + rir
+        if (effectiveReps <= 0) return weight
+        return brzycki(weight, effectiveReps)
+    }
+
+    /**
+     * Compute a full EstimateResult for a single set.
+     * Reps should be ≤ 12 for the most reliable estimates.
+     */
+    fun estimate(
+        exerciseId: String,
+        exerciseName: String,
+        weight: Double,
+        reps: Int,
+        rpe: Double? = null,
+        at: String = ProState.nowIso(),
+    ): EstimateResult {
+        val epl = if (reps <= 10) epley(weight, reps) else epley(weight, 10)
+        val brz = if (reps <= 12) brzycki(weight, reps) else brzycki(weight, 12)
+        val lom = lombardi(weight, reps)
+        val rpeEst = rpe?.let { rpeBased(weight, reps, it) }
+        val methods = mutableListOf(epl, brz, lom)
+        if (rpeEst != null) methods.add(rpeEst)
+        val average = methods.average()
+        // Confidence interval: ±8% (rough — empirical across the four methods).
+        val confidenceLow = average * 0.92
+        val confidenceHigh = average * 1.08
         return EstimateResult(
-            epley = e.roundTo(1),
-            brzycki = b.roundTo(1),
-            lombardi = l.roundTo(1),
-            rpeBased = r.roundTo(1),
-            average = avg.roundTo(1),
-            confidenceLow = (avg * (1 - spread)).roundTo(1),
-            confidenceHigh = (avg * (1 + spread)).roundTo(1),
+            weightLifted = weight,
+            reps = reps,
+            rpe = rpe,
+            epley = epl,
+            brzycki = brz,
+            lombardi = lom,
+            rpeBased = rpeEst,
+            average = average,
+            confidenceLow = confidenceLow,
+            confidenceHigh = confidenceHigh,
+            at = at,
+            exerciseId = exerciseId,
+            exerciseName = exerciseName,
         )
     }
 
-    /** Working weights at 65/75/85/95% of estimated 1RM. */
-    fun workingWeights(estimate: Double): List<WorkingWeight> {
-        return listOf(65, 75, 85, 95).map { pct ->
-            WorkingWeight(pct, (estimate * pct / 100.0).roundToNearest())
-        }
+    /** Save a snapshot to per-profile storage (history for the lab screen). */
+    fun saveSnapshot(ctx: Context, snap: Snapshot) {
+        val list = getSnapshots(ctx).toMutableList()
+        list.add(snap)
+        val trimmed = list.takeLast(100)
+        ProfileSettings.put(ctx, K_SNAPSHOTS,
+            Json.encodeToString(ListSerializer(Snapshot.serializer()), trimmed))
     }
 
-    /** Save a snapshot for the exercise history. */
-    fun saveSnapshot(ctx: Context, snapshot: Snapshot) {
-        val key = SNAPSHOT_KEY + "_" + snapshot.exerciseId
-        val existing = ProfileSettings.get(ctx, key) ?: "[]"
-        val list = try {
-            ProJson.json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(Snapshot.serializer()), existing)
-        } catch (_: Exception) { emptyList() }
-        val updated = (list + snapshot).takeLast(20)  // keep last 20
-        ProfileSettings.put(ctx, key, ProJson.json.encodeToString(kotlinx.serialization.builtins.ListSerializer(Snapshot.serializer()), updated))
-    }
+    fun getSnapshots(ctx: Context): List<Snapshot> = try {
+        val raw = ProfileSettings.get(ctx, K_SNAPSHOTS) ?: return emptyList()
+        Json.decodeFromString(ListSerializer(Snapshot.serializer()), raw)
+    } catch (_: Exception) { emptyList() }
 
-    fun getSnapshots(ctx: Context, exerciseId: String): List<Snapshot> {
-        val key = SNAPSHOT_KEY + "_" + exerciseId
-        val raw = ProfileSettings.get(ctx, key) ?: return emptyList()
-        return try { ProJson.json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(Snapshot.serializer()), raw) } catch (_: Exception) { emptyList() }
-    }
-
-    private fun Double.roundTo(decimals: Int): Double {
-        val factor = 10.0.pow(decimals)
-        return (this * factor).roundToInt() / factor
-    }
-
-    private fun Double.roundToNearest(): Double {
-        // Round to nearest 5 lbs
-        return (this / 5).roundToInt() * 5.0
-    }
+    /** Snapshots for one exercise only, newest last. */
+    fun snapshotsFor(ctx: Context, exerciseId: String): List<Snapshot> =
+        getSnapshots(ctx).filter { it.exerciseId == exerciseId }
 }

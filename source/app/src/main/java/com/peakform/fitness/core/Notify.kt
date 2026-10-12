@@ -52,9 +52,12 @@ object Notify {
         Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
-    /** Legacy per-toast "Don't show today" suppression (L45782–45800). Batch 5A: per-profile. */
-    fun suppressedToday(ctx: Context, key: String): Boolean =
-        ProfileSettings.isNotifSuppressedToday(ctx, key)
+    /** Legacy per-toast "Don't show today" suppression (L45782–45800).
+     *  BATCH-5A: stored per-profile via ProfileSettings. */
+    fun suppressedToday(ctx: Context, key: String): Boolean {
+        val stamp = ProfileSettings.getNotifSuppressed(ctx, key)
+        return stamp != null && stamp == ProState.todayLocal()
+    }
 
     fun suppressToday(ctx: Context, key: String) {
         ProfileSettings.setNotifSuppressed(ctx, key, ProState.todayLocal())

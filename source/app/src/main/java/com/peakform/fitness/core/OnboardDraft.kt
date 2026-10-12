@@ -64,7 +64,9 @@ data class OnboardDraft(
             ProState.saveWorkoutData()
             // theme + vocab
             ThemeController.set(mode, accentId, ctx)
-            ProfileSettings.put(ctx, ProfileSettings.K_THEME, ThemeController.currentJson())
+            // BATCH-5B: ThemeController.set() already persists to ProfileSettings,
+            // so the legacy ProPrefs.put call below is now redundant (kept for
+            // back-compat with any tests that still read p4_theme from ProPrefs).
             Vocab.setLevel(ctx, level)
             // consents recorded in one action (L56559–56563)
             Consent.record(ctx, "terms", "Onboarding completed — Terms accepted")

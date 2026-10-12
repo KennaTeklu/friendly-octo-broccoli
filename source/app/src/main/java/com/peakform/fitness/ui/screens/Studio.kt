@@ -53,7 +53,8 @@ fun StudioScreen(onOpenSection: (String) -> Unit) {
                 StudioTile("fa-file-export", "Export library", "Custom + customised defaults as JSON") {
                     scope.launch {
                         val json = Studio.exportLibrary(ctx)
-                        ProPrefs.put(ctx, "p4_studio_export", json)
+                        // BATCH-5A: route per-profile ProPrefs keys through ProfileSettings.
+                        com.peakform.fitness.core.ProfileSettings.put(ctx, com.peakform.fitness.core.ProfileSettings.K_STUDIO_EXPORT, json)
                         toast = "Library exported (${json.length} bytes) — see Settings → Data & backup to save it"
                     }
                 }

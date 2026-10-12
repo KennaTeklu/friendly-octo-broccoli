@@ -232,14 +232,25 @@ object Library {
 
     fun customExercisesSnapshot(): List<LibraryExercise> = customExercises.toList()
 
+    /** BATCH-5A: clear custom exercises and remove the persisted custom-exercise
+     *  blob from per-profile storage, restoring the factory default library. */
+    fun resetToDefault(ctx: Context) {
+        customExercises.clear()
+        try {
+            com.peakform.fitness.core.ProfileSettings.remove(ctx, com.peakform.fitness.core.Studio.CUST_KEY)
+            // also clear the legacy global mirror so a re-import doesn't resurrect them
+            com.peakform.fitness.core.ProPrefs.remove(ctx, com.peakform.fitness.core.Studio.CUST_KEY)
+        } catch (_: Exception) {}
+        ProLog.i("LIBRARY", "reset to default — custom exercises cleared")
+    }
+
     /**
      * Reinject persisted custom exercises (p4_custom_ex) into the library — called at
      * boot and after Studio add/import (legacy reinjectCustom, PF L57204–57216).
-     * Batch 5A: custom exercises now live in per-profile ProfileSettings.
      */
     fun reinjectCustom(ctx: Context) {
         try {
-            val raw = com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.Studio.CUST_KEY) ?: return
+            val raw = com.peakform.fitness.core.ProPrefs.get(ctx, com.peakform.fitness.core.Studio.CUST_KEY) ?: return
             val arr = ProJson.json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonArray ?: return
             arr.forEach { el ->
                 val o = el as? kotlinx.serialization.json.JsonObject ?: return@forEach

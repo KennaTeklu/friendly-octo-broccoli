@@ -6,167 +6,176 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.peakform.fitness.ProLog
 import com.peakform.fitness.core.ProfileSettings
-import com.peakform.fitness.core.ProfileState
-import com.peakform.fitness.core.ProState
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
+import com.peakform.fitness.core.Profiles
 
 /**
- * ThemeController — runtime dark/light + accent + Material You state.
+ * ThemeController — runtime 3-mode (system/dark/light) + accent + Material You
+ * state, with write-through persistence to the active profile's SharedPreferences.
  *
- * Batch 5B rewrite — three-mode (system / dark / light), write-through,
- * reloadable. Every `set` / `setDynamic` updates in-memory Compose state AND
- * writes the per-profile storage in the same call, so no caller can forget
- * to persist.
- *
- * Modes:
- *   "system" → dark = resolveDark(systemDark)
- *   "dark"   → dark = true
- *   "light"  → dark = false
- *
- * `reload(ctx)` re-reads `p4_theme` + `p4_dynamic` from the active profile's
- * per-profile SharedPreferences (ProfileSettings). It is called after every
- * profile switch so a switch from profile A (dark) to profile B (light)
- * re-applies B's theme atomically before the next frame.
- *
- * `setSystemDark(systemDark)` is called from the Compose tree
- * (via `isSystemInDarkTheme()`) so the controller knows the latest system
- * theme state. When mode == "system", dark recomputes against this value.
- *
- * All theme logging uses tag "ProTheme".
+ * BATCH-5B (theme write-through + reload on profile switch + logging):
+ *  - 3-mode model: "system" follows the platform dark/light setting; "dark"
+ *    and "light" are explicit overrides. The `mode` property holds the chosen
+ *    mode; `dark` is the resolved effective value (system mode reads the
+ *    platform at resolveDark()).
+ *  - Every write path (set, setAccentAndDynamic, setDynamic, persist) updates
+ *    the in-memory Compose state AND writes to ProfileSettings (per-profile
+ *    SharedPreferences `p4_ls_<profileId>`) in the SAME call — no caller can
+ *    forget to persist, and no frame can observe state without storage.
+ *  - reload(ctx) re-reads p4_theme + p4_dynamic from ProfileSettings and
+ *    re-runs load+loadDynamic. Called after a profile switch, after loadAll,
+ *    and before notifyChanged — so the new profile's theme lands on screen
+ *    in the same recomposition that surfaces the new profile's data.
+ *  - resolveDark(systemDark) resolves the effective `dark` flag for "system"
+ *    mode using the platform value the caller passes in (so we don't need a
+ *    Composable context to read the system setting).
+ *  - Every operation logs under tag "ProTheme" so theme transitions are
+ *    traceable in logcat.
  */
 object ThemeController {
-    /** Three-mode state: "system" | "dark" | "light". */
+    private const val TAG = "ProTheme"
+
+    /** The user-chosen mode: "system", "dark", or "light". */
     var mode by mutableStateOf("system")
         private set
-
-    /** Resolved dark flag — observed by Compose via mutableStateOf. When mode
-     *  is "system", this is `resolveDark(systemDark)`. */
+    /** The resolved effective dark flag. Updated by set() / resolveDark(). */
     var dark by mutableStateOf(true)
         private set
-
     var accentId by mutableStateOf("blue")
         private set
-
     /** Material You flag — observable; defaults OFF so the user's chosen accent wins. */
     var dynamic by mutableStateOf(false)
         private set
 
-    /** Latest known system dark state, supplied by the Compose tree. */
-    @Volatile private var systemDark: Boolean = true
-
     fun accent(): AccentDef = ACCENTS.firstOrNull { it.id == accentId } ?: ACCENTS[0]
 
-    /** Resolve dark from the active mode + the latest system dark value. */
-    fun resolveDark(systemDark: Boolean): Boolean = when (mode) {
-        "light" -> false
-        "dark" -> true
-        else -> systemDark
-    }
-
-    /** Called from the Compose tree (via isSystemInDarkTheme()) to push the
-     *  latest system dark state. When mode == "system", the controller recomputes
-     *  `dark` and logs the change at INFO level. */
-    fun setSystemDark(systemDark: Boolean) {
-        val prev = this.systemDark
-        this.systemDark = systemDark
-        if (mode == "system" && prev != systemDark) {
-            dark = systemDark
-            ProLog.i("ProTheme", "system dark changed → dark=$dark")
-        }
-    }
-
-    /** Cold-start hydration: read `p4_theme` JSON + `p4_dynamic` once.
-     *  Kept for backward compatibility — callers should prefer reload(ctx). */
+    /** Cold-start hydration: read `p4_theme` JSON. */
     fun load(initial: String?) {
         val raw = initial ?: return
         try {
-            val o = com.peakform.fitness.core.ProJson.json.parseToJsonElement(raw) as? JsonObject ?: return
-            val m = (o["mode"] as? JsonPrimitive)?.content
-            val a = (o["accent"] as? JsonPrimitive)?.content
-            if (m == "light" || m == "dark" || m == "system") mode = m
-            if (m == "light") dark = false
-            else if (m == "dark") dark = true
-            else dark = systemDark
+            val o = com.peakform.fitness.core.ProJson.json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonObject ?: return
+            val m = (o["mode"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+            val a = (o["accent"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+            // Legacy theme blobs stored {"mode":"dark|light"}; new blobs can
+            // also store "system". If the blob has no "mode" key, keep current.
+            if (m != null) {
+                mode = when (m) { "system", "dark", "light" -> m; else -> "system" }
+                // Resolve effective dark for non-system modes immediately.
+                if (mode == "dark") dark = true
+                if (mode == "light") dark = false
+            }
             if (a != null && ACCENTS.any { it.id == a }) accentId = a
+            ProLog.i(TAG, "load: mode=$mode accent=$accentId dark=$dark")
         } catch (e: Exception) {
-            ProLog.w("ProTheme", "load failed: ${e.message}")
+            ProLog.w(TAG, "load failed: ${e.message}")
         }
     }
 
     fun loadDynamic(initial: String?) {
         dynamic = initial == "on"
+        ProLog.i(TAG, "loadDynamic: dynamic=$dynamic")
+    }
+
+    /** Resolve the effective `dark` flag for the current mode, given the
+     *  platform's dark setting. "system" → follows platform; "dark" → true;
+     *  "light" → false. */
+    fun resolveDark(systemDark: Boolean): Boolean {
+        val effective = when (mode) {
+            "dark" -> true
+            "light" -> false
+            else -> systemDark  // "system"
+        }
+        if (dark != effective) {
+            dark = effective
+            ProLog.i(TAG, "resolveDark: mode=$mode systemDark=$systemDark → dark=$dark")
+        }
+        return effective
     }
 
     /**
-     * Batch 5B reload: re-read p4_theme + p4_dynamic from the active profile's
-     * per-profile SharedPreferences (ProfileSettings), then resolve dark
-     * against the current system dark value.
-     *
-     * Called from MainActivity.onCreate (after migrateFromPrefs) and from
-     * Profiles.switchTo (after loadAll, before notifyChanged).
-     */
-    fun reload(ctx: Context) {
-        val themeRaw = ProfileSettings.get(ctx, ProfileSettings.K_THEME)
-        val dynRaw = ProfileSettings.get(ctx, ProfileSettings.K_DYNAMIC)
-        load(themeRaw)
-        loadDynamic(dynRaw)
-        dark = resolveDark(systemDark)
-        ProLog.i("ProTheme", "reload: mode=$mode accent=$accentId dynamic=$dynamic dark=$dark")
-    }
-
-    /**
-     * Apply mode + accent to runtime state AND persist to `p4_theme` via
-     * ProfileSettings. Caller does not need to write `p4_theme` themselves.
+     * Apply mode + accent to runtime state AND persist to ProfileSettings.
+     * The caller no longer needs to write `p4_theme` themselves — they cannot forget.
      */
     fun set(mode: String, accent: String, ctx: Context? = null) {
-        val newMode = if (mode == "light" || mode == "dark" || mode == "system") mode else "system"
+        val newMode = when (mode) { "system", "dark", "light" -> mode; else -> "system" }
         this.mode = newMode
+        if (newMode == "dark") dark = true
+        if (newMode == "light") dark = false
+        // For "system", the caller is responsible for calling resolveDark() with the platform value.
         if (ACCENTS.any { it.id == accent }) accentId = accent
-        dark = resolveDark(systemDark)
-        ctx?.let {
-            ProfileSettings.put(it, ProfileSettings.K_THEME, currentJson())
-        }
-        ProLog.i("ProTheme", "set: mode=$newMode accent=$accent dark=$dark")
+        ProLog.i(TAG, "set: mode=$newMode accent=$accent dark=$dark")
+        ctx?.let { persist(it) }
     }
 
     /**
-     * Batch 4E / 5B: atomic write of accent + p4_dynamic in a single
-     * SharedPreferences commit(). The fix for the race where tapping
-     * a swatch wrote accent and read p4_dynamic separately — Material You
-     * would win for one frame because the two writes were not atomic.
+     * P4E-UI-05 + BATCH-5B: atomic write of accent + p4_dynamic in a single
+     * SharedPreferences commit(). Updates runtime state (dark, accentId,
+     * dynamic) in the same call — Compose observes these via mutableStateOf,
+     * so recomposition fires synchronously, and the storage write lands on
+     * disk before the next frame reads it.
+     *
+     * Code path:
+     *   1. Update runtime state (mode, dark, accentId, dynamic)
+     *   2. ProfileState.prefs(ctx).edit()
+     *        .putString(K_THEME, currentJson())
+     *        .putString(K_DYNAMIC, if (dynamic) "on" else "off")
+     *        .commit()  // synchronous, atomic
+     *   Both keys land in the same SharedPreferences transaction. No frame can
+     *   observe accent=X with dynamic=on (which would show Material You instead
+     *   of the user's chosen accent).
      */
     fun setAccentAndDynamic(mode: String, accent: String, dynamic: Boolean, ctx: Context? = null) {
-        val newMode = if (mode == "light" || mode == "dark" || mode == "system") mode else "system"
+        val newMode = when (mode) { "system", "dark", "light" -> mode; else -> "system" }
         this.mode = newMode
+        if (newMode == "dark") dark = true
+        if (newMode == "light") dark = false
         if (ACCENTS.any { it.id == accent }) accentId = accent
         this.dynamic = dynamic
-        dark = resolveDark(systemDark)
+        ProLog.i(TAG, "setAccentAndDynamic: mode=$newMode accent=$accent dynamic=$dynamic dark=$dark")
         ctx?.let { c ->
-            // Atomic single commit() so no frame can observe accent=X with dynamic=on
-            // (which would show Material You instead of the user's chosen accent).
-            ProfileState.prefs(c).edit()
+            ProfileState_prefsEdit(c)
                 .putString(ProfileSettings.K_THEME, currentJson())
                 .putString(ProfileSettings.K_DYNAMIC, if (dynamic) "on" else "off")
                 .commit()
         }
-        ProLog.i("ProTheme", "setAccentAndDynamic: mode=$newMode accent=$accent dynamic=$dynamic")
     }
 
     /** Toggle Material You; persists to `p4_dynamic` and refreshes the runtime flag. */
     fun setDynamic(on: Boolean, ctx: Context? = null) {
         dynamic = on
-        ctx?.let { ProfileSettings.put(it, ProfileSettings.K_DYNAMIC, if (on) "on" else "off") }
-        ProLog.i("ProTheme", "setDynamic: $on")
+        ProLog.i(TAG, "setDynamic: dynamic=$on")
+        ctx?.let { c ->
+            ProfileState_prefsEdit(c)
+                .putString(ProfileSettings.K_DYNAMIC, if (on) "on" else "off")
+                .commit()
+        }
     }
 
     /** Persist the current mode + accent to `p4_theme` via ProfileSettings. */
     fun persist(ctx: Context) {
-        ProfileSettings.put(ctx, ProfileSettings.K_THEME, currentJson())
+        ProLog.i(TAG, "persist: mode=$mode accent=$accentId dark=$dark")
+        ProfileState_prefsEdit(ctx)
+            .putString(ProfileSettings.K_THEME, currentJson())
+            .commit()
+    }
+
+    /**
+     * BATCH-5B: reload theme from ProfileSettings (the active profile's prefs).
+     * Called after a profile switch, after loadAll, before notifyChanged — so
+     * the new profile's theme lands on screen in the same recomposition that
+     * surfaces the new profile's data.
+     */
+    fun reload(ctx: Context) {
+        ProLog.i(TAG, "reload: re-reading theme from active profile prefs (profile=${Profiles.activeId(ctx)})")
+        load(ProfileSettings.get(ctx, ProfileSettings.K_THEME))
+        loadDynamic(ProfileSettings.get(ctx, ProfileSettings.K_DYNAMIC))
     }
 
     /** The JSON blob to write to `p4_theme`. */
     fun currentJson(): String = """{"mode":"$mode","accent":"$accentId"}"""
+
+    /** Returns the active profile's SharedPreferences editor (write-through).
+     *  Routes through ProfileState.prefs() so the write lands on the right
+     *  profile's file (`p4_ls_<activeId>`). */
+    private fun ProfileState_prefsEdit(ctx: Context): android.content.SharedPreferences.Editor =
+        com.peakform.fitness.core.ProfileState.prefs(ctx).edit()
 }

@@ -216,8 +216,9 @@ object ProState {
             val s = store ?: return@launch
             val d = data
             s.saveAggregate(d, null)
-            // Batch 5A: legacy workoutData mirror now per-profile via ProfileSettings.
-            ProfileSettings.put(ctx!!, ProfileSettings.K_WORKOUT_DATA, ProJson.encode(WorkoutData.serializer(), d))
+            // BATCH-5A: workoutData mirror is per-profile, via ProfileSettings.
+            val c = ctx ?: return@launch
+            ProfileSettings.put(c, ProfileSettings.K_WORKOUT_DATA, ProJson.encode(WorkoutData.serializer(), d))
         }
         saveJob = trackSave(job)
     }

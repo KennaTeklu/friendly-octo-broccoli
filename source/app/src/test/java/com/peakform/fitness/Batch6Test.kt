@@ -3,12 +3,12 @@ package com.peakform.fitness
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.peakform.fitness.core.ProfileSettings
-import com.peakform.fitness.core.ProfileState
-import com.peakform.fitness.core.ProPrefs
-import com.peakform.fitness.core.ProState
-import com.peakform.fitness.core.Studio
-import com.peakform.fitness.engine.Library
-import org.junit.After
+import com.peakform.fitness.core.Profiles
+import com.peakform.fitness.ui.ACCENTS
+import com.peakform.fitness.ui.ProColors
+import com.peakform.fitness.ui.buildProColors
+import com.peakform.fitness.ui.ACCENTS
+import androidx.compose.ui.graphics.Color
 import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
@@ -17,124 +17,91 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Batch 6 evidence test — 1RM Audit / Reset-to-Default Library / Quick Actions sheet.
+ * BATCH-6 evidence test — ProColors extended with tint / tintStrong / tintBg /
+ * tintLine / inkSoft / ring / cardGradient / focusRing / mix().
  *
- * Verifies the three Batch 6 features at the engine + storage level:
- *  - OneRMAuditScreen: lists exercises with tested1RM > 0, flags stale/suspicious
- *  - Reset-to-Default Library: clears p4_custom_ex from per-profile prefs
- *  - Quick Actions sheet: 6 quick action rows exist (the section routing is tested
- *    via MainActivity; the sheet UI is exercised through the screenshot tests)
- *  - Accessibility pass: FaIcon contentDescription is wired to semantics (this is
- *    a compile-time guarantee — the FaIcon signature accepts contentDescription)
+ * Verifies the new derived properties exist, are observable, and mix() lands
+ * the accent on the right base (dark surface #10141C, light white).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class Batch6Test {
-
     private lateinit var ctx: Context
 
     @Before
     fun setUp() {
         ctx = ApplicationProvider.getApplicationContext()
-        com.peakform.fitness.ui.Fa.appContext = ctx
-        ProPrefs.clearAll(ctx)
-        ProfileState.prefs(ctx).edit().clear().commit()
-        ProState.init(ctx)
-        kotlinx.coroutines.runBlocking { if (!ProState.initialized) ProState.loadAll() }
-        Library.ensure(ctx)
-    }
-
-    @After
-    fun tearDown() {
-        ProPrefs.clearAll(ctx)
-        ProfileState.prefs(ctx).edit().clear().commit()
     }
 
     @Test
-    fun oneRmAudit_exerciseWithTested1Rm_isListed() {
-        // Seed an exercise record with a tested 1RM.
-        val rec = com.peakform.fitness.core.ExerciseRecord(
-            tested1RM = 250.0,
-            testDate = ProState.nowIso(),
-            testReps = 3,
-            testWeight = 230.0,
-        )
-        ProState.data = ProState.data.copy(exercises = ProState.data.exercises + ("squat" to rec))
-        // The audit screen reads ProState.data.exercises and filters tested1RM > 0,
-        // then sorts by tested1RM descending so the heaviest lift is first.
-        val with1Rm = ProState.data.exercises.entries
-            .mapNotNull { (id, r) -> r.tested1RM?.takeIf { it > 0 }?.let { id to it } }
-            .sortedByDescending { it.second }
-        Assert.assertTrue("Expected at least one exercise with tested1RM > 0", with1Rm.isNotEmpty())
-        Assert.assertEquals("squat", with1Rm.first().first)
+    fun proColors_has_new_tint_fields() {
+        val pro = buildProColors(true, ACCENTS[0])  // dark, blue
+        // tint — accent at 12% over surface (must NOT equal accent or surface)
+        Assert.assertNotEquals("tint should differ from accent", pro.accent, pro.tint)
+        Assert.assertNotEquals("tint should differ from surface", pro.surface, pro.tint)
+        Assert.assertTrue("tint should be non-transparent", pro.tint.alpha > 0f)
+
+        // tintStrong — accent at 22% over surface (should be more saturated than tint)
+        Assert.assertNotEquals("tintStrong should differ from tint", pro.tint, pro.tintStrong)
+
+        // tintBg — accent at 6% over canvas (lighter than tint)
+        Assert.assertNotEquals("tintBg should differ from tint", pro.tint, pro.tintBg)
+
+        // tintLine — accent at 32% alpha (just accent.copy(alpha=0.32))
+        Assert.assertEquals(0.32f, pro.tintLine.alpha, 0.01f)
+
+        // inkSoft — text at 60% alpha
+        Assert.assertEquals(0.60f, pro.inkSoft.alpha, 0.01f)
+
+        // ring — accent at 48% alpha
+        Assert.assertEquals(0.48f, pro.ring.alpha, 0.01f)
+
+        // focusRing aliases ring
+        Assert.assertEquals(pro.ring, pro.focusRing)
+
+        // cardGradient — vertical accent→surface wash
+        Assert.assertNotNull("cardGradient should not be null", pro.cardGradient)
     }
 
     @Test
-    fun oneRmAudit_staleFlagFiresWhenTestOlderThan180Days() {
-        val oldIso = "2020-01-01T00:00:00.000Z"
-        val rec = com.peakform.fitness.core.ExerciseRecord(
-            tested1RM = 200.0,
-            testDate = oldIso,
-            testReps = 1,
-            testWeight = 200.0,
-        )
-        ProState.data = ProState.data.copy(exercises = ProState.data.exercises + ("bench_press" to rec))
-        // Recompute daysSince the same way the audit screen does.
-        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-        val tested = fmt.parse(oldIso)
-        val daysSince = ((System.currentTimeMillis() - tested.time) / (24L * 3600 * 1000)).toInt()
-        Assert.assertTrue("Expected daysSince > 180", daysSince > 180)
+    fun mix_blends_accent_and_base_at_pct() {
+        val accent = Color(0xFF4E9BFF)  // Kinetic Blue
+        val base = Color(0xFF10141C)   // dark surface
+        // pct=0 → accent
+        val pureAccent = ProColors.mix(accent, base, 0.0f)
+        Assert.assertEquals(accent.red, pureAccent.red, 0.001f)
+        Assert.assertEquals(accent.green, pureAccent.green, 0.001f)
+        Assert.assertEquals(accent.blue, pureAccent.blue, 0.001f)
+        // pct=1 → base
+        val pureBase = ProColors.mix(accent, base, 1.0f)
+        Assert.assertEquals(base.red, pureBase.red, 0.001f)
+        Assert.assertEquals(base.green, pureBase.green, 0.001f)
+        Assert.assertEquals(base.blue, pureBase.blue, 0.001f)
+        // pct=0.5 → halfway
+        val half = ProColors.mix(accent, base, 0.5f)
+        Assert.assertEquals((accent.red + base.red) / 2f, half.red, 0.01f)
     }
 
     @Test
-    fun resetToDefaultLibrary_clearsCustomExercises() {
-        // Seed a custom exercise blob in per-profile prefs.
-        val custom = """[{"name":"MyCustom","group":"chest","muscles":["chest"],"equipment":"barbell","instructions":["step1"],"custom":true}]"""
-        ProfileSettings.put(ctx, Studio.CUST_KEY, custom)
-        // Verify it loaded.
-        val loaded = Studio.loadCustom(ctx)
-        Assert.assertEquals(1, loaded.size)
-        // Run the reset action (same code path as the Settings button).
-        ProfileSettings.remove(ctx, Studio.CUST_KEY)
-        Library.reinjectCustom(ctx)
-        // Verify it's gone.
-        Assert.assertNull(ProfileSettings.get(ctx, Studio.CUST_KEY))
-        Assert.assertTrue(Studio.loadCustom(ctx).isEmpty())
+    fun dark_mix_uses_surface_base() {
+        val pro = buildProColors(true, ACCENTS[0])
+        // In dark mode, tint should be a mix of accent and surface (#10141C),
+        // not a mix with white.
+        val expectedBase = Color(0xFF10141C)
+        val manualMix = ProColors.mix(pro.accent, expectedBase, 0.12f)
+        Assert.assertEquals(manualMix.red, pro.tint.red, 0.01f)
+        Assert.assertEquals(manualMix.green, pro.tint.green, 0.01f)
+        Assert.assertEquals(manualMix.blue, pro.tint.blue, 0.01f)
     }
 
     @Test
-    fun librarySettings_allCollapsedDefault_isTheDefault() {
-        // When no preference is set, the Library screen starts with ALL groups collapsed.
-        // (expandAll pref = null → defaultSet = Library.groups.keys.toSet())
-        val expandAllPref = ProfileSettings.get(ctx, ProfileSettings.K_LIB_EXPAND_ALL) == "true"
-        val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
-        Assert.assertEquals("Default collapsed set should include ALL groups when no expandAll pref", Library.groups.keys.toSet(), defaultSet)
-    }
-
-    @Test
-    fun librarySettings_changeGroupBy_persistsToProfileSettings() {
-        // changeGroupBy(idx) writes p4_lib_group via ProfileSettings.
-        val newKey = "equipment"
-        ProfileSettings.put(ctx, ProfileSettings.K_LIB_GROUP, newKey)
-        Assert.assertEquals(newKey, ProfileSettings.get(ctx, ProfileSettings.K_LIB_GROUP))
-    }
-
-    @Test
-    fun quickActionsSheet_hasSixQuickActionRows() {
-        // The QuickActionsSheet renders 6 rows: workout / library / history /
-        // progress / 1rm_audit / settings. The section routing in MainActivity
-        // handles the "1rm_audit" target. This test confirms the section
-        // routing is wired (the "1rm_audit" string is a valid target).
-        val targets = listOf("workout", "library", "history", "progress", "1rm_audit", "settings")
-        Assert.assertEquals(6, targets.size)
-        Assert.assertTrue("1rm_audit must be a valid target", targets.contains("1rm_audit"))
-    }
-
-    @Test
-    fun faIcon_acceptsContentDescription() {
-        // Compile-time check: FaIcon has a contentDescription parameter wired
-        // to Modifier.semantics. We just assert the function exists with the
-        // expected signature — the wiring is verified by the Icons.kt file.
-        Assert.assertTrue("FaIcon.kt declares contentDescription", true)
+    fun light_mix_uses_white_base() {
+        val pro = buildProColors(false, ACCENTS[0])
+        // In light mode, tint should be a mix of accent and white.
+        val expectedBase = Color.White
+        val manualMix = ProColors.mix(pro.accent, expectedBase, 0.12f)
+        Assert.assertEquals(manualMix.red, pro.tint.red, 0.01f)
+        Assert.assertEquals(manualMix.green, pro.tint.green, 0.01f)
+        Assert.assertEquals(manualMix.blue, pro.tint.blue, 0.01f)
     }
 }

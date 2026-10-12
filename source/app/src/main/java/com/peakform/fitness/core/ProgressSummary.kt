@@ -1,141 +1,127 @@
 package com.peakform.fitness.core
 
-import com.peakform.fitness.engine.Stats
-import com.peakform.fitness.ProLog
+import android.content.Context
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 
 /**
- * ProgressSummary — Batch 10 progress reorganization.
+ * ProgressSummary — reorganized progress analytics (BATCH-9).
  *
- * Aggregates the 11 fitness components' current value + value 30 days ago
- * into a `ComponentTrend`, plus a one-sentence monthly summary the Progress
- * screen can render at the top of the page.
+ * Reorganizes the existing radar / chart code so the radar chart sits at the
+ * TOP of the Progress screen with a comparison polygon (current vs. 4 weeks
+ * ago), followed by a monthly summary card and trend arrows per fitness
+ * component.
  *
- * The 11 components mirror Stats.calculateLongevityScore().sub.entries.
+ * computeTrends() walks the 11 fitness components and computes a per-component
+ * trend arrow (UP / FLAT / DOWN) comparing the last 4 weeks to the prior 4.
+ * monthlySummary() returns a per-month volume/load aggregate for charting.
  */
 object ProgressSummary {
+    /** 11 fitness components tracked for the radar + trends. */
+    val COMPONENTS: List<String> = listOf(
+        "strength", "power", "hypertrophy", "endurance", "speed",
+        "agility", "balance", "coordination", "flexibility", "mobility", "stability",
+    )
 
     enum class Trend { UP, FLAT, DOWN }
 
+    @Serializable
     data class ComponentTrend(
-        val name: String,
-        val current: Double,
-        val thirtyDaysAgo: Double,
+        val component: String,
+        val currentScore: Double,
+        val fourWeeksAgoScore: Double,
         val trend: Trend,
     )
 
-    /** The 11 fitness components — keys mirror Stats.calculateLongevityScore().sub. */
-    val COMPONENTS: List<String> = listOf(
-        "gripStrength", "balance", "jointMobility", "posture",
-        "muscleBalance", "consistency", "trend", "variety",
-        "cardio_endurance", "strength", "mobility",
+    @Serializable
+    data class MonthlySummary(
+        val monthIso: String,             // YYYY-MM
+        val workoutCount: Int,
+        val totalVolumeLbs: Double,
+        val avgRpe: Double,
+        val topLiftLbs: Double,
     )
 
-    /**
-     * Compute the 11 component trends.
-     *
-     * "current" — the latest longevity sub-score (or 0 if no data).
-     * "thirtyDaysAgo" — the sub-score from a workout logged ~30 days ago,
-     *                    or 0 if there is no historical data that far back.
-     * "trend"      — UP if current > prev by ≥ 3 points, DOWN if < -3, else FLAT.
-     */
-    fun computeTrends(): List<ComponentTrend> {
-        val sub = Stats.calculateLongevityScore().sub
-        val workouts = ProState.data.workouts.filter { it.isCompleted }.sortedByDescending {
-            ProState.utcDayMillis(it.date)
-        }
-        val nowMs = System.currentTimeMillis()
-        val thirtyDaysAgoMs = nowMs - 30L * 24 * 3600 * 1000
-        // Find a workout closest to ~30 days ago; use its date as the snapshot.
-        val historicalWorkout = workouts.firstOrNull {
-            val ms = ProState.utcDayMillis(it.date)
-            ms in (thirtyDaysAgoMs - 7L * 24 * 3600 * 1000)..(thirtyDaysAgoMs + 7L * 24 * 3600 * 1000)
-        }
-        // We can't run Stats against a frozen WorkoutData snapshot cheaply, so we
-        // estimate the 30-day-ago value as the user's earliest recorded workout's
-        // implied score. This is intentionally crude — the Progress card just
-        // needs a directional arrow.
-        val historicalSub: Map<String, Double> = if (historicalWorkout != null) {
-            // Use the best-weight proxy: best-weight sum at that point, normalized to 0..100.
-            // This is a heuristic; the legacy app used the same approach.
-            sub.mapValues { it.value * 0.85 }
-        } else {
-            sub.mapValues { it.value }
+    /** Compute a trend per component from the user's workout history.
+     *  Each workout contributes a per-component score derived from the
+     *  exercises' fitnessComponents weights × volume. Returns 11 entries. */
+    fun computeTrends(ctx: Context): List<ComponentTrend> {
+        val now = System.currentTimeMillis()
+        val fourWeeksMs = 28L * 24 * 3600 * 1000L
+        val recentStart = now - fourWeeksMs
+        val priorStart = now - 2 * fourWeeksMs
+
+        val workouts = ProState.data.workouts.filter { it.isCompleted }
+        val recent = workouts.filter { ProState.utcDayMillis(it.date) >= recentStart }
+        val prior = workouts.filter {
+            val t = ProState.utcDayMillis(it.date)
+            t in priorStart until recentStart
         }
 
-        return COMPONENTS.map { key ->
-            val cur = sub[key] ?: 0.0
-            val prev = historicalSub[key] ?: cur
+        return COMPONENTS.map { comp ->
+            val curScore = scoreFor(recent, comp)
+            val prevScore = scoreFor(prior, comp)
             val trend = when {
-                cur - prev >= 3.0 -> Trend.UP
-                cur - prev <= -3.0 -> Trend.DOWN
+                curScore > prevScore * 1.05 -> Trend.UP
+                curScore < prevScore * 0.95 -> Trend.DOWN
                 else -> Trend.FLAT
             }
-            ComponentTrend(
-                name = key,
-                current = cur,
-                thirtyDaysAgo = prev,
-                trend = trend,
-            )
+            ComponentTrend(comp, curScore, prevScore, trend)
         }
     }
 
-    /**
-     * One-sentence monthly summary — the most useful narrative line for the
-     * monthly card on Progress.
-     *
-     * Format: "This month you logged N workouts (+/-Δ vs last month),
-     * total volume X lbs, average Y sessions/week, longevity Z/100."
-     */
-    fun monthlySummary(): String {
+    private fun scoreFor(workouts: List<WorkoutRecord>, component: String): Double {
+        var score = 0.0
+        for (w in workouts) {
+            for (ex in w.exercises) {
+                if (ex.actual == null || ex.skipped) continue
+                if (ex.fitnessComponents.contains(component)) {
+                    val sets = ex.actual.sets
+                    val reps = ex.actual.reps.sumOf { it.toInt() }.coerceAtLeast(if (ex.actual.reps.isNotEmpty()) 0 else 0)
+                    val volume = (ex.actual.weight) * reps * sets
+                    score += volume
+                }
+            }
+        }
+        return score
+    }
+
+    /** Monthly summary for the last `months` months (default 6). */
+    fun monthlySummary(ctx: Context, months: Int = 6): List<MonthlySummary> {
         val workouts = ProState.data.workouts.filter { it.isCompleted }
-        val now = System.currentTimeMillis()
-        val thisMonthStart = startOfMonthMs(now)
-        val lastMonthStart = startOfMonthMs(thisMonthStart - 1)
-        val thisMonthEnd = endOfMonthMs(now)
-
-        val thisMonth = workouts.filter {
-            val ms = ProState.utcDayMillis(it.date)
-            ms in thisMonthStart..thisMonthEnd
+        val now = java.util.Calendar.getInstance()
+        val out = mutableListOf<MonthlySummary>()
+        val fmt = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US)
+        for (i in 0 until months) {
+            val cal = now.clone() as java.util.Calendar
+            cal.add(java.util.Calendar.MONTH, -i)
+            val monthIso = fmt.format(cal.time)
+            val monthStart = cal.timeInMillis
+            cal.add(java.util.Calendar.MONTH, 1)
+            val monthEnd = cal.timeInMillis
+            val inMonth = workouts.filter {
+                val t = ProState.utcDayMillis(it.date)
+                t in monthStart until monthEnd
+            }
+            var volume = 0.0
+            var rpeSum = 0.0
+            var rpeN = 0
+            var top = 0.0
+            for (w in inMonth) {
+                for (ex in w.exercises) {
+                    if (ex.actual == null || ex.skipped) continue
+                    val w_ = ex.actual.weight
+                    val reps = ex.actual.reps.sumOf { it.toInt() }
+                    val sets = ex.actual.sets
+                    volume += w_ * reps * sets
+                    if (w_ > top) top = w_
+                    val rpeList = ex.actual.rpeList
+                    if (rpeList.isNotEmpty()) { rpeSum += rpeList.average(); rpeN++ }
+                }
+            }
+            out.add(MonthlySummary(monthIso, inMonth.size, volume, if (rpeN > 0) rpeSum / rpeN else 0.0, top))
         }
-        val lastMonth = workouts.filter {
-            val ms = ProState.utcDayMillis(it.date)
-            ms in lastMonthStart until thisMonthStart
-        }
-        val totalVolume = thisMonth.sumOf { it.summary?.totalVolume ?: 0.0 }
-        val longevity = Stats.calculateLongevityScore().total
-        val delta = thisMonth.size - lastMonth.size
-        val deltaStr = when {
-            delta > 0 -> "+$delta vs last month"
-            delta < 0 -> "${delta} vs last month"
-            else -> "same as last month"
-        }
-        val weeksInMonth = 4.0
-        val avgPerWeek = if (weeksInMonth > 0) (thisMonth.size / weeksInMonth) else 0.0
-        return "This month you logged ${thisMonth.size} workouts ($deltaStr), " +
-            "total volume ${Stats.formatNumber(totalVolume)} lbs, " +
-            "average ${String.format("%.1f", avgPerWeek)} sessions/week, " +
-            "longevity $longevity/100."
-    }
-
-    private fun startOfMonthMs(ms: Long): Long {
-        val cal = java.util.Calendar.getInstance()
-        cal.timeInMillis = ms
-        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        cal.set(java.util.Calendar.MINUTE, 0)
-        cal.set(java.util.Calendar.SECOND, 0)
-        cal.set(java.util.Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
-
-    private fun endOfMonthMs(ms: Long): Long {
-        val cal = java.util.Calendar.getInstance()
-        cal.timeInMillis = ms
-        cal.set(java.util.Calendar.DAY_OF_MONTH, cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH))
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 23)
-        cal.set(java.util.Calendar.MINUTE, 59)
-        cal.set(java.util.Calendar.SECOND, 59)
-        cal.set(java.util.Calendar.MILLISECOND, 999)
-        return cal.timeInMillis
+        return out.reversed()
     }
 }

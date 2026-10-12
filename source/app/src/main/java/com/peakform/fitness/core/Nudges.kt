@@ -48,4 +48,12 @@ object Nudges {
         }
         return stale && anyDated
     }
+
+    /** BATCH-8: per-exercise staleness check (used by the 1RM Audit screen). */
+    fun isStale(testDateIso: String?, nowMillis: Long): Boolean {
+        if (testDateIso == null) return true
+        val t = ProState.utcDayMillis(testDateIso)
+        if (t <= 0L) return true
+        return nowMillis - t >= RETEST_STALE_MS
+    }
 }

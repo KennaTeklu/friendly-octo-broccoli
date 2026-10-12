@@ -1,150 +1,146 @@
 package com.peakform.fitness.ui.screens
 
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.platform.LocalContext
-import com.peakform.fitness.ui.components.P4Button
-import com.peakform.fitness.ui.components.BtnStyle
-import com.peakform.fitness.ui.components.GlassCard
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.OneRmLab
 import com.peakform.fitness.core.ProState
+import com.peakform.fitness.engine.Library
 import com.peakform.fitness.ui.*
+import com.peakform.fitness.ui.components.*
 
 /**
- * BATCH-13 Item 4A: 1RM Lab screen.
+ * BATCH-12: OneRmLabScreen — interactive 1RM estimator.
  *
- * Enter a recent set (weight × reps × RPE) and the app computes:
- * - Estimated 1RM (Epley + Brzycki + Lombardi + RPE-based)
- * - Confidence interval based on reps
- * - Recommended working weights at 65/75/85/95% 1RM
- * Save as a snapshot.
+ * Inputs: weight lifted, reps performed, optional RPE.
+ * Outputs: 4 estimation methods (Epley, Brzycki, Lombardi, RPE-based),
+ * average + confidence interval, working weights at 65/75/85/95%.
+ *
+ * Snapshots persist per-profile via OneRmLab.saveSnapshot; the history list
+ * shows prior attempts.
  */
 @Composable
-fun OneRmLabScreen(
-    exerciseId: String,
-    onClose: () -> Unit,
-) {
+fun OneRmLabScreen(onClose: () -> Unit) {
     val c = LocalProColors.current
     val ctx = LocalContext.current
-    var weight by remember { mutableStateOf("") }
-    var reps by remember { mutableStateOf("") }
+
+    var weight by remember { mutableStateOf("135") }
+    var reps by remember { mutableStateOf("5") }
     var rpe by remember { mutableStateOf("") }
+    var exerciseId by remember { mutableStateOf("bench_press") }
     var result by remember { mutableStateOf<OneRmLab.EstimateResult?>(null) }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("1RM Lab", style = ProType.sectionTitle, color = c.text, modifier = Modifier.weight(1f))
-            FaIcon("fa-xmark", size = 20.sp, tint = c.text2, contentDescription = "Close",
-                modifier = Modifier.clickable(onClick = onClose).padding(4.dp))
-        }
-        Text(exerciseId.replace('_', ' ').replaceFirstChar { it.uppercase() },
-            style = ProType.body2, color = c.text3)
+    val history = remember(result) { OneRmLab.getSnapshots(ctx) }
 
-        // Input fields
-        OutlinedTextField(
-            value = weight, onValueChange = { weight = it.filter { c -> c.isDigit() || c == '.' } },
-            label = { Text("Weight (lbs)") }, modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = reps, onValueChange = { reps = it.filter { c -> c.isDigit() } },
-            label = { Text("Reps") }, modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = rpe, onValueChange = { rpe = it.filter { c -> c.isDigit() || c == '.' } },
-            label = { Text("RPE (optional, 1-10)") }, modifier = Modifier.fillMaxWidth(),
-        )
-
-        P4Button("Estimate", icon = "fa-calculator", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth()) {
-            val w = weight.toDoubleOrNull() ?: return@P4Button
-            val r = reps.toIntOrNull() ?: return@P4Button
-            if (r !in 1..30) return@P4Button
-            val rpeVal = rpe.toDoubleOrNull()?.takeIf { it in 1.0..10.0 }
-            result = OneRmLab.estimate(w, r, rpeVal)
+    Column(Modifier.fillMaxSize().background(c.bg)) {
+        // Header
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FaIcon("fa-flask-vial", size = 18.sp, tint = c.accent)
+            Spacer(Modifier.width(10.dp))
+            Text("1RM Lab", style = ProType.cardTitle, color = c.text, modifier = Modifier.weight(1f))
+            P4Button("Close", style = BtnStyle.GHOST, onClick = onClose)
         }
 
-        // Results
-        result?.let { res ->
-            GlassCard(padding = PaddingValues(16.dp)) @Composable {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Estimated 1RM", style = ProType.cardTitle, color = c.text)
-                    Text("${res.average.toInt()} lbs", fontSize = 32.sp, fontWeight = FontWeight.Black, color = c.accent)
-                    Text("Confidence: ${res.confidenceLow.toInt()} – ${res.confidenceHigh.toInt()} lbs", style = ProType.small, color = c.text3)
+        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).verticalScroll(rememberScrollState())) {
+            Text("Weight lifted (lbs)", style = ProType.small, color = c.text3)
+            ProTextField(value = weight, onValueChange = { weight = it.filter { ch -> ch.isDigit() || ch == '.' } }, placeholder = "135")
+            Spacer(Modifier.height(8.dp))
 
-                    Spacer(Modifier.height(8.dp))
-                    Text("Methods", style = ProType.label, color = c.text2)
-                    EstimateRow("Epley", res.epley)
-                    EstimateRow("Brzycki", res.brzycki)
-                    EstimateRow("Lombardi", res.lombardi)
-                    EstimateRow("RPE-based", res.rpeBased)
+            Text("Reps performed", style = ProType.small, color = c.text3)
+            ProTextField(value = reps, onValueChange = { reps = it.filter { ch -> ch.isDigit() } }, placeholder = "5")
+            Spacer(Modifier.height(8.dp))
 
-                    Spacer(Modifier.height(8.dp))
-                    Text("Working Weights", style = ProType.label, color = c.text2)
-                    OneRmLab.workingWeights(res.average).forEach { ww ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(c.surface2).padding(8.dp)) {
-                                Text("${ww.pct}% 1RM", fontSize = 11.sp, color = c.text3)
-                            }
-                            Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(c.accentSoft).padding(8.dp)) {
-                                Text("${ww.weight.toInt()} lbs", fontSize = 14.sp, color = c.accent, fontWeight = FontWeight.Bold)
-                            }
-                        }
+            Text("RPE (1–10, optional)", style = ProType.small, color = c.text3)
+            ProTextField(value = rpe, onValueChange = { rpe = it.filter { ch -> ch.isDigit() } }, placeholder = "7")
+            Spacer(Modifier.height(12.dp))
+
+            P4Button("Estimate 1RM", icon = "fa-calculator", style = BtnStyle.PRIMARY, modifier = Modifier.fillMaxWidth()) {
+                val w = weight.toDoubleOrNull() ?: return@P4Button
+                val r = reps.toIntOrNull() ?: return@P4Button
+                if (w <= 0 || r <= 0) return@P4Button
+                val rp = rpe.toDoubleOrNull()?.takeIf { it in 1.0..10.0 }
+                val name = Library.getExerciseById(exerciseId)?.name ?: exerciseId
+                result = OneRmLab.estimate(exerciseId, name, w, r, rp)
+            }
+            Spacer(Modifier.height(16.dp))
+
+            result?.let { res ->
+                Text("Estimate results", style = ProType.label, color = c.text, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                ResultRow("Epley", "${res.epley.toInt()} lbs", c)
+                ResultRow("Brzycki", "${res.brzycki.toInt()} lbs", c)
+                ResultRow("Lombardi", "${res.lombardi.toInt()} lbs", c)
+                res.rpeBased?.let { ResultRow("RPE-based", "${it.toInt()} lbs", c) }
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(c.tintBg).border(1.dp, c.tintLine, RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Text("Average 1RM: ${res.average.toInt()} lbs", style = ProType.label, color = c.accent)
+                        Text("Confidence interval: ${res.confidenceLow.toInt()} – ${res.confidenceHigh.toInt()} lbs", style = ProType.small, color = c.text3)
                     }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Working weights", style = ProType.label, color = c.text, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                ResultRow("65%", "${res.workingWeight(0.65).toInt()} lbs × ${(res.average * 0.65 / res.weightLifted).toInt()} reps", c)
+                ResultRow("75%", "${res.workingWeight(0.75).toInt()} lbs × ${(res.average * 0.75 / res.weightLifted).toInt()} reps", c)
+                ResultRow("85%", "${res.workingWeight(0.85).toInt()} lbs × ${(res.average * 0.85 / res.weightLifted).toInt()} reps", c)
+                ResultRow("95%", "${res.workingWeight(0.95).toInt()} lbs × ${(res.average * 0.95 / res.weightLifted).toInt()} reps", c)
+                Spacer(Modifier.height(12.dp))
+                P4Button("Save snapshot", icon = "fa-save", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
+                    OneRmLab.saveSnapshot(ctx, OneRmLab.Snapshot(exerciseId, res.exerciseName, res))
+                }
+                Spacer(Modifier.height(16.dp))
+            }
 
-                    P4Button("Save Snapshot", icon = "fa-camera", style = BtnStyle.SUCCESS, modifier = Modifier.fillMaxWidth()) {
-                        OneRmLab.saveSnapshot(ctx, OneRmLab.Snapshot(
-                            exerciseId = exerciseId,
-                            date = ProState.todayLocal(),
-                            weight = weight.toDoubleOrNull() ?: 0.0,
-                            reps = reps.toIntOrNull() ?: 0,
-                            rpe = rpe.toDoubleOrNull(),
-                            estimate = res,
-                        ))
-                        onClose()
+            if (history.isNotEmpty()) {
+                Text("History (${history.size})", style = ProType.label, color = c.text, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                history.takeLast(10).reversed().forEach { snap ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(c.surface2)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(snap.exerciseName, style = ProType.body2, color = c.text, modifier = Modifier.weight(1f))
+                        Text("${snap.result.average.toInt()} lbs", style = ProType.small, color = c.accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text(snap.result.at.take(10), style = ProType.small, color = c.text3)
                     }
                 }
             }
-        }
-
-        // History
-        val snapshots = OneRmLab.getSnapshots(ctx, exerciseId)
-        if (snapshots.isNotEmpty()) {
-            Text("History", style = ProType.cardTitle, color = c.text)
-            snapshots.takeLast(5).reversed().forEach { snap ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Text(snap.date, style = ProType.small, color = c.text3, modifier = Modifier.weight(1f))
-                    Text("${snap.weight.toInt()} × ${snap.reps}", style = ProType.small, color = c.text2, modifier = Modifier.weight(1f))
-                    Text("${snap.estimate.average.toInt()} lbs", style = ProType.label, color = c.accent, modifier = Modifier.weight(1f))
-                }
-            }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-private fun EstimateRow(label: String, value: Double) {
-    val c = LocalProColors.current
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = ProType.small, color = c.text2)
-        Text("${value.toInt()} lbs", style = ProType.body2, color = c.text)
+private fun ResultRow(label: String, value: String, c: ProColors) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = ProType.body2, color = c.text2)
+        Text(value, style = ProType.body2, color = c.text, fontWeight = FontWeight.SemiBold)
     }
 }

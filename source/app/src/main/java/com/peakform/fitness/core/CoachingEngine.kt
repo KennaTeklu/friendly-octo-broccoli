@@ -2,171 +2,128 @@ package com.peakform.fitness.core
 
 import android.content.Context
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
- * CoachingEngine — Batch 8 coaching layer.
+ * CoachingEngine — adaptive per-exercise coaching layer (BATCH-8).
  *
- * Tuning sheet answers map to a coaching adjustment (intensity multiplier,
- * rep range, volume multiplier, load restriction). All values are stored
- * per-profile via ProfileSettings so each profile keeps its own tuning.
+ * Reads the user's tuning answers (RPE at target weight, recovery readiness)
+ * and computes a per-exercise prescription adjustment (sets/reps/weight delta)
+ * plus a one-sentence coach explanation that surfaces in the workout card.
  *
- * Storage:
- *   - TuningAnswers JSON blob under p4_coaching_tuning
- *   - TuningAdjustment is computed (not stored) — recomputed on every read
- *
- * Banded exercise resistance is also handled here (BandedExerciseInput
- * uses these constants): the band color → resistance in lbs mapping is the
- * legacy fitness convention (red = heaviest, yellow = lightest).
+ * Storage: per-profile, via ProfileSettings (SharedPreferences `p4_ls_<id>`).
  */
 object CoachingEngine {
-    private const val K_TUNING = "p4_coaching_tuning"
-    private const val K_TUNING_AT = "p4_coaching_tuning_at"
+    private const val K_TUNING = "p4_tuning"
 
-    /** Band color → resistance in lbs (legacy fitness convention). */
-    val BAND_COLORS: List<String> = listOf("yellow", "green", "red", "black", "purple")
-
-    val BAND_RESISTANCE_LB: Map<String, Double> = mapOf(
-        "yellow" to 5.0,
-        "green" to 15.0,
-        "red" to 25.0,
-        "black" to 35.0,
-        "purple" to 50.0,
+    /** Resistance-band color → estimated resistance in lbs at full stretch.
+     *  Industry-standard values, applicable for band-resisted accessory work. */
+    val BAND_COLORS: List<String> = listOf("yellow", "red", "green", "blue", "black")
+    val BAND_RESISTANCE_LB: Map<String, Int> = mapOf(
+        "yellow" to 5, "red" to 10, "green" to 15, "blue" to 25, "black" to 35,
     )
 
     @Serializable
     data class TuningAnswers(
-        /** goal: "bigger" (hypertrophy) | "stronger" (strength) | "leaner" (cut) | "fit" (general). */
-        val goal: String = "fit",
-        /** priority: "strength" | "muscle" | "endurance" | "recovery" | "mobility". */
-        val priority: String = "strength",
-        /** restriction: "none" | "joint" | "lower_back" | "shoulder" | "knee". */
-        val restriction: String = "none",
-        /** enough: was the last session enough? "too_easy" | "just_right" | "hard" | "brutal". */
-        val enough: String = "just_right",
-        /** mindMuscle: 0..1 — focus on mind-muscle connection (1) vs raw load (0). */
-        val mindMuscle: Double = 0.5,
+        val rpeAtTarget: Int = 6,         // 1–10 perceived effort at prescribed weight
+        val recoveryReady: Boolean = true, // false → "tired today"
+        val lastSessionSoreness: Int = 2,  // 0–5 soreness from previous session
+        val targetVolume: String = "maintain", // "cut" | "maintain" | "push"
     )
 
     @Serializable
     data class TuningAdjustment(
-        val intensityMultiplier: Double,
-        val repRange: Pair<Int, Int>,
-        val volumeMultiplier: Double,
-        val restrictLoad: Boolean,
-        val sentence: String,
+        val setsDelta: Int,           // -2..+1
+        val repsDelta: Int,           // -2..+2
+        val weightPct: Double,        // multiplier, e.g. 0.95 = -5%
+        val sentence: String,         // coach sentence for the workout card
+        val rpeTarget: Int,           // adjusted RPE target for this session
     )
 
-    fun getTuning(ctx: Context): TuningAnswers {
+    fun getTuning(ctx: Context): TuningAnswers = try {
         val raw = ProfileSettings.get(ctx, K_TUNING) ?: return TuningAnswers()
-        return try {
-            ProJson.json.decodeFromString(TuningAnswers.serializer(), raw)
-        } catch (_: Exception) { TuningAnswers() }
-    }
+        Json.decodeFromString(TuningAnswers.serializer(), raw)
+    } catch (_: Exception) { TuningAnswers() }
 
     fun saveTuning(ctx: Context, answers: TuningAnswers) {
-        ProfileSettings.put(ctx, K_TUNING, ProJson.json.encodeToString(TuningAnswers.serializer(), answers))
-        ProfileSettings.put(ctx, K_TUNING_AT, ProState.nowIso())
+        ProfileSettings.put(ctx, K_TUNING, Json.encodeToString(TuningAnswers.serializer(), answers))
     }
 
-    fun tuningAt(ctx: Context): String? = ProfileSettings.get(ctx, K_TUNING_AT)
-
     /**
-     * Translate TuningAnswers into a TuningAdjustment the workout generator
-     * can consume. The mapping is intentionally simple — these are nudges,
-     * not a substitute for the underlying 1RM model.
+     * Compute a per-exercise adjustment from the user's current tuning answers.
+     *
+     * Rules:
+     *   - If recoveryReady=false OR soreness ≥ 4: cut volume (-1 set, -5% weight)
+     *   - If rpeAtTarget ≥ 9 (grinder): drop weight 5% to restore bar speed
+     *   - If rpeAtTarget ≤ 5 (way too easy) AND targetVolume="push": +1 set
+     *   - targetVolume="cut": -1 set, -2 reps
+     *   - targetVolume="push": +1 set, +1 rep (capped)
      */
     fun computeAdjustment(answers: TuningAnswers): TuningAdjustment {
-        // intensity multiplier
-        var intensity = 1.0
-        var repMin = 5
-        var repMax = 8
-        var volume = 1.0
-        var restrictLoad = false
+        var setsDelta = 0
+        var repsDelta = 0
+        var weightPct = 1.0
+        var rpeTarget = 7
 
-        when (answers.goal) {
-            "bigger" -> { repMin = 8; repMax = 12; volume = 1.10 }
-            "stronger" -> { repMin = 3; repMax = 6; volume = 0.90; intensity = 1.05 }
-            "leaner" -> { repMin = 12; repMax = 15; volume = 1.05; intensity = 0.90 }
-            "fit" -> { repMin = 8; repMax = 12 }
+        if (!answers.recoveryReady || answers.lastSessionSoreness >= 4) {
+            setsDelta -= 1
+            weightPct -= 0.05
+            rpeTarget = 6
         }
-
-        when (answers.priority) {
-            "strength" -> { repMin = minOf(repMin, 5); repMax = minOf(repMax, 6) }
-            "muscle" -> { repMin = maxOf(repMin, 8); repMax = maxOf(repMax, 10) }
-            "endurance" -> { repMin = 12; repMax = 20; intensity *= 0.85 }
-            "recovery" -> { intensity *= 0.75; volume *= 0.80 }
-            "mobility" -> { intensity *= 0.65; repMin = 10; repMax = 15 }
+        when {
+            answers.rpeAtTarget >= 9 -> { weightPct -= 0.05; rpeTarget = 7 }
+            answers.rpeAtTarget <= 5 && answers.targetVolume == "push" -> { setsDelta += 1; rpeTarget = 8 }
         }
-
-        when (answers.restriction) {
-            "joint" -> { restrictLoad = true; intensity *= 0.85 }
-            "lower_back" -> { restrictLoad = true; intensity *= 0.80 }
-            "shoulder" -> { restrictLoad = true; intensity *= 0.85 }
-            "knee" -> { restrictLoad = true; intensity *= 0.80 }
+        when (answers.targetVolume) {
+            "cut" -> { setsDelta -= 1; repsDelta -= 2; rpeTarget = 6 }
+            "push" -> { setsDelta = setsDelta.coerceAtLeast(1); repsDelta = (repsDelta + 1).coerceAtMost(2); rpeTarget = 8 }
         }
-
-        when (answers.enough) {
-            "too_easy" -> { intensity *= 1.05; volume *= 1.05 }
-            "hard" -> { intensity *= 0.95 }
-            "brutal" -> { intensity *= 0.85; volume *= 0.85 }
-            "just_right" -> { /* no change */ }
-        }
-
-        // mind-muscle slider: 0 = pure load (lower reps, higher intensity),
-        // 1 = mind-muscle (higher reps, lower intensity).
-        val mm = answers.mindMuscle.coerceIn(0.0, 1.0)
-        intensity *= (1.0 - 0.15 * mm)
-        repMin += (mm * 2).toInt()
-        repMax += (mm * 4).toInt()
-
-        // clamp
-        intensity = intensity.coerceIn(0.5, 1.20)
-        volume = volume.coerceIn(0.6, 1.30)
-        repMin = repMin.coerceIn(1, 25)
-        repMax = repMax.coerceIn(repMin, 30)
+        // Sanity clamp.
+        setsDelta = setsDelta.coerceIn(-2, 1)
+        repsDelta = repsDelta.coerceIn(-2, 2)
+        weightPct = weightPct.coerceIn(0.85, 1.05)
 
         return TuningAdjustment(
-            intensityMultiplier = intensity,
-            repRange = repMin to repMax,
-            volumeMultiplier = volume,
-            restrictLoad = restrictLoad,
-            sentence = coachSentence(answers, intensity, repMin to repMax, volume, restrictLoad),
+            setsDelta = setsDelta,
+            repsDelta = repsDelta,
+            weightPct = weightPct,
+            sentence = coachSentence(answers, setsDelta, repsDelta, weightPct),
+            rpeTarget = rpeTarget,
         )
     }
 
-    /** One-sentence coach summary shown under the target chips on the Workout screen. */
-    private fun coachSentence(
-        answers: TuningAnswers,
-        intensity: Double,
-        repRange: Pair<Int, Int>,
-        volume: Double,
-        restrictLoad: Boolean,
-    ): String {
-        val goal = when (answers.goal) {
-            "bigger" -> "build muscle"
-            "stronger" -> "build strength"
-            "leaner" -> "lean out"
-            "fit" -> "stay fit"
-            else -> "train"
+    /** Generate a one-sentence coach explanation for the workout card. */
+    fun coachSentence(answers: TuningAnswers, setsDelta: Int, repsDelta: Int, weightPct: Double): String {
+        val parts = mutableListOf<String>()
+        if (!answers.recoveryReady) parts += "Pulling back today since you flagged recovery as low"
+        if (answers.lastSessionSoreness >= 4) parts += "dropping volume to respect soreness"
+        if (answers.rpeAtTarget >= 9) parts += "easing the load 5% to restore bar speed"
+        if (answers.rpeAtTarget <= 5 && answers.targetVolume == "push") parts += "adding a set — you had more in the tank"
+        when (answers.targetVolume) {
+            "cut" -> parts += "deload-style reduction this week"
+            "push" -> parts += "push volume today — make it count"
+            else -> {}
         }
-        val restrictClause = if (restrictLoad) ", respecting your ${answers.restriction.replace('_', ' ')} restriction" else ""
-        val intensityPct = (intensity * 100).toInt()
-        val volPct = (volume * 100).toInt()
-        return "Today's plan: $goal at ${intensityPct}% intensity, ${repRange.first}-${repRange.second} reps, ${volPct}% volume$restrictClause."
+        if (parts.isEmpty()) return "Holding prescription — you're dialed in."
+        val first = parts.removeAt(0).replaceFirstChar { it.uppercase() }
+        val tail = if (parts.isEmpty()) "" else parts.joinToString(prefix = "; ", postfix = ".") { it }
+        return "$first$tail"
     }
 
-    /** Convenience: read + compute in one call. */
-    fun currentAdjustment(ctx: Context): TuningAdjustment = computeAdjustment(getTuning(ctx))
+    /** Per-exercise storage key (so multiple exercises can carry their own tuning
+     *  on top of the global answers). */
+    private fun tuningKeyFor(exerciseId: String) = "${K_TUNING}_$exerciseId"
 
-    /** Reset tuning to defaults (used by "Reset to defaults" buttons). */
-    fun resetTuning(ctx: Context) {
-        ProfileSettings.remove(ctx, K_TUNING)
-        ProfileSettings.remove(ctx, K_TUNING_AT)
+    fun getExerciseTuning(ctx: Context, exerciseId: String): TuningAnswers? = try {
+        val raw = ProfileSettings.get(ctx, tuningKeyFor(exerciseId)) ?: return null
+        Json.decodeFromString(TuningAnswers.serializer(), raw)
+    } catch (_: Exception) { null }
+
+    fun saveExerciseTuning(ctx: Context, exerciseId: String, answers: TuningAnswers) {
+        ProfileSettings.put(ctx, tuningKeyFor(exerciseId), Json.encodeToString(TuningAnswers.serializer(), answers))
     }
 }
