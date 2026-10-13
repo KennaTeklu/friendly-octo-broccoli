@@ -1,0 +1,42 @@
+/* SETTINGS SECTION */
+.settings-section { background: white;
+    border-radius: var(--border-radius);
+    padding: 30px;
+    margin-top: 30px;
+    box-shadow: var(--card-shadow); }
+.settings-grid { display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 30px;
+    margin-top: 20px; }
+.settings-group { margin-bottom: 30px; }
+.settings-group h3 { color: var(--dark);
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--gray-200); }
+/* SWITCH TOGGLE */
+.switch { position: relative;
+    display: inline-block;
+    width: 60px;
+    height: 34px; }
+.settings-grid { grid-template-columns: 1fr; }
+/* settings two comfortable columns */
+  body.device-computer .settings-grid { gap: 48px; }
+:root[data-mode="dark"] .settings-section label,
+:root[data-mode="dark"] .exercise-item label,
+:root[data-mode="dark"] .form-group label { color: var(--p4-text-2) !important; }
+/* Settings: wider form */
+  body.device-computer .settings-section { max-width: 100% !important; }
+/* ============================================================
+   P4 SETTINGS SEARCH — inspired by dyad-sh, daintree, VS Code
+   Search input at the top of Settings. Fuzzy matches group titles
+   and control labels. Auto-expands the matching group, dims the
+   others, flashes the matched control on click.
+   ============================================================ */
+.p4-ss-wrap { position:relative;margin:0 0 18px 0; }
+/* Dim non-matching groups, keep matched ones bright */
+#p4SettingsExtra.p4-ss-active .p4-settings-group { opacity:.32;transition:opacity .2s; }
+#p4SettingsExtra.p4-ss-active .p4-settings-group.p4-ss-hit { opacity:1; }
+/* Per-control highlight inside a matched group */
+#p4SettingsExtra.p4-ss-active .p4-settings-group-body > * { opacity:.4;transition:opacity .2s; }
+#p4SettingsExtra.p4-ss-active .p4-settings-group-body > *.p4-ss-ctrl-hit { opacity:1; }
+#p4SettingsExtra.p4-ss-active .p4-settings-group-body > * .p4-ss-ctrl-hit { opacity:1; }

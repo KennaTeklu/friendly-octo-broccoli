@@ -1,0 +1,104 @@
+/* PROGRESS CHART */
+.progress-chart-container { margin-bottom: 30px; }
+.chart-container { position: relative;
+    height: 300px;
+    margin-top: 15px; }
+/* PROGRESS SECTION */
+.progress-section { background: white;
+    border-radius: var(--border-radius);
+    padding: 30px;
+    margin-top: 30px;
+    box-shadow: var(--card-shadow); }
+.chart-grid { display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+    gap: 30px;
+    margin-top: 20px; }
+.chart-grid { grid-template-columns: 1fr; }
+.chart-card { background: white;
+    border-radius: 16px;
+    padding: 25px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--gray-200);
+    transition: var(--transition); }
+.chart-card:hover { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
+    transform: translateY(-5px); }
+.chart-grid { grid-template-columns: 1fr; }
+/* PROGRESS BAR */
+.progress-bar { height: 10px;
+    background: var(--gray-200);
+    border-radius: 5px;
+    overflow: hidden;
+    margin: 15px 0; }
+.progress-fill { height: 100%;
+    background: linear-gradient(90deg, var(--primary), var(--secondary));
+    border-radius: 5px;
+    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+/* LONGEVITY SCORE (progress card) */
+.longevity-score-card { background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1));
+    border-radius: 16px;
+    padding: 25px;
+    margin-top: 30px;
+    border: 2px solid rgba(16, 185, 129, 0.2);
+    transition: var(--transition);
+    cursor: pointer; }
+.progression-notes,
+.muscle-tag { font-size: 14px !important; }
+/* Longevity card inside progress section */
+.longevity-progress-card { display: flex;
+    align-items: center;
+    gap: 20px;
+    background: white;
+    padding: 20px 25px;
+    border-radius: var(--border-radius);
+    margin-bottom: 25px;
+    border: 1px solid var(--gray-200);
+    box-shadow: var(--card-shadow); }
+.longevity-progress-card .score-circle { width: 60px;
+    height: 60px;
+    flex-shrink: 0;
+    margin: 0; }
+.longevity-progress-card .score-circle-inner { width: 50px;
+    height: 50px;
+    font-size: 1.2rem; }
+.longevity-progress-card .btn { flex-shrink: 0; }
+.dashboard .sidebar .chart-container { height: 180px; }
+.progress-chart-container { margin-bottom: 15px; }
+.progress-chart-container { margin-bottom: 10px; }
+.progress-chart-container .chart-container { height: 120px; }
+/* Ensure images and canvases don't overflow */
+img, canvas, .chart-container canvas { max-width: 100%;
+    height: auto; }
+.mp-cycle-progress { height:8px; border-radius:6px; background:var(--gray-100); margin:10px 0 14px 0; overflow:hidden; }
+.mp-cycle-progress i { display:block; height:100%; background:linear-gradient(90deg, var(--primary), #8e44ad); border-radius:6px; }
+/* modals, empty states, chart cards, settings */
+.modal-content { border-radius: var(--p4-radius-lg) !important;
+  background: var(--p4-surface) !important;
+  border: 1px solid var(--p4-hairline-2) !important;
+  box-shadow: var(--p4-shadow) !important; }
+.chart-card { border-radius: var(--p4-radius-lg) !important;
+  background: var(--p4-surface) !important;
+  border: 1px solid var(--p4-hairline) !important;
+  box-shadow: var(--p4-shadow-sm); }
+.longevity-progress-card { border-radius: var(--p4-radius-lg);
+  background: var(--p4-surface);
+  border: 1px solid var(--p4-hairline); }
+/* recovery circles & muscle tags get crisp rings */
+.muscle-recovery .progress-circle { border-radius: 50%; }
+/*P6:C*//* ---- P6C: progress hero cards + frequency strip -------------------- */
+.p6-radar-hero, .p6-freq-card { margin-top: 20px;
+  background:
+    linear-gradient(150deg, color-mix(in srgb, var(--p4-accent) 8%, transparent), transparent 55%),
+    var(--p4-surface) !important;
+  border: 1px solid color-mix(in srgb, var(--p4-accent) 24%, var(--p4-hairline)) !important;
+  box-shadow: var(--p4-shadow-sm); }
+:root[data-mode="dark"] .settings-section h3,
+:root[data-mode="dark"] .exercise-item h4,
+:root[data-mode="dark"] .exercise-item h5,
+:root[data-mode="dark"] .chart-card h3 { color: var(--p4-text) !important; }
+/* Progress section: wider */
+  body.device-computer .progress-section { max-width: 100% !important; }
+/* ---- Longevity / progress score circles ---- */
+:root[data-mode="dark"] .score-circle-inner { background: var(--p4-surface) !important;
+  color: var(--p4-text) !important; }
+.chart-container { min-height: 220px; }
+.chart-container { min-height: 160px; }

@@ -1,0 +1,164 @@
+/* MODAL (generic) */
+.modal { display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease; }
+.modal.active { display: flex; }
+.modal-content { background: white;
+    border-radius: 24px;
+    padding: 40px;
+    max-width: 600px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative; }
+/* NEW EXERCISE SEARCH MODAL SPECIFICS */
+#exerciseSearchModal .modal-content { max-width: 600px; }
+.modal-close { position: absolute;
+    top: 15px;
+    right: 20px;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    color: var(--gray-600);
+    transition: color 0.2s;
+    line-height: 1;
+    z-index: 10; }
+.modal-close:hover { color: var(--danger); }
+/* Modals: ensure they fit within viewport */
+.modal-content { max-width: 95vw;
+    width: auto;
+    margin: 20px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-sizing: border-box; }
+.mp-detail-modal { max-width:720px; max-height:88vh; overflow-y:auto; }
+.mp-modal-head { display:flex; justify-content:space-between; align-items:flex-start; padding:4px 0 10px 0; }
+.mp-modal-body { padding:4px 0; }
+:root[data-mode="light"] .modal-content { background: linear-gradient(180deg, var(--p4-tint) 0%, #FFFFFF 120px) !important; }
+/* ---- 12. MODALS ------------------------------------------------------------------ */
+.modal-overlay, .modal, .swal2-popup { background: var(--p4-glass-2) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  backdrop-filter: blur(26px) saturate(170%);
+  border: 1px solid var(--p4-hairline) !important;
+  border-radius: var(--p4-radius-xl) !important;
+  color: var(--p4-text) !important;
+  box-shadow: var(--p4-shadow) !important; }
+/* More-sheet and dock: extra depth */
+#p4Sheet { border-radius: 26px 26px 0 0;
+  box-shadow: 0 -18px 50px -12px rgba(0,0,0,.5); }
+.p4-sheet-cell { border-radius: 16px; }
+.p4-sheet-cell:hover { background: var(--p4-accent-soft); }
+/* ---- P5P9: DEVTOOLS LOCKOUT OVERLAY -------------------------------------------- */
+#p4Lock { position: fixed; inset: 0; z-index: 4900;
+  display: none;
+  align-items: center; justify-content: center;
+  background: var(--p4-glass-2);
+  -webkit-backdrop-filter: blur(26px) saturate(140%);
+  backdrop-filter: blur(26px) saturate(140%); }
+/* modals: comfortable width instead of phone sheet */
+  body.device-computer .modal-content { max-width: 720px; margin: 6vh auto; }
+/* ---- 2. MORE SHEET (bottom sheet) -------------------------------------------- */
+#p4SheetBackdrop { position: fixed; inset: 0; z-index: 1700;
+  background: rgba(2,4,8,.55);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  opacity: 0; pointer-events: none;
+  transition: opacity .25s var(--p4-ease); }
+#p4SheetBackdrop.open { opacity: 1; pointer-events: auto; }
+#p4Sheet { position: fixed; left: 50%; bottom: 0; z-index: 1710;
+  transform: translateX(-50%) translateY(105%);
+  width: min(430px, 100vw);
+  max-height: 78vh;
+  overflow-y: auto;
+  border-radius: 26px 26px 0 0;
+  background: var(--p4-glass-2);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--p4-hairline-2);
+  border-bottom: none;
+  box-shadow: var(--p4-shadow);
+  transition: transform .32s var(--p4-ease);
+  padding: 10px 16px calc(20px + env(safe-area-inset-bottom, 0px)); }
+#p4Sheet.open { transform: translateX(-50%) translateY(0); }
+.p4-sheet-grab { width: 44px; height: 5px; border-radius: 3px; background: var(--p4-hairline-2); margin: 6px auto 12px; }
+.p4-sheet-title { font-family: var(--p4-font-display); font-weight: 700; font-size: 17px;
+  color: var(--p4-text); margin: 2px 4px 12px; }
+.p4-sheet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.p4-sheet-cell { display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 13px 4px 10px;
+  border-radius: 16px;
+  background: var(--p4-surface-2);
+  border: 1px solid var(--p4-hairline);
+  color: var(--p4-text-2) !important;
+  font-size: 11px; font-weight: 600;
+  text-decoration: none !important;
+  cursor: pointer;
+  transition: background .18s, transform .12s var(--p4-ease), color .18s;
+  min-height: 68px; justify-content: center;
+  text-align: center; }
+.p4-sheet-cell i { font-size: 19px; color: var(--p4-accent); }
+.p4-sheet-cell:active { transform: scale(.94); }
+.p4-sheet-cell:hover { background: var(--p4-surface-3); color: var(--p4-text); }
+.p4-sheet-quick { margin-top: 12px;
+  display: flex; flex-wrap: wrap; gap: 8px; }
+/* ---- 4. REST TIMER OVERLAY ------------------------------------------------------ */
+#p4RestTimer { position: fixed;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  z-index: 1620;
+  display: none;
+  align-items: center; gap: 12px;
+  padding: 12px 16px;
+  border-radius: 20px;
+  background: var(--p4-glass-2);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border: 1px solid var(--p4-accent-line);
+  box-shadow: var(--p4-shadow);
+  min-width: 230px; }
+html[data-gym="on"] .btn,
+html[data-gym="on"] .p4-tab,
+html[data-gym="on"] .p4-sheet-cell,
+html[data-gym="on"] select,
+html[data-gym="on"] input,
+html[data-gym="on"] button { min-height: 58px !important;
+  font-size: 16px !important; }
+/* ---- Modals — every modal was white ---- */
+:root[data-mode="dark"] .modal-content { background: var(--p4-surface) !important;
+  color: var(--p4-text) !important;
+  border: 1px solid var(--p4-hairline-2) !important; }
+:root[data-mode="dark"] .modal-content h1,
+:root[data-mode="dark"] .modal-content h2,
+:root[data-mode="dark"] .modal-content h3,
+:root[data-mode="dark"] .modal-content h4 { color: var(--p4-text) !important; }
+:root[data-mode="dark"] .modal-content p,
+:root[data-mode="dark"] .modal-content label { color: var(--p4-text-2) !important; }
+/* ---- Loading overlay — was rgba(255,255,255,0.95) ---- */
+:root[data-mode="dark"] .loading { background: rgba(7, 9, 13, 0.95) !important;
+  color: var(--p4-text) !important; }
+#paywall-overlay { position:fixed;inset:0;z-index:999990;background:rgba(0,0,0,0.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);display:block;padding:40px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;color:#f8fafc; }
+#paywall-overlay * { box-sizing:border-box; }
+.pw-modal { position:fixed;inset:0;z-index:999991;background:rgba(0,0,0,0.85);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;padding:20px; }
+.pw-modal.open { display:flex; }
+.pw-modal-inner { background:rgba(12,14,20,0.98);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:28px 26px;max-width:460px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.8);position:relative;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif; }
+.pw-modal-inner * { box-sizing:border-box; }
+.pw-modal-inner h3 { font-size:18px;font-weight:700;margin:0 0 10px; }
+.pw-modal-inner p { font-size:13px;color:#94a3b8;line-height:1.6;margin:0 0 16px; }
+#paywall-overlay { padding:24px 16px; }
+#paywall-overlay { padding:16px 12px; }
+.pw-modal-inner { padding:20px 16px;border-radius:16px; }
+#p4HealthOverlay { position:fixed;inset:0;z-index:100020;background:rgba(0,0,0,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:none;align-items:flex-start;justify-content:center;padding:max(20px,env(safe-area-inset-top)) 16px max(20px,env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain; }
+#p4HealthOverlay.on { display:flex; }
+#p4HealthOverlay { padding:12px 10px; }

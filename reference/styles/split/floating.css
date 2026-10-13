@@ -1,0 +1,101 @@
+.quick-actions { display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 10px; }
+.quick-actions .btn { flex: 1 1 auto;
+        min-width: 100px;
+        padding: 8px 12px;
+        font-size: 0.85rem; }
+body.device-computer .quick-actions { margin-top: 15px; }
+/* Floating Action Button */
+.fab { position: fixed;
+    bottom: 80px;  /* increased to clear bottom navigation */
+    right: 30px;
+    width: 60px;
+    height: 60px;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    border-radius: 50%;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.8rem;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 999; }
+.fab { bottom: 20px;  /* lower on mobile */ }
+.fab:hover { transform: scale(1.1) rotate(90deg);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
+/* Ensure modal buttons are nicely spaced */
+.quick-actions-modal-buttons { display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding: 10px 0; }
+.quick-actions-modal-buttons .btn { width: 100%;
+    text-align: left;
+    justify-content: flex-start; }
+.fab { bottom: 20px;
+        right: 20px;
+        width: 50px;
+        height: 50px;
+        font-size: 1.5rem; }
+/* ============================================================================
+   PHASE 4 COMPONENTS — tab bar, sheet, dock, timer, wizard, paywall, studio
+   ============================================================================ */
+
+/* ---- 1. BOTTOM TAB BAR (5 tabs + elevated Train FAB) ----------------------- */
+#p4TabBar { position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  z-index: 1600;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: min(430px, calc(100vw - 20px));
+  padding: 8px 10px;
+  border-radius: 26px;
+  background: var(--p4-glass);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  backdrop-filter: blur(24px) saturate(170%);
+  border: 1px solid var(--p4-hairline-2);
+  box-shadow: var(--p4-shadow); }
+.p4-tab-fabwrap { flex: 1.15; display: flex; justify-content: center; }
+/* P6A: the Train button is calm and normal when it is not the selected page */
+.p4-tab-fab { margin-top: -24px;
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px;
+  background: var(--p4-surface-2);
+  color: var(--p4-text-2) !important;
+  font-size: 10px; font-weight: 700;
+  text-decoration: none !important;
+  box-shadow: 0 3px 10px -6px rgba(0,0,0,.40);
+  border: 1px solid var(--p4-hairline-2);
+  transition: transform .16s var(--p4-ease), box-shadow .25s, background .25s, color .2s, border-color .25s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none; }
+.p4-tab-fab i { font-size: 19px; }
+.p4-tab-fab:active { transform: scale(.93); }
+/* P6A: selected Train = the same circle language as the other tabs, full accent */
+.p4-tab-fab.active { background: linear-gradient(140deg, var(--p4-accent), color-mix(in srgb, var(--p4-accent) 62%, #FFFFFF 38%));
+  color: var(--p4-on-accent) !important;
+  border-color: color-mix(in srgb, var(--p4-accent) 55%, transparent);
+  transform: translateY(-2px);
+  animation: p4fabglow 2.6s var(--p4-ease) infinite; }
+html[data-gym="on"] .p4-tab-fab { width: 68px; height: 68px; margin-top: -32px; }
+/* Reposition FABs to the right edge of the content, not floating in dead space */
+  body.device-computer .fab { right: 24px !important;
+    bottom: 24px !important; }
+/* If there's a FAB container, anchor it to the content column */
+  body.device-computer .fab-container { position: fixed !important;
+    right: 24px !important;
+    bottom: 24px !important;
+    z-index: 100 !important; }
+/* Raise floating buttons above the always-on bar */
+        .fab { bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important; }
+/* Keep floating tabbar off the very bottom edge */
+#p4TabBar, #bottomNav { bottom: 12px !important; }

@@ -1,0 +1,295 @@
+/* NAVIGATION BAR */
+.navbar { position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: var(--nav-height);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    padding: 0 25px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05); }
+.nav-brand { display: flex;
+    align-items: center;
+    gap: 15px;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--primary);
+    text-decoration: none;
+    transition: var(--transition); }
+.nav-brand:hover { transform: translateY(-2px); }
+.nav-brand i { color: var(--accent);
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent; }
+.nav-menu { display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto; }
+.nav-item { padding: 10px 20px;
+    text-decoration: none;
+    color: var(--gray-700);
+    font-weight: 600;
+    border-radius: 10px;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+    position: relative;
+    overflow: hidden; }
+.nav-item::before { content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 3px;
+    background: var(--accent);
+    border-radius: 3px;
+    transform: translateX(-50%);
+    transition: var(--transition); }
+.nav-item:hover { color: var(--primary);
+    background: rgba(59, 130, 246, 0.05); }
+.nav-item:hover::before { width: 70%; }
+.nav-item.active { color: var(--primary);
+    background: rgba(59, 130, 246, 0.1); }
+.nav-item.active::before { width: 70%;
+    background: var(--primary); }
+.nav-user { display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-left: 30px;
+    padding-left: 30px;
+    border-left: 2px solid var(--gray-200); }
+.nav-menu { position: fixed;
+        top: var(--nav-height);
+        left: 0;
+        width: 100%;
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(10px);
+        flex-direction: column;
+        padding: 25px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        display: none;
+        border-top: 1px solid var(--gray-200); }
+.nav-menu.active { display: flex;
+        animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.nav-user { margin-left: 0;
+        padding-left: 0;
+        border-left: none;
+        border-top: 2px solid var(--gray-200);
+        padding-top: 25px;
+        margin-top: 25px;
+        width: 100%;
+        justify-content: center; }
+.navbar { padding: 0 15px; }
+.nav-brand span { font-size: 1.3rem; }
+.nav-menu { position: fixed;
+        top: var(--nav-height);
+        left: 0;
+        width: 100%;
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(10px);
+        flex-direction: column;
+        padding: 25px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        display: none;
+        border-top: 1px solid var(--gray-200);
+        overflow-y: auto;
+        overflow-x: visible; /* ← override desktop horizontal scroll */
+        max-height: calc(100vh - var(--nav-height) - 20px);
+        white-space: normal;
+        align-items: stretch; }
+.nav-menu.active { display: flex;
+        animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.nav-menu .nav-item { white-space: normal;
+        word-break: break-word;
+        width: 100%;
+        justify-content: flex-start;
+        text-align: left; }
+/* Optional thin scrollbar for mobile */
+    .nav-menu::-webkit-scrollbar { width: 4px; }
+/* ---------- BOTTOM NAVIGATION FOR COMPUTERS ---------- */
+.bottom-nav { position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    box-shadow: 0 -5px 15px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    transform: translateY(100%);
+    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s;
+    padding: 10px 0 15px 0; }
+.bottom-nav.visible { transform: translateY(0); }
+.bottom-nav-menu { display: flex;
+    justify-content: space-around;
+    align-items: flex-end;
+    padding: 0 10px;
+    max-width: 800px;
+    margin: 0 auto; }
+.bottom-nav-item { display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-decoration: none;
+    color: var(--gray-600);
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 6px 8px;
+    border-radius: 12px;
+    transition: all 0.2s;
+    min-width: 60px; }
+.bottom-nav-item i { font-size: 1.8rem;
+    margin-bottom: 3px;
+    color: var(--primary); }
+.bottom-nav-item span { font-size: 0.7rem;
+    text-align: center;
+    line-height: 1.2;
+    letter-spacing: 0.3px; }
+.bottom-nav-item.active { color: var(--primary);
+    background: rgba(59, 130, 246, 0.1); }
+.bottom-nav-item:hover { color: var(--primary);
+    transform: translateY(-2px); }
+/* P5P2: desktop keeps the real top navigation (mobile-first, not mobile-only) */
+body.device-computer .navbar { display: flex !important;
+    padding: 0 32px; }
+/* P5P2: offset content below the restored fixed navbar on desktop */
+body.device-computer .post-body { padding-top: calc(var(--nav-height) + 12px) !important; }
+/* Luxury header styling */
+.nav-brand { gap: 12px !important; }
+/* Optional: add subtle hover effect */
+.nav-brand:hover .user-name { opacity: 1;
+    letter-spacing: 2px;
+    transition: all 0.3s ease; }
+:root[data-mode="light"] .navbar { background: color-mix(in srgb, var(--p4-accent) 8%, rgba(255,255,255,.88)) !important;
+  border-bottom: 1px solid var(--p4-tint-line) !important; }
+:root[data-mode="light"] #p4TabBar { background: color-mix(in srgb, var(--p4-accent) 9%, rgba(255,255,255,.86));
+  border: 1px solid var(--p4-tint-line); }
+/* ---- 10. TOP NAVBAR : glass ---------------------------------------------------- */
+.navbar { background: var(--p4-glass) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  border-bottom: 1px solid var(--p4-hairline) !important;
+  box-shadow: none !important; }
+.nav-brand { color: var(--p4-text) !important; font-weight: 800; }
+.nav-item { color: var(--p4-text-2) !important; border-radius: 10px; }
+.nav-item:hover { color: var(--p4-text) !important; background: var(--p4-glass-hi); }
+.nav-item.active { color: var(--p4-accent) !important; background: var(--p4-accent-soft); }
+.nav-item.active::before { background: var(--p4-accent); }
+#p4TabBar, #p4SheetBackdrop { display: none !important; }
+/* top nav gets desktop spacing */
+  body.device-computer .navbar { backdrop-filter: blur(18px) saturate(160%); }
+body.device-computer .nav-item { padding: 9px 16px; font-size: 0.92rem; }
+#p4TabBar.p4-tabbar-hide { transform: translateX(-50%) translateY(120px); opacity: 0; pointer-events: none; }
+#p4TabBar { transition: transform .3s var(--p4-ease), opacity .3s var(--p4-ease), bottom .3s; }
+#p4TabBar { display: none; }
+#p4TabBar, #p4Dock, #p4Sheet, #p4SheetBackdrop, #p4RestTimer, #p4Toasts { display: none !important; }
+/* Top navbar: full width with proper spacing */
+  body.device-computer .navbar { padding: 0 24px !important; }
+/* ============================================================
+   P4 DARK MODE FIXES — hardcoded light surfaces resolved
+   Every rule is scoped to [data-mode="dark"] so light is untouched.
+   ============================================================ */
+
+/* ---- Top navbar ---- */
+:root[data-mode="dark"] .navbar { background: rgba(16, 20, 28, 0.85) !important;
+  border-bottom: 1px solid var(--p4-hairline) !important;
+  box-shadow: none !important; }
+:root[data-mode="dark"] .nav-brand,
+:root[data-mode="dark"] .nav-brand:hover { color: var(--p4-text) !important; }
+:root[data-mode="dark"] .nav-item { color: var(--p4-text-2) !important; }
+:root[data-mode="dark"] .nav-item:hover { background: rgba(255, 255, 255, 0.05) !important;
+  color: var(--p4-text) !important; }
+:root[data-mode="dark"] .nav-item.active { color: var(--p4-accent) !important;
+  background: var(--p4-accent-soft) !important; }
+:root[data-mode="dark"] .nav-menu { background: rgba(16, 20, 28, 0.98) !important;
+    border-top-color: var(--p4-hairline) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45) !important; }
+:root[data-mode="dark"] .nav-menu .nav-item { color: var(--p4-text-2) !important; }
+:root[data-mode="dark"] .nav-menu .nav-item.active { color: var(--p4-accent) !important; }
+:root[data-mode="dark"] .nav-user { border-top-color: var(--p4-hairline) !important; }
+nav.navbar { display: flex !important; visibility: visible !important; opacity: 1 !important; z-index: 1000 !important; }
+#p4TabBar { display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  transform: translateX(-50%) !important;
+  pointer-events: auto !important; }
+#p4TabBar.p4-tabbar-hide { display: flex !important;
+  transform: translateX(-50%) !important;
+  opacity: 1 !important;
+  pointer-events: auto !important; }
+body.device-computer #p4TabBar { display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: translateX(-50%) !important;
+    width: min(430px, calc(100vw - 20px)) !important; }
+/* Neutralize every known rule that could hide the tab bar */
+    #p4TabBar,
+    #p4TabBar.p4-tabbar-hide,
+    #p4TabBar.p4-tabbar-hide.force-show,
+    body.device-computer #p4TabBar,
+    body.device-computer #p4TabBar.p4-tabbar-hide,
+    html[data-gym="on"] #p4TabBar { display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        transform: translateX(-50%) !important;
+        bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+        z-index: 1600 !important; }
+/* Slightly tighter bar on tiny screens */
+        #p4TabBar { width: min(430px, calc(100vw - 16px)) !important; }
+#p4TabBar { width: min(430px, calc(100vw - 20px)) !important; }
+/* Compact top bar: fixed height, no overflow */
+    .navbar { padding: 0 14px !important;
+        height: var(--nav-height) !important;
+        min-height: var(--nav-height) !important;
+        max-height: var(--nav-height) !important;
+        overflow: hidden !important; }
+.nav-brand { flex-shrink: 0; }
+.navbar .mobile-menu-btn.nav-user-trigger:hover { background: rgba(127,127,127,.10) !important; }
+.navbar .mobile-menu-btn.nav-user-trigger:active { transform: scale(.97) !important; }
+.navbar .nav-user-trigger .user-avatar { width: 38px !important;
+        height: 38px !important;
+        font-size: 1.2rem !important;
+        flex-shrink: 0 !important;
+        background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
+        color: #fff !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 50% !important;
+        font-weight: 700 !important; }
+.navbar .nav-user-trigger .nav-user-text { display: flex !important;
+        flex-direction: column !important;
+        text-align: left !important;
+        line-height: 1.15 !important;
+        max-width: 170px !important;
+        overflow: hidden !important; }
+.navbar .nav-user-trigger .nav-user-text #navUserName { font-size: .85rem !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        color: var(--dark, #0f172a) !important; }
+.navbar .nav-user-trigger .nav-user-text #navUserStats { font-size: .65rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        opacity: .72 !important; }
+.navbar .nav-user-trigger .nav-user-text { display: none !important; }
+/* Belt: if a stale .nav-user is re-injected into nav-menu, hide it */
+    .navbar .nav-menu .nav-user { display: none !important; }
+/* Content padding: clears compact navbar up top and tab bar at bottom */
+    .main-app { padding-top: calc(var(--nav-height) + 8px) !important;
+        padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important; }
+.navbar .nav-menu { top: var(--nav-height) !important;
+            max-height: calc(100vh - var(--nav-height) - 8px) !important;
+            overflow-y: auto !important; }
+/* Universal .main-app padding fix — body already reserves navbar height via NavPadding.
+   This removes the redundant 76px void and reserves proper bottom space for the tab bar. */
+.main-app, .container.main-app { padding-top: 8px !important;
+  padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)) !important; }
