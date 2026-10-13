@@ -31,4 +31,27 @@ interface ExerciseCoach {
 
     /** Common form cues (rendered in the workout card on long-press). */
     val formCues: List<String>
+
+    // ---- v34b additions: authored coach metadata ----
+
+    /** What inputs this coach needs (1RM, band, bodyweight, etc.). */
+    fun requirements(): com.peakform.fitness.coach.authored.CoachRequirements = com.peakform.fitness.coach.authored.CoachRequirements()
+
+    /** Envelope bounds for this coach's prescriptions. */
+    val envelope: com.peakform.fitness.coach.authored.ExerciseEnvelope
+        get() = com.peakform.fitness.coach.authored.ExerciseEnvelope(7, 2, 1000.0, 300.0, 50.0, 0.95)
+
+    /** Provenance: source file, section, coach version, author note. */
+    val provenance: com.peakform.fitness.coach.authored.CoachProvenance
+        get() = com.peakform.fitness.coach.authored.CoachProvenance("", "", 1, "")
+
+    /** Coach version (starts at 1). */
+    val version: Int
+        get() = 0
+
+    /** Reconcile authored rows into a prescription. Selects, never blends. */
+    fun reconcile(rows: List<com.peakform.fitness.coach.authored.AuthoredRow>, intent: String, phase: String, bodyProfile: com.peakform.fitness.coach.authored.BodyProfile?): com.peakform.fitness.coach.authored.Prescription = com.peakform.fitness.coach.authored.Prescription(note = "Not authored — no rows available.")
+
+    /** One-sentence explanation of the prescription in coach voice. */
+    fun explain(prescription: com.peakform.fitness.coach.authored.Prescription, intent: String): String = prescription.note
 }

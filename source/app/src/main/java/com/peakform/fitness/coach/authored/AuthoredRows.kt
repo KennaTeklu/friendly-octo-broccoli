@@ -48,6 +48,33 @@ data class BodyProfile(
     val bodyGoal: String,
 )
 
+data class CoachRequirements(
+    val needs1RM: Boolean = false,
+    val needsBand: Boolean = false,
+    val needsBodyweight: Boolean = false,
+    val needsDuration: Boolean = false,
+    val needsDistance: Boolean = false,
+    val needsPace: Boolean = false,
+    val needsWeight: Boolean = false,
+)
+
+data class Prescription(
+    val sets: Int = 0,
+    val reps: String = "",
+    val load: Double? = null,
+    val pct1RM: Double? = null,
+    val bandColour: String? = null,
+    val tier: Int? = null,
+    val duration: Double? = null,
+    val distance: Double? = null,
+    val pace: String? = null,
+    val restSeconds: Int = 0,
+    val components: Map<String, Int> = emptyMap(),
+    val note: String = "",
+    val sourceRowId: String? = null,
+    val deferrals: List<String> = emptyList(),
+)
+
 object AuthoredRows {
     val backSquatRows = listOf(
         AuthoredRow("bs_novice_stronger_base", "rippetoe-2011/novice-lp.md", "Novice table", "back_squat", "STRONGER", "BASE", "novice", "*", "*", 3, "5", pct1RM = 0.65, restSeconds = 300, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2, "POWER" to 1)),
