@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.ProState
+import com.peakform.fitness.BuildConfig
 import com.peakform.fitness.core.WorkoutExercise
 import com.peakform.fitness.core.WorkoutRecord
 import com.peakform.fitness.engine.Generator
@@ -470,36 +471,91 @@ fun ExerciseCard(
             com.peakform.fitness.ui.FaIcon(if (expanded) "fa-chevron-up" else "fa-chevron-down", size = 14.sp, tint = c.accent)
         }
 
-        // BATCH-16/v33 recovery: Coach-led workout flow.
-        // 1. Compound lift without 1RM → no prescription.
-        // 2. Banded exercises: show band, not weight.
-        // 3. Show % of 1RM when available.
+        // v34c Item 4: Card renders only declared fields per coach.requirements().
+        // v34c Item 5: Component chips from authored rows.
         Spacer(Modifier.height(12.dp))
         val rx = exercise.prescribed
         val rec = ProState.data.exercises[exercise.id]
+
+        // Resolve the coach for this exercise to get requirements
+        val coach = com.peakform.fitness.coach.CoachRegistry.lookup(exercise.id)
+        val reqs = coach?.requirements() ?: com.peakform.fitness.coach.authored.CoachRequirements()
         val has1RM = (rec?.tested1RM ?: 0.0) > 0
-        val isCompound = listOf("squat", "deadlift", "bench", "press", "row").any { exercise.id.contains(it) }
-        val isBanded = exercise.equipment.equals("bands", ignoreCase = true) || exercise.equipment.equals("band", ignoreCase = true)
+
+        // Component chips from authored row (Item 5)
+        val authoredRow = com.peakform.fitness.coach.authored.AuthoredRows.rowsForCoach(exercise.id).firstOrNull()
+        val components = authoredRow?.components ?: emptyMap()
+        if (components.isNotEmpty()) {
+            ComponentChipsRow(components)
+            Spacer(Modifier.height(8.dp))
+        }
+
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onToggle() }) {
-            when {
-                isCompound && !has1RM -> {
-                    RxLine(label = "1RM REQUIRED", value = "Test your 1RM to unlock prescription")
-                }
-                isBanded -> {
-                    RxLine(label = "BAND", value = "${rx.sets} × ${rx.reps} · band resistance")
-                }
-                exercise.prescriptionType == "time" || exercise.defaultDuration != null -> {
-                    RxLine(label = "HOLD", value = "${rx.duration?.toInt() ?: 45}s × ${rx.sets} sets")
-                }
-                else -> {
+            if (!reqs.needs1RM && !reqs.needsBand && !reqs.needsBodyweight && !reqs.needsDuration && !reqs.needsDistance && !reqs.needsPace && !reqs.needsWeight) {
+                // All false → exercise name + chips only, no prescription line
+                Text("No prescription available — no coach requirements declared.", style = ProType.small, color = c.text3)
+            } else {
+                // Render only fields the coach declares
+                val parts = mutableListOf<String>()
+                if (reqs.needsWeight) {
                     val w = rx.weight
-                    val orm = rec?.tested1RM
-                    val pctStr = if (orm != null && orm > 0 && w != null && w > 0) " (${(w / orm * 100).toInt()}% 1RM)" else ""
-                    RxLine(
-                        label = "PRESCRIPTION",
-                        value = (if (w != null && w > 0) "${OneRm.roundToNearest(w).toInt()} lbs$pctStr · " else "") + "${rx.sets} × ${rx.reps}",
-                    )
+                    if (w != null && w > 0) {
+                        parts.add("${OneRm.roundToNearest(w).toInt()} lbs")
+                        if (reqs.needs1RM && has1RM) {
+                            val orm = rec?.tested1RM
+                            if (orm != null && orm > 0) {
+                                val pct = (w / orm * 100).toInt()
+                                assertDeclared(reqs.needs1RM, "pct1RM", "1RM display")
+                                parts.add("(${pct}% 1RM)")
+                            }
+                        }
+                    }
                 }
+                if (reqs.needs1RM && !reqs.needsWeight) {
+                    if (!has1RM) {
+                        parts.add("Test 1RM first")
+                    }
+                }
+                if (reqs.needsBand) {
+                    val bandColour = com.peakform.fitness.core.ProfileSettings.get(com.peakform.fitness.ui.Fa.appContext!!, "p8_band_" + exercise.id)
+                    parts.add(bandColour?.replaceFirstChar { it.uppercase() } ?: "Select band")
+                }
+                if (reqs.needsBodyweight) {
+                    parts.add("BW")
+                }
+                if (reqs.needsDuration && !reqs.needsDistance) {
+                    val dur = rx.duration ?: 45.0
+                    parts.add("${dur.toInt()}s hold")
+                }
+                if (reqs.needsDistance) {
+                    parts.add("${rx.weight?.toInt() ?: 0} mi")
+                }
+                if (reqs.needsPace) {
+                    parts.add("Zone 2")
+                }
+                if (reqs.needsWeight || reqs.needsBand || reqs.needsBodyweight || reqs.needsDuration) {
+                    parts.add("${rx.sets} × ${rx.reps}")
+                }
+                if (reqs.needsDistance) {
+                    parts.remove("${rx.sets} × ${rx.reps}") // cardio doesn't show sets/reps
+                }
+
+                // Runtime assertion: no field renders whose requirement is false
+                if (BuildConfig.DEBUG) {
+                    if (!reqs.needs1RM && parts.any { it.contains("1RM") }) {
+                        android.util.Log.e("ProCard", "undeclared field: 1RM in exercise ${exercise.id}")
+                        throw IllegalStateException("undeclared field: 1RM in exercise ${exercise.id}")
+                    }
+                    if (!reqs.needsWeight && parts.any { it.contains("lbs") }) {
+                        android.util.Log.e("ProCard", "undeclared field: load in exercise ${exercise.id}")
+                        throw IllegalStateException("undeclared field: load in exercise ${exercise.id}")
+                    }
+                } else {
+                    if (!reqs.needs1RM && parts.any { it.contains("1RM") }) android.util.Log.w("ProCard", "undeclared field: 1RM in exercise ${exercise.id}")
+                    if (!reqs.needsWeight && parts.any { it.contains("lbs") }) android.util.Log.w("ProCard", "undeclared field: load in exercise ${exercise.id}")
+                }
+
+                RxLine(label = "PRESCRIPTION", value = parts.joinToString(" · "))
             }
         }
 
@@ -703,5 +759,74 @@ fun PlateToggleChip(label: String, active: Boolean, tint: androidx.compose.ui.gr
             .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
         Text(label, fontSize = 11.sp, color = if (active) tint else c.text2, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+    }
+}
+
+// ---- v34c Item 5: Component chips from authored rows ----
+
+/**
+ * Renders component chips from the authored row's components map.
+ * weight 0 → hidden. Sort by weight descending. Top 4 shown.
+ * More than 4 → "and N more". Weight 5 → solid accent, others accent-soft.
+ */
+@Composable
+private fun ComponentChipsRow(components: Map<String, Int>) {
+    val c = LocalProColors.current
+    val sorted = components.filter { it.value > 0 }.toList().sortedByDescending { it.second }
+    val top = sorted.take(4)
+    val remaining = sorted.size - top.size
+
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        top.forEach { (name, weight) ->
+            val isPrimary = weight >= 5
+            val chipColor = if (isPrimary) c.accent else c.accentSoft
+            val textColor = if (isPrimary) c.onAccent else c.inkSoft
+
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(chipColor)
+                    .border(1.dp, if (isPrimary) c.accent else c.accentLine, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    name.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                    fontSize = 9.sp,
+                    color = textColor,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                )
+                // 5-segment bar
+                Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                    repeat(5) { i ->
+                        Box(
+                            Modifier
+                                .size(3.dp, 8.dp)
+                                .clip(RoundedCornerShape(1.dp))
+                                .background(if (i < weight) textColor.copy(alpha = 0.8f) else textColor.copy(alpha = 0.2f))
+                        )
+                    }
+                }
+            }
+        }
+        if (remaining > 0) {
+            Text("and $remaining more", fontSize = 9.sp, color = c.text3, modifier = Modifier.align(Alignment.CenterVertically))
+        }
+    }
+}
+
+/** Runtime assertion helper — no field renders whose requirement is false. */
+private fun assertDeclared(requirement: Boolean, fieldName: String, context: String) {
+    if (!requirement) {
+        if (com.peakform.fitness.BuildConfig.DEBUG) {
+            android.util.Log.e("ProCard", "undeclared field: $fieldName in $context")
+            throw IllegalStateException("undeclared field: $fieldName in $context")
+        } else {
+            android.util.Log.w("ProCard", "undeclared field: $fieldName in $context")
+        }
     }
 }
