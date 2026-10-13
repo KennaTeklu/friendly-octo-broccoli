@@ -200,3 +200,175 @@ object RunningAuthoredCoach : ExerciseCoach {
         note = "Source: ${row.sourceFile}#${row.sourceSection}"
     )
 }
+
+// ── v35: 10 new authored coaches ──
+
+// ── DeadliftCoach ──
+object DeadliftAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("deadlift", "conventional_deadlift")
+    override val movementName = "Deadlift"
+    override val formCues = listOf("Flat back", "Push the floor", "Bar close")
+    override val envelope = ExerciseEnvelope(7, 1, 1000.0, 0.0, 0.0, 0.95)
+    override val provenance = CoachProvenance("prilepin-1974/chart.md", "80-89% row", 1, "Prilepin + Rippetoe")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needs1RM = true, needsWeight = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Flat back. Push the floor."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") && (bodyProfile == null || it.trainingAge == "*" || it.trainingAge == bodyProfile.trainingAge) }
+        return if (matched.isEmpty()) Prescription(note = "No source row for deadlift at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Deadlift: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Push the floor." else p.note
+}
+
+// ── BenchPressCoach ──
+object BenchPressAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("bench_press", "barbell_bench_press")
+    override val movementName = "Bench Press"
+    override val formCues = listOf("Control descent", "Drive heels", "Lock elbows")
+    override val envelope = ExerciseEnvelope(7, 2, 1000.0, 0.0, 0.0, 0.95)
+    override val provenance = CoachProvenance("prilepin-1974/chart.md", "80-89% row", 1, "Prilepin + Rippetoe")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needs1RM = true, needsWeight = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Control. Drive through heels."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") && (bodyProfile == null || it.trainingAge == "*" || it.trainingAge == bodyProfile.trainingAge) }
+        return if (matched.isEmpty()) Prescription(note = "No source row for bench_press at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Bench press: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Drive through heels." else p.note
+}
+
+// ── OverheadPressCoach ──
+object OverheadPressAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("overhead_press", "ohp", "military_press")
+    override val movementName = "Overhead Press"
+    override val formCues = listOf("Brace", "Glutes tight", "Press straight up")
+    override val envelope = ExerciseEnvelope(7, 2, 500.0, 0.0, 0.0, 0.90)
+    override val provenance = CoachProvenance("prilepin-1974/chart.md", "80-89% row", 1, "Prilepin + Rippetoe")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needs1RM = true, needsWeight = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Brace. Glutes tight."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") && (bodyProfile == null || it.trainingAge == "*" || it.trainingAge == bodyProfile.trainingAge) }
+        return if (matched.isEmpty()) Prescription(note = "No source row for overhead_press at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "OHP: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Glutes tight." else p.note
+}
+
+// ── BarbellRowCoach ──
+object BarbellRowAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("barbell_row", "pendlay_row", "t_bar_row")
+    override val movementName = "Barbell Row"
+    override val formCues = listOf("Flat back", "Pull to sternum", "Squeeze blades")
+    override val envelope = ExerciseEnvelope(7, 2, 500.0, 0.0, 0.0, 0.85)
+    override val provenance = CoachProvenance("prilepin-1974/chart.md", "80-89% row", 1, "Prilepin")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needs1RM = true, needsWeight = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Flat back. Pull to sternum."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") }
+        return if (matched.isEmpty()) Prescription(note = "No source row for barbell_row at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Row: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Pull to sternum." else p.note
+}
+
+// ── FrontSquatCoach ──
+object FrontSquatAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("front_squat", "barbell_front_squat")
+    override val movementName = "Front Squat"
+    override val formCues = listOf("Elbows high", "Front rack", "Stay upright")
+    override val envelope = ExerciseEnvelope(7, 2, 800.0, 0.0, 0.0, 0.90)
+    override val provenance = CoachProvenance("prilepin-1974/chart.md", "80-89% row", 1, "Prilepin")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needs1RM = true, needsWeight = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Elbows high. Stay upright."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") }
+        return if (matched.isEmpty()) Prescription(note = "No source row for front_squat at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Front squat: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Elbows high." else p.note
+}
+
+// ── RomanianDeadliftCoach ──
+object RomanianDeadliftAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("romanian_deadlift", "rdl")
+    override val movementName = "Romanian Deadlift"
+    override val formCues = listOf("Hinge at hips", "Stretch hamstrings", "Flat back")
+    override val envelope = ExerciseEnvelope(5, 2, 600.0, 0.0, 0.0, 0.75)
+    override val provenance = CoachProvenance("rippetoe-2011/assistance.md", "RDL row", 1, "Rippetoe assistance")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needs1RM = true, needsWeight = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Hinge. Stretch. Flat back."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") }
+        return if (matched.isEmpty()) Prescription(note = "No source row for romanian_deadlift at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "RDL: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Hinge, stretch, flat back." else p.note
+}
+
+// ── ChinUpCoach ──
+object ChinUpAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("chin_up", "chinup")
+    override val movementName = "Chin-Up"
+    override val formCues = listOf("Supinate", "Chin over bar", "Control descent")
+    override val envelope = ExerciseEnvelope(5, 2, 0.0, 0.0, 0.0, 0.0)
+    override val provenance = CoachProvenance("sommer-2006/gymnastic-body-tier-table.md", "Tier 4: Chin-up", 1, "Sommer leverage progression")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needsBodyweight = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Supinate. Chin over bar."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") }
+        return if (matched.isEmpty()) Prescription(note = "No source row for chin_up at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, tier = matched.first().tier, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Chin-ups: Tier ${p.tier}, ${p.sets}x${p.reps}. Progress leverage." else p.note
+}
+
+// ── DipCoach ──
+object DipAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("dip", "dips")
+    override val movementName = "Dip"
+    override val formCues = listOf("Shoulder to elbow", "Lean for chest", "Lock out")
+    override val envelope = ExerciseEnvelope(5, 2, 0.0, 0.0, 0.0, 0.0)
+    override val provenance = CoachProvenance("sommer-2006/gymnastic-body-tier-table.md", "Tier 5 (adapted)", 1, "Sommer leverage model adapted")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needsBodyweight = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Shoulder to elbow. Lock out."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") }
+        return if (matched.isEmpty()) Prescription(note = "No source row for dip at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, tier = matched.first().tier, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Dips: Tier ${p.tier}, ${p.sets}x${p.reps}. Shoulder to elbow." else p.note
+}
+
+// ── PushUpCoach ──
+object PushUpAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("push_up", "pushup")
+    override val movementName = "Push-Up"
+    override val formCues = listOf("Body straight", "Chest to floor", "Full lockout")
+    override val envelope = ExerciseEnvelope(5, 2, 0.0, 0.0, 0.0, 0.0)
+    override val provenance = CoachProvenance("sommer-2006/gymnastic-body-tier-table.md", "Tier 2/5 (adapted)", 1, "Sommer leverage model adapted")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needsBodyweight = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Body straight. Full range."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") && (bodyProfile == null || it.trainingAge == "*" || it.trainingAge == bodyProfile.trainingAge) }
+        return if (matched.isEmpty()) Prescription(note = "No source row for push_up at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, tier = matched.first().tier, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Push-ups: Tier ${p.tier}, ${p.sets}x${p.reps}. Body straight." else p.note
+}
+
+// ── FacePullCoach ──
+object FacePullAuthoredCoach : ExerciseCoach {
+    override val exerciseIds = setOf("face_pull", "banded_face_pull")
+    override val movementName = "Face Pull"
+    override val formCues = listOf("Pull to face", "External rotate", "Squeeze rear delts")
+    override val envelope = ExerciseEnvelope(5, 2, 0.0, 0.0, 0.0, 0.0)
+    override val provenance = CoachProvenance("rogue-band-tension/chart.md", "Red row", 1, "Rogue band tension chart")
+    override val version = 1
+    override fun requirements() = CoachRequirements(needsBand = true)
+    override fun message(input: CoachingEngine.CoachInput) = "Pull to face. External rotate."
+    override fun reconcile(rows: List<AuthoredRow>, intent: String, phase: String, bodyProfile: BodyProfile?): Prescription {
+        val matched = rows.filter { (it.intent == intent || it.intent == "*") && (it.phase == phase || it.phase == "*") && (bodyProfile == null || it.trainingAge == "*" || it.trainingAge == bodyProfile.trainingAge) }
+        return if (matched.isEmpty()) Prescription(note = "No source row for face_pull at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, bandColour = matched.first().bandColour, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
+    }
+    override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Face pulls: ${p.sets}x${p.reps} with ${p.bandColour} band. Pull to face." else p.note
+}

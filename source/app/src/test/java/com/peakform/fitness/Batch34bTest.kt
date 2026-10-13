@@ -234,6 +234,6 @@ class Batch34bTest {
 
     @Test
     fun totalAuthoredRows() {
-        Assert.assertEquals(20, AuthoredRows.allRows().size)
+        Assert.assertEquals(55, AuthoredRows.allRows().size)
     }
 }

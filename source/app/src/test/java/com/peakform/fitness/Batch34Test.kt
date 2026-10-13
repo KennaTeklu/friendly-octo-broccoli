@@ -192,7 +192,8 @@ class Batch34Test {
             val sourceFileExists = listOf(
                 "prilepin-1974/chart.md", "rippetoe-2011/novice-lp.md",
                 "sommer-2006/gymnastic-body-tier-table.md", "rogue-band-tension/chart.md",
-                "daniels-2013/vdot-zones.md", "mcgill-2010/plank-standards.md"
+                "daniels-2013/vdot-zones.md", "mcgill-2010/plank-standards.md",
+                "rippetoe-2011/assistance.md"
             ).contains(row.sourceFile)
             Assert.assertTrue("Row ${row.rowId}: source file ${row.sourceFile} must exist in sources/", sourceFileExists)
         }
@@ -200,6 +201,6 @@ class Batch34Test {
 
     @Test
     fun totalAuthoredRows() {
-        Assert.assertEquals("Should have 20 authored rows across 5 coaches", 20, AuthoredRows.allRows().size)
+        Assert.assertEquals("Should have 55 authored rows across 15 coaches", 55, AuthoredRows.allRows().size)
     }
 }

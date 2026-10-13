@@ -107,14 +107,84 @@ object AuthoredRows {
         AuthoredRow("run_e_maintain_maintain", "daniels-2013/vdot-zones.md", "Zone E", "running", "MAINTAIN", "MAINTAIN", "*", "*", "*", 1, "continuous", distance = 2.0, pace = "59-74% VDOT", duration = 1200.0, restSeconds = 0, components = mapOf("ENDURANCE" to 3, "LONGEVITY" to 2)),
     )
 
+    // ── v35: 10 new coaches ──
+
+    val deadliftRows = listOf(
+        AuthoredRow("dl_novice_stronger_base", "rippetoe-2011/novice-lp.md", "Novice table", "deadlift", "STRONGER", "BASE", "novice", "*", "*", 1, "5", pct1RM = 0.65, restSeconds = 300, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2, "POWER" to 1)),
+        AuthoredRow("dl_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "deadlift", "STRONGER", "BUILD", "intermediate", "*", "*", 3, "5", pct1RM = 0.80, restSeconds = 300, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("dl_adv_stronger_peak", "prilepin-1974/chart.md", "90+ row", "deadlift", "STRONGER", "PEAK", "advanced", "*", "*", 3, "3", pct1RM = 0.90, restSeconds = 300, components = mapOf("STRENGTH" to 5, "POWER" to 2)),
+        AuthoredRow("dl_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "deadlift", "BIGGER", "BUILD", "intermediate", "*", "*", 3, "8-12", pct1RM = 0.70, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("dl_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "deadlift", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "8", pct1RM = 0.70, restSeconds = 120, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 2, "LONGEVITY" to 1)),
+    )
+    val benchPressRows = listOf(
+        AuthoredRow("bp_novice_stronger_base", "rippetoe-2011/novice-lp.md", "Novice table", "bench_press", "STRONGER", "BASE", "novice", "*", "*", 3, "5", pct1RM = 0.65, restSeconds = 180, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2, "POWER" to 1)),
+        AuthoredRow("bp_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "bench_press", "STRONGER", "BUILD", "intermediate", "*", "*", 5, "5", pct1RM = 0.80, restSeconds = 180, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("bp_adv_stronger_peak", "prilepin-1974/chart.md", "90+ row", "bench_press", "STRONGER", "PEAK", "advanced", "*", "*", 5, "3", pct1RM = 0.90, restSeconds = 240, components = mapOf("STRENGTH" to 5, "POWER" to 2)),
+        AuthoredRow("bp_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "bench_press", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.75, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("bp_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "bench_press", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 2, "LONGEVITY" to 1)),
+    )
+    val overheadPressRows = listOf(
+        AuthoredRow("ohp_novice_stronger_base", "rippetoe-2011/novice-lp.md", "Novice table", "overhead_press", "STRONGER", "BASE", "novice", "*", "*", 3, "5", pct1RM = 0.65, restSeconds = 180, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2, "POWER" to 1)),
+        AuthoredRow("ohp_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "overhead_press", "STRONGER", "BUILD", "intermediate", "*", "*", 5, "5", pct1RM = 0.80, restSeconds = 180, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("ohp_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "overhead_press", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.75, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("ohp_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "overhead_press", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 2, "LONGEVITY" to 1)),
+    )
+    val barbellRowRows = listOf(
+        AuthoredRow("br_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "barbell_row", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "6-8", pct1RM = 0.75, restSeconds = 120, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("br_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "barbell_row", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.70, restSeconds = 90, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("br_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "barbell_row", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("HYPERTROPHY" to 3, "STRENGTH" to 2, "LONGEVITY" to 1)),
+    )
+    val frontSquatRows = listOf(
+        AuthoredRow("fs_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "front_squat", "STRONGER", "BUILD", "intermediate", "*", "*", 5, "5", pct1RM = 0.75, restSeconds = 240, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("fs_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "front_squat", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.70, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("fs_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "front_squat", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 2, "LONGEVITY" to 1)),
+    )
+    val romanianDeadliftRows = listOf(
+        AuthoredRow("rdl_int_stronger_build", "rippetoe-2011/assistance.md", "RDL row", "romanian_deadlift", "STRONGER", "BUILD", "intermediate", "*", "*", 3, "8-12", pct1RM = 0.65, restSeconds = 120, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("rdl_int_hypertrophy_build", "rippetoe-2011/assistance.md", "RDL row", "romanian_deadlift", "BIGGER", "BUILD", "intermediate", "*", "*", 3, "8-12", pct1RM = 0.60, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("rdl_int_maintain_maintain", "rippetoe-2011/assistance.md", "RDL row", "romanian_deadlift", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.60, restSeconds = 90, components = mapOf("HYPERTROPHY" to 3, "LONGEVITY" to 2)),
+    )
+    val chinUpRows = listOf(
+        AuthoredRow("cu_t4_stronger_build", "sommer-2006/gymnastic-body-tier-table.md", "Tier 4: Chin-up", "chin_up", "STRONGER", "BUILD", "*", "*", "*", 3, "3-8", tier = 4, restSeconds = 120, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("cu_t4_hypertrophy_build", "sommer-2006/gymnastic-body-tier-table.md", "Tier 4: Chin-up", "chin_up", "BIGGER", "BUILD", "*", "*", "*", 3, "6-10", tier = 4, restSeconds = 90, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("cu_t4_maintain_maintain", "sommer-2006/gymnastic-body-tier-table.md", "Tier 4: Chin-up", "chin_up", "MAINTAIN", "MAINTAIN", "*", "*", "*", 2, "5-8", tier = 4, restSeconds = 90, components = mapOf("STRENGTH" to 3, "LONGEVITY" to 1)),
+    )
+    val dipRows = listOf(
+        AuthoredRow("dp_stronger_build", "sommer-2006/gymnastic-body-tier-table.md", "Tier 5 (adapted)", "dip", "STRONGER", "BUILD", "*", "*", "*", 3, "3-8", tier = 5, restSeconds = 120, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("dp_hypertrophy_build", "sommer-2006/gymnastic-body-tier-table.md", "Tier 5 (adapted)", "dip", "BIGGER", "BUILD", "*", "*", "*", 3, "6-10", tier = 5, restSeconds = 90, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("dp_maintain_maintain", "sommer-2006/gymnastic-body-tier-table.md", "Tier 5 (adapted)", "dip", "MAINTAIN", "MAINTAIN", "*", "*", "*", 2, "5-8", tier = 5, restSeconds = 90, components = mapOf("STRENGTH" to 3, "LONGEVITY" to 1)),
+    )
+    val pushUpRows = listOf(
+        AuthoredRow("pu2_t2_stronger_base", "sommer-2006/gymnastic-body-tier-table.md", "Tier 2 (adapted)", "push_up", "STRONGER", "BASE", "novice", "*", "*", 3, "5-10", tier = 2, restSeconds = 90, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 2, "ENDURANCE" to 1)),
+        AuthoredRow("pu2_t5_stronger_build", "sommer-2006/gymnastic-body-tier-table.md", "Tier 5 (adapted)", "push_up", "STRONGER", "BUILD", "intermediate", "*", "*", 3, "6-12", tier = 5, restSeconds = 90, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 2)),
+        AuthoredRow("pu2_t5_maintain_maintain", "sommer-2006/gymnastic-body-tier-table.md", "Tier 5 (adapted)", "push_up", "MAINTAIN", "MAINTAIN", "*", "*", "*", 3, "10-15", tier = 5, restSeconds = 60, components = mapOf("ENDURANCE" to 3, "LONGEVITY" to 2)),
+    )
+    val facePullRows = listOf(
+        AuthoredRow("fp_red_hypertrophy_base", "rogue-band-tension/chart.md", "Red row", "face_pull", "BIGGER", "BASE", "novice", "*", "*", 3, "15-20", bandColour = "red", restSeconds = 45, components = mapOf("HYPERTROPHY" to 4, "ENDURANCE" to 1)),
+        AuthoredRow("fp_green_stronger_build", "rogue-band-tension/chart.md", "Green row", "face_pull", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "12-15", bandColour = "green", restSeconds = 60, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 3)),
+        AuthoredRow("fp_blue_maintain_maintain", "rogue-band-tension/chart.md", "Blue row", "face_pull", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "15-20", bandColour = "blue", restSeconds = 45, components = mapOf("HYPERTROPHY" to 3, "LONGEVITY" to 1)),
+    )
+
     fun rowsForCoach(coachId: String): List<AuthoredRow> = when (coachId) {
         "back_squat" -> backSquatRows
         "pull_up" -> pullUpRows
         "banded_lateral_raise" -> bandedLateralRaiseRows
         "plank" -> plankRows
         "running" -> runningRows
+        "deadlift" -> deadliftRows
+        "bench_press" -> benchPressRows
+        "overhead_press" -> overheadPressRows
+        "barbell_row" -> barbellRowRows
+        "front_squat" -> frontSquatRows
+        "romanian_deadlift" -> romanianDeadliftRows
+        "chin_up" -> chinUpRows
+        "dip" -> dipRows
+        "push_up" -> pushUpRows
+        "face_pull" -> facePullRows
         else -> emptyList()
     }
 
-    fun allRows(): List<AuthoredRow> = backSquatRows + pullUpRows + bandedLateralRaiseRows + plankRows + runningRows
+    fun allRows(): List<AuthoredRow> = backSquatRows + pullUpRows + bandedLateralRaiseRows + plankRows + runningRows +
+        deadliftRows + benchPressRows + overheadPressRows + barbellRowRows + frontSquatRows + romanianDeadliftRows +
+        chinUpRows + dipRows + pushUpRows + facePullRows
 }
