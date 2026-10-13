@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v34d ===
+=== DRIFT REPORT — v34e ===
 Generated: 2026-10-13
 Rows checked: 20
 Drifts found: 0
@@ -6,7 +6,7 @@ Drifts found: 0
 All rows match their cited sources.
 
 --- BackSquatCoach (5 rows) ---
-Row bs_novice_stronger_base → rippetetoe-2011/novice-lp.md#Novice table: OK
+Row bs_novice_stronger_base → rippetoe-2011/novice-lp.md#Novice table: OK
 Row bs_int_stronger_build → prilepin-1974/chart.md#80-89% row: OK
 Row bs_adv_stronger_peak → prilepin-1974/chart.md#90+ row: OK
 Row bs_int_hypertrophy_build → prilepin-1974/chart.md#70-79% row: OK

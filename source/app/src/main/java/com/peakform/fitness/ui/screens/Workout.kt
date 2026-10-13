@@ -609,14 +609,29 @@ fun ExerciseCard(
             }
         }
         if (showTuneSheet) {
-            // v34d: Open existing tune sheet. TODO: pre-populate with current prescription (v34e).
+            // v34e: Open tune sheet with pre-populated prescription.
+            val tunePres = if (authoredRow != null) {
+                com.peakform.fitness.coach.authored.Prescription(
+                    sets = authoredRow.sets, reps = authoredRow.reps,
+                    pct1RM = authoredRow.pct1RM, bandColour = authoredRow.bandColour,
+                    tier = authoredRow.tier, duration = authoredRow.duration,
+                    distance = authoredRow.distance, pace = authoredRow.pace,
+                    restSeconds = authoredRow.restSeconds, components = authoredRow.components,
+                    sourceRowId = authoredRow.rowId,
+                )
+            } else null
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showTuneSheet = false },
                 confirmButton = {},
                 text = {
-                    com.peakform.fitness.ui.screens.TuningSheet(visible = true) {
-                        showTuneSheet = false
-                    }
+                    com.peakform.fitness.ui.screens.TuningSheet(
+                        visible = true,
+                        initialPrescription = tunePres,
+                        onDismiss = { showTuneSheet = false },
+                        onSave = { saved ->
+                            android.util.Log.d("ProCard", "Tune saved for ${exercise.id}: $saved")
+                        },
+                    )
                 },
             )
         }
