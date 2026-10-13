@@ -1,6 +1,40 @@
-=== DRIFT REPORT — v34b ===
+=== DRIFT REPORT — v34d ===
 Generated: 2026-10-13
 Rows checked: 20
 Drifts found: 0
 
 All rows match their cited sources.
+
+--- BackSquatCoach (5 rows) ---
+Row bs_novice_stronger_base → rippetetoe-2011/novice-lp.md#Novice table: OK
+Row bs_int_stronger_build → prilepin-1974/chart.md#80-89% row: OK
+Row bs_adv_stronger_peak → prilepin-1974/chart.md#90+ row: OK
+Row bs_int_hypertrophy_build → prilepin-1974/chart.md#70-79% row: OK
+Row bs_int_maintain_maintain → prilepin-1974/chart.md#70-79% row: OK
+
+--- PullUpCoach (4 rows) ---
+Row pu_t5_stronger_build → sommer-2006/gymnastic-body-tier-table.md#Tier 5: Pull-up: OK
+Row pu_t5_hypertrophy_build → sommer-2006/gymnastic-body-tier-table.md#Tier 5: Pull-up: OK
+Row pu_t3_stronger_base → sommer-2006/gymnastic-body-tier-table.md#Tier 3: Jump-assisted: OK
+Row pu_t5_maintain_maintain → sommer-2006/gymnastic-body-tier-table.md#Tier 5: Pull-up: OK
+
+--- BandedLateralRaiseCoach (4 rows) ---
+Row blr_yellow_hypertrophy_base → rogue-band-tension/chart.md#Yellow row: OK
+Row blr_red_hypertrophy_build → rogue-band-tension/chart.md#Red row: OK
+Row blr_green_stronger_build → rogue-band-tension/chart.md#Green row: OK
+Row blr_blue_maintain_maintain → rogue-band-tension/chart.md#Blue row: OK
+
+--- PlankCoach (4 rows) ---
+Row pl_novice_endure_base_m → mcgill-2010/plank-standards.md#Front plank, novice, male: OK
+Row pl_novice_endure_base_f → mcgill-2010/plank-standards.md#Front plank, novice, female: OK
+Row pl_int_endure_build_m → mcgill-2010/plank-standards.md#Front plank, intermediate, male: OK
+Row pl_int_maintain_maintain → mcgill-2010/plank-standards.md#Maintenance row: OK
+
+--- RunningCoach (3 rows) ---
+Row run_e_endure_base → daniels-2013/vdot-zones.md#Zone E: OK
+Row run_t_endure_build → daniels-2013/vdot-zones.md#Zone T: OK
+Row run_e_maintain_maintain → daniels-2013/vdot-zones.md#Zone E: OK
+
+=== DRIFT CHECK COMPLETE ===
+Rows checked: 20
+Drifts found: 0

@@ -473,6 +473,7 @@ fun ExerciseCard(
 
         // v34c Item 4: Card renders only declared fields per coach.requirements().
         // v34c Item 5: Component chips from authored rows.
+        // v34d: Declaration sentence + [Coach, go] / [Change] buttons.
         Spacer(Modifier.height(12.dp))
         val rx = exercise.prescribed
         val rec = ProState.data.exercises[exercise.id]
@@ -489,6 +490,30 @@ fun ExerciseCard(
             ComponentChipsRow(components)
             Spacer(Modifier.height(8.dp))
         }
+
+        // v34d: Declaration sentence from coach.explain()
+        val declarationText = if (authoredRow != null && coach != null) {
+            // Build a prescription from the authored row to pass to explain()
+            val pres = com.peakform.fitness.coach.authored.Prescription(
+                sets = authoredRow.sets, reps = authoredRow.reps,
+                pct1RM = authoredRow.pct1RM, bandColour = authoredRow.bandColour,
+                tier = authoredRow.tier, duration = authoredRow.duration,
+                distance = authoredRow.distance, pace = authoredRow.pace,
+                restSeconds = authoredRow.restSeconds, components = authoredRow.components,
+                sourceRowId = authoredRow.rowId,
+            )
+            val explained = coach.explain(pres, "STRONGER")
+            if (explained.isNotBlank() && explained != pres.note) explained else ""
+        } else ""
+        if (declarationText.isNotBlank()) {
+            Text(declarationText, style = ProType.body2.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic), color = c.text2)
+            Spacer(Modifier.height(6.dp))
+        }
+
+        // State for [Coach, go] button
+        var coachAccepted by remember(exercise.id) { mutableStateOf(false) }
+        // State for tune sheet
+        var showTuneSheet by remember(exercise.id) { mutableStateOf(false) }
 
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onToggle() }) {
             if (!reqs.needs1RM && !reqs.needsBand && !reqs.needsBodyweight && !reqs.needsDuration && !reqs.needsDistance && !reqs.needsPace && !reqs.needsWeight) {
@@ -557,6 +582,43 @@ fun ExerciseCard(
 
                 RxLine(label = "PRESCRIPTION", value = parts.joinToString(" · "))
             }
+        }
+
+        // v34d: [Coach, go] and [Change] action buttons
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            P4Button(
+                if (coachAccepted) "Accepted ✓" else "Coach, go",
+                icon = if (coachAccepted) "fa-check" else "fa-play",
+                style = if (coachAccepted) BtnStyle.SUCCESS else BtnStyle.PRIMARY,
+                minHeight = 36,
+                modifier = Modifier.weight(1f),
+            ) {
+                android.util.Log.d("ProCard", "Coach, go accepted for ${exercise.id}")
+                coachAccepted = true
+            }
+            P4Button(
+                "Change",
+                icon = "fa-sliders",
+                style = BtnStyle.SECONDARY,
+                minHeight = 36,
+                modifier = Modifier.weight(1f),
+            ) {
+                android.util.Log.d("ProCard", "Change requested for ${exercise.id} — opening tune sheet")
+                showTuneSheet = true
+            }
+        }
+        if (showTuneSheet) {
+            // v34d: Open existing tune sheet. TODO: pre-populate with current prescription (v34e).
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showTuneSheet = false },
+                confirmButton = {},
+                text = {
+                    com.peakform.fitness.ui.screens.TuningSheet(visible = true) {
+                        showTuneSheet = false
+                    }
+                },
+            )
         }
 
         // BATCH-2: 'How to do' + 'Images' buttons — always visible (open system browser)
