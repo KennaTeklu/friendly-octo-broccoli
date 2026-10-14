@@ -410,6 +410,12 @@ fun LibraryCard(
             }
         }
         Spacer(Modifier.height(6.dp))
+        // BATCH-36a: component chips from the taxonomy entry (below title,
+        // above the muscle tags). Missing taxonomy → no chips rendered.
+        com.peakform.fitness.ui.components.ComponentChipsRow(
+            components = com.peakform.fitness.engine.Library.taxonomyFor(ex.id)?.components ?: emptyMap(),
+        )
+        Spacer(Modifier.height(6.dp))
         // LB4: clickable muscle tags → Muscle Wiki
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             ex.muscles.take(3).forEach { m ->

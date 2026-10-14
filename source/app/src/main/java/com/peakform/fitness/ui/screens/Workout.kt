@@ -509,9 +509,17 @@ fun ExerciseCard(
             ?: coach?.exerciseIds?.firstNotNullOfOrNull { id ->
                 com.peakform.fitness.coach.authored.AuthoredRows.rowsForCoach(id).firstOrNull()
             }
-        val components = authoredRow?.components ?: emptyMap()
-        if (components.isNotEmpty()) {
-            ComponentChipsRow(components)
+        // BATCH-36a: component chips read from the taxonomy entry (not the
+        // authored row's components map). The taxonomy has the canonical
+        // 11-name enum (Strength, Hypertrophy, Endurance, …) at weight 1..3
+        // derived from exercises.json's fitnessComponents. The authored row's
+        // components map (uppercase keys like "STRENGTH", weight 1..5) is for
+        // the prescription line / explain() output, not for chips.
+        // Missing taxonomy → no chips rendered (composable returns early).
+        val taxonomy = com.peakform.fitness.engine.Library.taxonomyFor(exercise.id)
+        val taxonomyComponents = taxonomy?.components ?: emptyMap()
+        if (taxonomyComponents.isNotEmpty()) {
+            com.peakform.fitness.ui.components.ComponentChipsRow(taxonomyComponents)
             Spacer(Modifier.height(8.dp))
         }
 
@@ -881,62 +889,12 @@ fun PlateToggleChip(label: String, active: Boolean, tint: androidx.compose.ui.gr
     }
 }
 
-// ---- v34c Item 5: Component chips from authored rows ----
-
-/**
- * Renders component chips from the authored row's components map.
- * weight 0 → hidden. Sort by weight descending. Top 4 shown.
- * More than 4 → "and N more". Weight 5 → solid accent, others accent-soft.
- */
-@Composable
-private fun ComponentChipsRow(components: Map<String, Int>) {
-    val c = LocalProColors.current
-    val sorted = components.filter { it.value > 0 }.toList().sortedByDescending { it.second }
-    val top = sorted.take(4)
-    val remaining = sorted.size - top.size
-
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        top.forEach { (name, weight) ->
-            val isPrimary = weight >= 5
-            val chipColor = if (isPrimary) c.accent else c.accentSoft
-            val textColor = if (isPrimary) c.onAccent else c.inkSoft
-
-            Row(
-                Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(chipColor)
-                    .border(1.dp, if (isPrimary) c.accent else c.accentLine, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(
-                    name.replace('_', ' ').replaceFirstChar { it.uppercase() },
-                    fontSize = 9.sp,
-                    color = textColor,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                )
-                // 5-segment bar
-                Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                    repeat(5) { i ->
-                        Box(
-                            Modifier
-                                .size(3.dp, 8.dp)
-                                .clip(RoundedCornerShape(1.dp))
-                                .background(if (i < weight) textColor.copy(alpha = 0.8f) else textColor.copy(alpha = 0.2f))
-                        )
-                    }
-                }
-            }
-        }
-        if (remaining > 0) {
-            Text("and $remaining more", fontSize = 9.sp, color = c.text3, modifier = Modifier.align(Alignment.CenterVertically))
-        }
-    }
-}
+// BATCH-36a: the per-card ComponentChipsRow has moved to
+// com.peakform.fitness.ui.components.ComponentChipsRow (in Kit.kt) so it can
+// be shared between the Workout card and the Library card without duplication.
+// The signature gained a maxShown: Int = 4 parameter; the implementation
+// matches the HTML .p4-chip + .p4-chiprow design (999px radius, 8dp gap,
+// 5-segment weight bar with scaled accent alpha).
 
 /** Runtime assertion helper — no field renders whose requirement is false. */
 private fun assertDeclared(requirement: Boolean, fieldName: String, context: String) {

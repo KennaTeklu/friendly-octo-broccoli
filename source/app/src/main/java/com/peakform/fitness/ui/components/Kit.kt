@@ -5,7 +5,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -364,4 +366,120 @@ fun KeyValueRow(key: String, value: String) {
         Text(key, style = ProType.small, color = c.text3, modifier = Modifier.weight(1f))
         Text(value, style = ProType.label, color = c.text, textAlign = TextAlign.End)
     }
+}
+
+/**
+ * ComponentChipsRow — renders the components map from exercise_taxonomy.json
+ * as a row of small chips with a 5-segment weight bar each.
+ *
+ * BATCH-36a: shared between the Workout card (below title, above declaration
+ * sentence) and the Library card (below title, above category/muscle line).
+ *
+ * Render rules (per spec, mirroring the HTML .p4-chip + .p4-chiprow design):
+ *   - weight 0    → hidden (filtered out before sort)
+ *   - sort by weight descending (stable on name when weights tie)
+ *   - top maxShown (4 by default) shown
+ *   - more than maxShown → append "and N more" text
+ *   - each chip: label + 5-segment bar
+ *       weight 5    → solid accent (full opacity)
+ *       weight 1-4  → accent at scaled alpha = weight / 5.0
+ *   - 5-segment bar: filled segments = weight, empty = remainder
+ *
+ * Component names that don't appear in the 11-item enum (e.g. CORE_STABILITY)
+ * are rendered as-is, with underscores → spaces and first-letter capitalized.
+ * No dropping.
+ *
+ * If the components map is empty, renders nothing.
+ *
+ * @param components the components map (name → weight 0..5)
+ * @param maxShown   cap on visible chips; the rest collapse into "and N more"
+ */
+@Composable
+fun ComponentChipsRow(
+    components: Map<String, Int>,
+    maxShown: Int = 4,
+) {
+    val c = LocalProColors.current
+    val selection = selectComponentChips(components, maxShown)
+    if (selection.chips.isEmpty()) return  // nothing to render
+
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        selection.chips.forEach { chip ->
+            // weight 5 → solid accent (alpha = 1.0f)
+            // weight 1..4 → accent at alpha = weight / 5.0f (scaled opacity)
+            val alpha = (chip.weight.coerceIn(0, 5) / 5.0f).coerceIn(0.0f, 1.0f)
+            val chipColor = c.accent.copy(alpha = alpha)
+            val borderColor = c.accent.copy(alpha = (alpha * 0.6f).coerceIn(0.0f, 1.0f))
+            // Text color: on solid accent (weight 5), use onAccent; on lower
+            // alphas, use the full accent color so the label stays readable.
+            val textColor = if (chip.weight >= 5) c.onAccent else c.accent
+
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(chipColor)
+                    .border(1.dp, borderColor, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    chip.name.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                    fontSize = 10.sp,
+                    color = textColor,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                )
+                // 5-segment bar: filled segments = weight, empty = remainder.
+                // Empty segments use the same text color at low alpha so the bar
+                // outline stays visible against any background.
+                Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                    repeat(5) { i ->
+                        Box(
+                            Modifier
+                                .size(width = 3.dp, height = 8.dp)
+                                .clip(RoundedCornerShape(1.dp))
+                                .background(
+                                    if (i < chip.weight) textColor.copy(alpha = 0.9f)
+                                    else textColor.copy(alpha = 0.2f)
+                                )
+                        )
+                    }
+                }
+            }
+        }
+        if (selection.remaining > 0) {
+            Text(
+                "and ${selection.remaining} more",
+                fontSize = 10.sp,
+                color = c.text3,
+                modifier = Modifier.align(Alignment.CenterVertically),
+            )
+        }
+    }
+}
+
+/**
+ * Pure helper for [ComponentChipsRow]. Filters weight-0 entries, sorts by
+ * weight desc (name asc as tiebreaker), caps at [maxShown], returns the
+ * selected chips + the "and N more" count. Exposed for unit testing
+ * without a Compose host.
+ */
+data class ComponentChip(val name: String, val weight: Int)
+
+data class ComponentChipSelection(val chips: List<ComponentChip>, val remaining: Int)
+
+fun selectComponentChips(
+    components: Map<String, Int>,
+    maxShown: Int = 4,
+): ComponentChipSelection {
+    val sorted = components
+        .filter { it.value > 0 }
+        .toList()
+        .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+    val top = sorted.take(maxShown).map { ComponentChip(it.first, it.second) }
+    val remaining = sorted.size - top.size
+    return ComponentChipSelection(chips = top, remaining = remaining)
 }
