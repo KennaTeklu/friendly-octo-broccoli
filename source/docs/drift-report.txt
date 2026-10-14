@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v36b ===
+=== DRIFT REPORT — v37a ===
 Generated: 2026-10-14
 Rows checked: 113
 Drifts found: 0
@@ -21,24 +21,19 @@ All rows cite one of 7 source files:
   - fs_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
                          reps "5"   → "4" (now in 2-4 zone bound)
 
---- v36b changes ---
+--- v37a changes ---
   - No new rows. No new coaches. No new sources. No new taxonomy fields.
     No new state types.
-  - WorkoutLogger.kt gains:
-      - data class LoggerHeaderData(...)
-      - fun loadLoggerHeaderData(exerciseId, state): LoggerHeaderData?
-        (pure helper — returns null when taxonomy missing, never throws)
-      - @Composable fun LoggerTaxonomyHeader(exerciseId, state)
-        (renders the header at the top of the LoggerPanel)
-  - LoggerPanel now calls LoggerTaxonomyHeader at the top of its Column,
-    above the set-logging inputs. Missing taxonomy → no header rendered.
-  - OneRmTestPanel header line now shows " · <category> · <difficulty>"
-    (read from exercise_taxonomy.json). Missing taxonomy → no extra chips.
-  - 1RM test panel itself is NOT redesigned — only the header line gained
-    the two fields.
+  - New package: com.peakform.fitness.coach.dossiers
+    - ExerciseDossier.kt — 5 data classes per source/docs/system/03-the-dossier.md
+      (ExerciseDossier, Goal, Prerequisite, VariationRange, DossierProvenance)
+    - Dossiers.kt — 15 authored dossiers for the gymnastic push chain
+      (Wall Push-Up → Full Planche Push-Up). All cite sommer-2006.
+    - DossierRegistry.kt — forExercise / all / progressFrom /
+      prerequisitesFor / chainFor API per source/docs/system/06.
   - No touch AuthoredRows.kt, AuthoredCoaches.kt, CoachRegistry.kt,
-    DifficultyGate.kt. No overall section (36c). No visual restyling beyond
-    the logger header.
+    DifficultyGate.kt. No UI wiring. No card changes. No logger changes.
+    No taxonomy changes.
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113
