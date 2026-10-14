@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v37b ===
+=== DRIFT REPORT — v37c ===
 Generated: 2026-10-14
 Rows checked: 113
 Drifts found: 0
@@ -15,14 +15,15 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v37b changes ---
-  - No new rows. No new coaches. No new sources (5 attempted, all skipped).
-  - Dossier cited count unchanged: 5 (same 5 as v37a-v3).
-  - UI wiring: Workout.kt card reads DossierRegistry → cited: goal chip +
-    landmark sentence; not-cited: "No published source" grey line.
-  - Library.kt card: cited → "Coached" chip; not-cited → "Awaiting source" chip.
-  - Prerequisite gate shipped (code path not exercised — all prereqs empty).
-  - No touch AuthoredRows/AuthoredCoaches/CoachRegistry/DifficultyGate.
+--- v37c changes ---
+  - New source: sources/peakform-2026/book.md (1,413 entries — first pass).
+  - Dossiers regenerated: 5 cited (sommer/mcgill), 1,408 peakform-2026.
+  - Tier 1 (.gov/.edu): 0 — no government or university source names any exercise.
+  - Tier 2 (first-pass, peakform-2026): 1,408 (1,407 with convention landmark + 1 unrecognized).
+  - Stimulus profiles + component stimulus now populated for all 1,413 exercises.
+  - Prerequisites now populated as informational sentences (gate not implemented — always open).
+  - UI labels: three-tier system (cited → "Source: <domain>", first-pass → "PeakForm standard", awaiting → "Awaiting human authoring.").
+  - Library chip: three tiers (Coached / PeakForm / Awaiting source).
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113

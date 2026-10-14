@@ -411,18 +411,29 @@ fun ExerciseCard(
         com.peakform.fitness.core.DifficultyGate.isUnlocked(exercise.id, ProState.data)
     }
 
-    // BATCH-37b: dossier lookup. Read the per-exercise knowledge layer (goals,
-    // landmarks, prerequisites) from DossierRegistry. If null (registry not
-    // loaded or exercise not in dossiers.json), treat as not cited.
+    // BATCH-37b/37c: dossier lookup. Read the per-exercise knowledge layer
+    // (goals, landmarks, prerequisites, stimulus profiles) from DossierRegistry.
     val dossier = remember(exercise.id) {
         com.peakform.fitness.coach.dossiers.DossierRegistry.forExercise(exercise.id)
     }
-    val isCited = dossier != null && dossier.provenance.source != "no-source"
+    // BATCH-37c: three-tier label system:
+    //   "cited"     — sommer/mcgill published source
+    //   "first-pass" — peakform-2026/book.md with a convention landmark
+    //   "awaiting"  — peakform-2026/book.md with empty landmark (unrecognized)
+    val dossierTier = when {
+        dossier == null -> "awaiting"
+        dossier.provenance.source.startsWith("sommer-") ||
+            dossier.provenance.source.startsWith("mcgill-") -> "cited"
+        dossier.goals.firstOrNull()?.landmark?.isNotBlank() == true -> "first-pass"
+        else -> "awaiting"
+    }
+    val isCited = dossierTier == "cited"
 
-    // BATCH-37b: prerequisite gate (shipped but not exercised — all dossiers
-    // in this batch have empty prerequisites). If a future batch authors
-    // prerequisites, this check locks the card.
-    val prereqsMet = dossier?.prerequisites?.isEmpty() ?: true
+    // BATCH-37c: prerequisite gate. Prerequisites are authored as
+    // informational sentences but the gate is NOT implemented — always open.
+    // Future batches will implement actual checking when sentences become
+    // machine-readable.
+    val prereqsMet = true
 
     // card state
     val has1RM = (ProState.data.exercises[exercise.id]?.tested1RM ?: 0.0) > 0
@@ -536,57 +547,44 @@ fun ExerciseCard(
             Spacer(Modifier.height(8.dp))
         }
 
-        // BATCH-37b: dossier-derived UI.
-        // Cited → show goal chips + landmark sentence.
-        // Not cited → show "No published source" grey line.
-        // Prereqs not met → lock icon + prerequisite sentence (not exercised yet).
-        if (!prereqsMet && dossier != null) {
-            // Prerequisite gate: lock the card.
-            // Not exercised in this batch (all prereqs are empty).
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                    .background(c.warn.copy(alpha = 0.1f))
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                com.peakform.fitness.ui.FaIcon("fa-lock", size = 14.sp, tint = c.warn)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    dossier.prerequisites.firstOrNull()?.requirement ?: "Prerequisites not met.",
-                    style = ProType.body2, color = c.warn,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-        } else if (isCited && dossier != null) {
-            // Cited: show goal chips + landmark
-            val goal = dossier.goals.firstOrNull()
-            if (goal != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.clip(RoundedCornerShape(999.dp))
-                            .background(c.accentSoft)
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    ) {
-                        Text(goal.label, fontSize = 10.sp, color = c.accent, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+        // BATCH-37c: dossier-derived UI — three-tier label system.
+        //   cited → "Source: <domain>" + goal chip + landmark (accent)
+        //   first-pass → "PeakForm standard — awaiting review" + landmark (text3)
+        //   awaiting → "Awaiting human authoring." (text3, no landmark)
+        when (dossierTier) {
+            "cited" -> {
+                val goal = dossier!!.goals.firstOrNull()
+                if (goal != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(c.accentSoft).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                            Text(goal.label, fontSize = 10.sp, color = c.accent, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text("Source: ${dossier.provenance.source.split("/")[0]}", fontSize = 10.sp, color = c.accent)
                     }
-                    Spacer(Modifier.width(8.dp))
+                    if (goal.landmark.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Landmark: ${goal.landmark}", style = ProType.small, color = c.accent)
+                    }
+                    Spacer(Modifier.height(6.dp))
                 }
-                if (goal.landmark.isNotBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Landmark: ${goal.landmark}",
-                        style = ProType.small, color = c.accent,
-                    )
+            }
+            "first-pass" -> {
+                val goal = dossier!!.goals.firstOrNull()
+                if (goal != null && goal.landmark.isNotBlank()) {
+                    Text("PeakForm standard — awaiting review", style = ProType.small, color = c.text3)
+                    Spacer(Modifier.height(2.dp))
+                    Text("Landmark: ${goal.landmark}", style = ProType.small, color = c.text2)
+                    Spacer(Modifier.height(6.dp))
+                } else {
+                    Text("PeakForm standard — awaiting review", style = ProType.small, color = c.text3)
+                    Spacer(Modifier.height(6.dp))
                 }
+            }
+            else -> {
+                Text("Awaiting human authoring.", style = ProType.small, color = c.text3)
                 Spacer(Modifier.height(6.dp))
             }
-        } else {
-            // Not cited: show grey "no source" line
-            Text(
-                "No published source names this exercise yet.",
-                style = ProType.small, color = c.text3,
-            )
-            Spacer(Modifier.height(6.dp))
         }
 
         // v34d: Declaration sentence from coach.explain()

@@ -408,23 +408,29 @@ fun LibraryCard(
             Box(Modifier.clip(RoundedCornerShape(999.dp)).background(diffColor.copy(alpha = 0.15f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
                 Text(difficulty, fontSize = 10.sp, color = diffColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             }
-            // BATCH-37b: dossier-derived chip
+            // BATCH-37c: dossier-derived chip — three tiers
             val dossier = remember(ex.id) {
                 com.peakform.fitness.coach.dossiers.DossierRegistry.forExercise(ex.id)
             }
-            val isCited = dossier != null && dossier.provenance.source != "no-source"
+            val dossierTier = when {
+                dossier == null -> "awaiting"
+                dossier.provenance.source.startsWith("sommer-") ||
+                    dossier.provenance.source.startsWith("mcgill-") -> "cited"
+                dossier.goals.firstOrNull()?.landmark?.isNotBlank() == true -> "first-pass"
+                else -> "awaiting"
+            }
+            val (chipText, chipColor, chipBg) = when (dossierTier) {
+                "cited" -> Triple("Coached", c.accent, c.accent.copy(alpha = 0.15f))
+                "first-pass" -> Triple("PeakForm", c.accent, c.accentSoft)
+                else -> Triple("Awaiting source", c.text3, c.surface3)
+            }
             Spacer(Modifier.width(6.dp))
             Box(
                 Modifier.clip(RoundedCornerShape(999.dp))
-                    .background(if (isCited) c.accent.copy(alpha = 0.15f) else c.surface3)
+                    .background(chipBg)
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             ) {
-                Text(
-                    if (isCited) "Coached" else "Awaiting source",
-                    fontSize = 9.sp,
-                    color = if (isCited) c.accent else c.text3,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                )
+                Text(chipText, fontSize = 9.sp, color = chipColor, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
             }
         }
         Spacer(Modifier.height(6.dp))
