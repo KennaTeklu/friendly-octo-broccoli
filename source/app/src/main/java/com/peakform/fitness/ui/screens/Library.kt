@@ -383,6 +383,11 @@ fun LibraryCard(
         "Medium" -> c.warn
         else -> c.ok
     }
+    // BATCH-35e: difficulty gate. If locked, the prescription line is replaced
+    // with a lock icon + the gate's reason string. Card stays in the list.
+    val unlock35e = remember(ex.id, ProState.data.exercises.hashCode()) {
+        com.peakform.fitness.core.DifficultyGate.isUnlocked(ex.id, ProState.data)
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -414,10 +419,23 @@ fun LibraryCard(
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            "${ex.defaultSets} × ${ex.defaultReps} · ${ex.equipment.replaceFirstChar { it.uppercase() }}",
-            style = ProType.small, color = c.text3,
-        )
+        // BATCH-35e: if locked, render lock + reason instead of the prescription line.
+        if (!unlock35e.unlocked) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                com.peakform.fitness.ui.FaIcon("fa-lock", size = 11.sp, tint = c.warn)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    unlock35e.reason,
+                    style = ProType.small, color = c.warn,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+        } else {
+            Text(
+                "${ex.defaultSets} × ${ex.defaultReps} · ${ex.equipment.replaceFirstChar { it.uppercase() }}",
+                style = ProType.small, color = c.text3,
+            )
+        }
         // LB7: tested 1RM
         val tested = record?.tested1RM
         if (tested != null && tested > 0) {

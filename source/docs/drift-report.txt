@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v35d ===
+=== DRIFT REPORT — v35e ===
 Generated: 2026-10-14
 Rows checked: 113
 Drifts found: 0
@@ -15,27 +15,24 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v35b drift fixes (carried forward, unchanged in v35c/v35d) ---
+--- v35b drift fixes (carried forward, unchanged) ---
   - br_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
                          reps "6-8" → "4" (now in 2-4 zone bound)
   - fs_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
                          reps "5"   → "4" (now in 2-4 zone bound)
 
---- v35d changes ---
-  - No new rows. No new coaches. No new sources.
-  - 1 new static asset: data/exercise_taxonomy.json (1413 entries — full
-    coverage of exercises.json). 6 fields per exercise:
-      primaryMuscles (List 0..3), secondaryMuscles (List 0..4),
-      equipment (List, validated to 8 allowed values),
-      category (one of 7 allowed values),
-      components (Map<String, Int> 0..5; primary at weight 3, others at 1),
-      difficulty (easy|medium|hard).
-  - Library.kt gains:
-      - `data class ExerciseTaxonomy(...)` (one new data class)
-      - `var taxonomy: Map<String, ExerciseTaxonomy>` (one new map member)
-      - `fun taxonomyFor(exerciseId: String): ExerciseTaxonomy?` (one new function)
-  - No UI changes. No touch AuthoredRows.kt, AuthoredCoaches.kt,
-    CoachRegistry.kt, Workout.kt, Library.kt UI code.
+--- v35e changes ---
+  - No new rows. No new coaches. No new sources. No new taxonomy fields.
+    No new state types.
+  - New file: source/app/src/main/java/com/peakform/fitness/core/DifficultyGate.kt
+      - const val UNLOCK_THRESHOLD = 3
+      - data class UnlockResult(unlocked, reason, blockingMuscle, progress)
+      - fun isUnlocked(exerciseId, state): UnlockResult
+        (state parameter is WorkoutData — see CHANGES.md for the type-name note)
+  - Workout.kt card: if !unlocked, render a lock icon + reason in place of
+    the prescription line. Card stays in the list.
+  - Library.kt card: same minimal lock+reason substitution.
+  - No new screens. No progression UI.
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113

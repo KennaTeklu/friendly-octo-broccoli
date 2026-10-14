@@ -404,6 +404,13 @@ fun ExerciseCard(
     val coach35c = com.peakform.fitness.coach.CoachRegistry.lookup(exercise.id)
     val reqs35c = coach35c?.requirements() ?: com.peakform.fitness.coach.authored.CoachRequirements()
 
+    // BATCH-35e: difficulty gate. If the exercise is locked, the prescription
+    // line is replaced with a lock icon + the gate's reason string. The card
+    // itself stays in the list (not removed, not hidden).
+    val unlock35e = remember(exercise.id, ProState.data.exercises.hashCode()) {
+        com.peakform.fitness.core.DifficultyGate.isUnlocked(exercise.id, ProState.data)
+    }
+
     // card state
     val has1RM = (ProState.data.exercises[exercise.id]?.tested1RM ?: 0.0) > 0
     val state = when {
@@ -533,7 +540,23 @@ fun ExerciseCard(
         var showTuneSheet by remember(exercise.id) { mutableStateOf(false) }
 
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onToggle() }) {
-            if (!reqs.needs1RM && !reqs.needsBand && !reqs.needsBodyweight && !reqs.needsDuration && !reqs.needsDistance && !reqs.needsPace && !reqs.needsWeight) {
+            // BATCH-35e: if the exercise is locked, render a lock icon + the gate's
+            // reason string in place of the prescription line. Card stays in the list.
+            if (!unlock35e.unlocked) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    com.peakform.fitness.ui.FaIcon("fa-lock", size = 14.sp, tint = c.warn)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        unlock35e.reason,
+                        style = ProType.body2,
+                        color = c.warn,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+            } else if (!reqs.needs1RM && !reqs.needsBand && !reqs.needsBodyweight && !reqs.needsDuration && !reqs.needsDistance && !reqs.needsPace && !reqs.needsWeight) {
                 // All false → exercise name + chips only, no prescription line
                 Text("No prescription available — no coach requirements declared.", style = ProType.small, color = c.text3)
             } else {
