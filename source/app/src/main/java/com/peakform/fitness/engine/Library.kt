@@ -73,12 +73,30 @@ object Library {
     var config: JsonObject = JsonObject(emptyMap())
         private set
 
+    // BATCH-35d: static exercise taxonomy (6 fields per exercise).
+    // Loaded from data/exercise_taxonomy.json at init time.
+    var taxonomy: Map<String, ExerciseTaxonomy> = emptyMap()
+        private set
+
     @kotlinx.serialization.Serializable
     data class FiberWindow(val fiber: String, val min: Double, val max: Double, val note: String)
     @kotlinx.serialization.Serializable
     data class Decay(val fast: Double, val slow: Double)
     @kotlinx.serialization.Serializable
     data class MpComponent(val id: String, val name: String, val short: String, val icon: String, val color: String, val tagline: String, val desc: String, val train: List<String>)
+
+    // BATCH-35d: static exercise taxonomy — 6 fields per exercise.
+    // `performed` is NOT part of the static taxonomy; it is read from the
+    // user state tree, keyed by exercise id. See Library.taxonomyFor(id).
+    @kotlinx.serialization.Serializable
+    data class ExerciseTaxonomy(
+        val primaryMuscles: List<String> = emptyList(),
+        val secondaryMuscles: List<String> = emptyList(),
+        val equipment: List<String> = emptyList(),
+        val category: String = "",
+        val components: Map<String, Int> = emptyMap(),
+        val difficulty: String = "",
+    )
     @kotlinx.serialization.Serializable
     data class AccentDef(val id: String, val name: String, val hex: String)
     @kotlinx.serialization.Serializable
@@ -161,6 +179,15 @@ object Library {
                 runCatching {
                     val comps = j.parseToJsonElement(asset("mp_components.json"))
                     mpComponents = j.decodeFromString(kotlinx.serialization.builtins.ListSerializer(MpComponent.serializer()), comps.toString())
+                }
+                // BATCH-35d: load the static exercise taxonomy (6 fields per exercise).
+                // Never throws — runCatching swallows asset-missing / parse errors.
+                // taxonomyFor(id) returns null for unknown ids.
+                runCatching {
+                    val tx = j.parseToJsonElement(asset("exercise_taxonomy.json")).jsonObject
+                    taxonomy = tx.mapValues { (_, v) ->
+                        j.decodeFromString(ExerciseTaxonomy.serializer(), v.toString())
+                    }
                 }
                 runCatching {
                     accents = j.decodeFromString(kotlinx.serialization.builtins.ListSerializer(AccentDef.serializer()), asset("accents.json"))
@@ -320,6 +347,11 @@ object Library {
 
     fun componentFor(exerciseId: String): List<String> =
         componentRegistry[exerciseId] ?: emptyList()
+
+    // BATCH-35d: lookup static taxonomy for an exercise id. Returns null for
+    // unknown ids — never throws. UI consumers should treat null as
+    // "no taxonomy available" and fall back to legacy fields.
+    fun taxonomyFor(exerciseId: String): ExerciseTaxonomy? = taxonomy[exerciseId]
 }
 
 // ---------------------------------------------------------------------------
