@@ -408,6 +408,24 @@ fun LibraryCard(
             Box(Modifier.clip(RoundedCornerShape(999.dp)).background(diffColor.copy(alpha = 0.15f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
                 Text(difficulty, fontSize = 10.sp, color = diffColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             }
+            // BATCH-37b: dossier-derived chip
+            val dossier = remember(ex.id) {
+                com.peakform.fitness.coach.dossiers.DossierRegistry.forExercise(ex.id)
+            }
+            val isCited = dossier != null && dossier.provenance.source != "no-source"
+            Spacer(Modifier.width(6.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(if (isCited) c.accent.copy(alpha = 0.15f) else c.surface3)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    if (isCited) "Coached" else "Awaiting source",
+                    fontSize = 9.sp,
+                    color = if (isCited) c.accent else c.text3,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                )
+            }
         }
         Spacer(Modifier.height(6.dp))
         // BATCH-36a: component chips from the taxonomy entry (below title,

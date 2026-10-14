@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v37a (v3) ===
+=== DRIFT REPORT — v37b ===
 Generated: 2026-10-14
 Rows checked: 113
 Drifts found: 0
@@ -15,17 +15,14 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v37a (v3) changes ---
-  - No new rows. No new coaches. No new sources. No new taxonomy fields.
-  - New package: com.peakform.fitness.coach.dossiers
-    - ExerciseDossier.kt — 5 @Serializable data classes per 03-the-dossier.md
-    - DossierRegistry.kt — loads assets/data/dossiers.json at runtime
-    - assets/data/dossiers.json — 1,413 dossier entries (5 cited, 1,408 no-source)
-  - 5 cited exercises (strict complete-phrase + landmark):
-    pull-up, chin-up, archer_pull-up (Sommer); plank, side_plank (McGill)
-  - 1,408 no-source structural-only dossiers (provisional goal, empty everything else)
+--- v37b changes ---
+  - No new rows. No new coaches. No new sources (5 attempted, all skipped).
+  - Dossier cited count unchanged: 5 (same 5 as v37a-v3).
+  - UI wiring: Workout.kt card reads DossierRegistry → cited: goal chip +
+    landmark sentence; not-cited: "No published source" grey line.
+  - Library.kt card: cited → "Coached" chip; not-cited → "Awaiting source" chip.
+  - Prerequisite gate shipped (code path not exercised — all prereqs empty).
   - No touch AuthoredRows/AuthoredCoaches/CoachRegistry/DifficultyGate.
-    No UI wiring. No card changes. No logger changes.
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113

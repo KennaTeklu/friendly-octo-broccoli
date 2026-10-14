@@ -411,6 +411,19 @@ fun ExerciseCard(
         com.peakform.fitness.core.DifficultyGate.isUnlocked(exercise.id, ProState.data)
     }
 
+    // BATCH-37b: dossier lookup. Read the per-exercise knowledge layer (goals,
+    // landmarks, prerequisites) from DossierRegistry. If null (registry not
+    // loaded or exercise not in dossiers.json), treat as not cited.
+    val dossier = remember(exercise.id) {
+        com.peakform.fitness.coach.dossiers.DossierRegistry.forExercise(exercise.id)
+    }
+    val isCited = dossier != null && dossier.provenance.source != "no-source"
+
+    // BATCH-37b: prerequisite gate (shipped but not exercised — all dossiers
+    // in this batch have empty prerequisites). If a future batch authors
+    // prerequisites, this check locks the card.
+    val prereqsMet = dossier?.prerequisites?.isEmpty() ?: true
+
     // card state
     val has1RM = (ProState.data.exercises[exercise.id]?.tested1RM ?: 0.0) > 0
     val state = when {
@@ -521,6 +534,59 @@ fun ExerciseCard(
         if (taxonomyComponents.isNotEmpty()) {
             com.peakform.fitness.ui.components.ComponentChipsRow(taxonomyComponents)
             Spacer(Modifier.height(8.dp))
+        }
+
+        // BATCH-37b: dossier-derived UI.
+        // Cited → show goal chips + landmark sentence.
+        // Not cited → show "No published source" grey line.
+        // Prereqs not met → lock icon + prerequisite sentence (not exercised yet).
+        if (!prereqsMet && dossier != null) {
+            // Prerequisite gate: lock the card.
+            // Not exercised in this batch (all prereqs are empty).
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .background(c.warn.copy(alpha = 0.1f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                com.peakform.fitness.ui.FaIcon("fa-lock", size = 14.sp, tint = c.warn)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    dossier.prerequisites.firstOrNull()?.requirement ?: "Prerequisites not met.",
+                    style = ProType.body2, color = c.warn,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        } else if (isCited && dossier != null) {
+            // Cited: show goal chips + landmark
+            val goal = dossier.goals.firstOrNull()
+            if (goal != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(c.accentSoft)
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    ) {
+                        Text(goal.label, fontSize = 10.sp, color = c.accent, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
+                if (goal.landmark.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Landmark: ${goal.landmark}",
+                        style = ProType.small, color = c.accent,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+        } else {
+            // Not cited: show grey "no source" line
+            Text(
+                "No published source names this exercise yet.",
+                style = ProType.small, color = c.text3,
+            )
+            Spacer(Modifier.height(6.dp))
         }
 
         // v34d: Declaration sentence from coach.explain()
