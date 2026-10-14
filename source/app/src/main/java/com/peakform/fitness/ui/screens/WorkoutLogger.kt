@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -19,9 +20,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.ActualPerformance
+import com.peakform.fitness.core.HistoryEntry
 import com.peakform.fitness.core.ProJson
 import com.peakform.fitness.core.ProState
+import com.peakform.fitness.core.WorkoutData
 import com.peakform.fitness.core.WorkoutExercise
+import com.peakform.fitness.engine.Library
 import com.peakform.fitness.engine.OneRm
 import com.peakform.fitness.engine.Sessions
 import com.peakform.fitness.ui.*
@@ -33,6 +37,224 @@ import kotlinx.serialization.json.JsonArray
 /**
  * Logger + 1RM test panel + rest timer + Swal-style dialogs (scr-workout.md §7-9, §14).
  */
+
+// ------------------------------------------------------------------
+// BATCH-36b — Logger taxonomy header
+//
+// Renders the exercise's taxonomy fields at the top of the logger: category,
+// difficulty (with lock state from DifficultyGate), primaryMuscles chips,
+// secondaryMuscles chips, equipment chips, the components map (via the
+// shared ComponentChipsRow from v36a), and the performed indicator (checkmark
+// or "first time" label). All read from exercise_taxonomy.json + the user's
+// history tree — never invented.
+//
+// If the taxonomy entry is missing, the header renders nothing (early return).
+// ------------------------------------------------------------------
+
+/**
+ * Pure data shape for the logger header. Extracted so the test battery can
+ * exercise the field-loading logic without a Compose host.
+ */
+data class LoggerHeaderData(
+    val exerciseId: String,
+    val category: String,
+    val difficulty: String,
+    val primaryMuscles: List<String>,
+    val secondaryMuscles: List<String>,
+    val equipment: List<String>,
+    val components: Map<String, Int>,
+    val performed: Boolean,
+    val unlocked: Boolean,
+    val unlockReason: String,
+)
+
+/**
+ * Load the logger header data for an exercise id. Returns null when the
+ * taxonomy entry is missing — never throws. Read from
+ * `Library.taxonomyFor(exerciseId)` + `state.exercises[exerciseId]?.history`
+ * (the same HistoryEntry source `DifficultyGate` uses).
+ *
+ * `performed` is true iff the user has ever logged at least one completed
+ * set for this exercise id in the history tree. A "completed set" is a
+ * `HistoryEntry` with `!skipped && sets >= 1` — matching the DifficultyGate
+ * session-counter contract.
+ */
+fun loadLoggerHeaderData(
+    exerciseId: String,
+    state: WorkoutData,
+): LoggerHeaderData? {
+    val taxonomy = Library.taxonomyFor(exerciseId) ?: return null
+    val history = state.exercises[exerciseId]?.history ?: emptyList()
+    val performed = history.any { !it.skipped && it.sets >= 1 }
+    val unlock = com.peakform.fitness.core.DifficultyGate.isUnlocked(exerciseId, state)
+    return LoggerHeaderData(
+        exerciseId = exerciseId,
+        category = taxonomy.category,
+        difficulty = taxonomy.difficulty,
+        primaryMuscles = taxonomy.primaryMuscles,
+        secondaryMuscles = taxonomy.secondaryMuscles,
+        equipment = taxonomy.equipment,
+        components = taxonomy.components,
+        performed = performed,
+        unlocked = unlock.unlocked,
+        unlockReason = unlock.reason,
+    )
+}
+
+/**
+ * The composable. Renders the [LoggerHeaderData] as a compact card above the
+ * set-logging inputs. Missing taxonomy (null data) → renders nothing.
+ */
+@Composable
+fun LoggerTaxonomyHeader(
+    exerciseId: String,
+    state: WorkoutData,
+) {
+    val c = LocalProColors.current
+    val data = remember(exerciseId, state.exercises.hashCode()) {
+        loadLoggerHeaderData(exerciseId, state)
+    } ?: return  // missing taxonomy → no header, no crash
+
+    val difficultyColor = when (data.difficulty) {
+        "easy"   -> c.ok
+        "medium" -> c.warn
+        "hard"   -> c.bad
+        else     -> c.text3
+    }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(c.surface2)
+            .border(1.dp, c.hairline2, RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        // Row 1: category · difficulty (+ lock state) · performed indicator
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Category chip
+            Box(
+                Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(c.accentSoft)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            ) {
+                Text(
+                    data.category.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                    fontSize = 10.sp,
+                    color = c.accent,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            // Difficulty chip — tinted by difficulty; lock icon if locked
+            Row(
+                Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(difficultyColor.copy(alpha = 0.15f))
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!data.unlocked) {
+                    com.peakform.fitness.ui.FaIcon("fa-lock", size = 9.sp, tint = difficultyColor)
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    data.difficulty.replaceFirstChar { it.uppercase() },
+                    fontSize = 10.sp,
+                    color = difficultyColor,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            // Performed indicator: checkmark if performed, "First time" label if not
+            Row(
+                Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(if (data.performed) c.ok.copy(alpha = 0.15f) else c.surface3)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (data.performed) {
+                    com.peakform.fitness.ui.FaIcon("fa-check", size = 9.sp, tint = c.ok)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Performed", fontSize = 10.sp, color = c.ok, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                } else {
+                    Text("First time", fontSize = 10.sp, color = c.text3, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                }
+            }
+        }
+
+        // Row 2: primaryMuscles chips (or "no muscles" label)
+        if (data.primaryMuscles.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Primary:", fontSize = 10.sp, color = c.text3, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.align(Alignment.CenterVertically))
+                data.primaryMuscles.forEach { m ->
+                    Box(
+                        Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(c.surface3)
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(m.replace('_', ' ').replaceFirstChar { it.uppercase() }, fontSize = 10.sp, color = c.accent)
+                    }
+                }
+            }
+        }
+
+        // Row 3: secondaryMuscles chips (smaller, fewer)
+        if (data.secondaryMuscles.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Secondary:", fontSize = 10.sp, color = c.text3, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.align(Alignment.CenterVertically))
+                data.secondaryMuscles.forEach { m ->
+                    Box(
+                        Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(c.surface3.copy(alpha = 0.6f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(m.replace('_', ' ').replaceFirstChar { it.uppercase() }, fontSize = 9.sp, color = c.text2)
+                    }
+                }
+            }
+        }
+
+        // Row 4: equipment chips
+        if (data.equipment.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Equipment:", fontSize = 10.sp, color = c.text3, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.align(Alignment.CenterVertically))
+                data.equipment.forEach { e ->
+                    Box(
+                        Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(c.surface3)
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(e.replaceFirstChar { it.uppercase() }, fontSize = 10.sp, color = c.text2)
+                    }
+                }
+            }
+        }
+
+        // Row 5: components (reuse the shared ComponentChipsRow from v36a)
+        if (data.components.isNotEmpty()) {
+            com.peakform.fitness.ui.components.ComponentChipsRow(data.components)
+        }
+
+        // Row 6 (only if locked): unlock reason string
+        if (!data.unlocked) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                com.peakform.fitness.ui.FaIcon("fa-lock", size = 10.sp, tint = c.warn)
+                Spacer(Modifier.width(4.dp))
+                Text(data.unlockReason, fontSize = 9.sp, color = c.warn)
+            }
+        }
+    }
+}
 
 // ------------------------------------------------------------------
 // Logger — weight stepper (±2.5), sets stepper, per-set reps, RPE chips 1-10,
@@ -69,6 +291,13 @@ fun LoggerPanel(
         timeText.split(Regex("[,\\s]+")).mapNotNull { it.trim().toDoubleOrNull() }.filter { it >= 0 }
 
     Column {
+        // BATCH-36b: taxonomy header at the top of the logger.
+        // Reads category, difficulty (+lock state), primaryMuscles, secondaryMuscles,
+        // equipment, components, performed from exercise_taxonomy.json + the user's
+        // history tree. Missing taxonomy → renders nothing (no crash).
+        LoggerTaxonomyHeader(exercise.id, ProState.data)
+        Spacer(Modifier.height(10.dp))
+
         if (isTime) {
             Text("Duration per set (seconds, comma-separated)", style = ProType.small, color = c.text3)
             Spacer(Modifier.height(6.dp))
@@ -262,11 +491,27 @@ fun OneRmTestPanel(exerciseId: String, onDone: () -> Unit, onSkip: () -> Unit, o
     var attempted by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
+    // BATCH-36b: add category + difficulty to the panel header line.
+    // Read from exercise_taxonomy.json (the same source the logger header uses).
+    // Missing taxonomy → header falls back to no category/difficulty chips.
+    val taxonomy = remember(exerciseId) { com.peakform.fitness.engine.Library.taxonomyFor(exerciseId) }
+    val category = taxonomy?.category ?: ""
+    val difficulty = taxonomy?.difficulty ?: ""
+
     GlassCard(padding = PaddingValues(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             com.peakform.fitness.ui.FaIcon("fa-bolt", size = 14.sp, tint = c.warn)
             Spacer(Modifier.width(8.dp))
             Text("Find Your 1-Rep Max", style = ProType.label, color = c.warn)
+            // BATCH-36b: append " · <category> · <difficulty>" to the header line.
+            if (category.isNotBlank() || difficulty.isNotBlank()) {
+                Spacer(Modifier.width(8.dp))
+                val parts = buildList {
+                    if (category.isNotBlank()) add(category.replace('_', ' ').replaceFirstChar { it.uppercase() })
+                    if (difficulty.isNotBlank()) add(difficulty.replaceFirstChar { it.uppercase() })
+                }
+                Text("· ${parts.joinToString(" · ")}", style = ProType.small, color = c.text3)
+            }
         }
         Spacer(Modifier.height(8.dp))
         Text(

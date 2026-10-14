@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v36a ===
+=== DRIFT REPORT — v36b ===
 Generated: 2026-10-14
 Rows checked: 113
 Drifts found: 0
@@ -21,22 +21,24 @@ All rows cite one of 7 source files:
   - fs_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
                          reps "5"   → "4" (now in 2-4 zone bound)
 
---- v36a changes ---
+--- v36b changes ---
   - No new rows. No new coaches. No new sources. No new taxonomy fields.
     No new state types.
-  - New shared composable: ComponentChipsRow in
-    source/app/src/main/java/com/peakform/fitness/ui/components/Kit.kt.
-    Pure helper: selectComponentChips + ComponentChip + ComponentChipSelection
-    (extracted for unit testing without a Compose host).
-  - Workout.kt card: replaced the private ComponentChipsRow with the shared
-    one; reads components from Library.taxonomyFor(exercise.id) instead of
-    the authored row's components map (taxonomy is the canonical 11-name
-    enum source). Placed below title, above declaration sentence.
-  - Library.kt card: new call to ComponentChipsRow, placed below title,
-    above the muscle tags.
+  - WorkoutLogger.kt gains:
+      - data class LoggerHeaderData(...)
+      - fun loadLoggerHeaderData(exerciseId, state): LoggerHeaderData?
+        (pure helper — returns null when taxonomy missing, never throws)
+      - @Composable fun LoggerTaxonomyHeader(exerciseId, state)
+        (renders the header at the top of the LoggerPanel)
+  - LoggerPanel now calls LoggerTaxonomyHeader at the top of its Column,
+    above the set-logging inputs. Missing taxonomy → no header rendered.
+  - OneRmTestPanel header line now shows " · <category> · <difficulty>"
+    (read from exercise_taxonomy.json). Missing taxonomy → no extra chips.
+  - 1RM test panel itself is NOT redesigned — only the header line gained
+    the two fields.
   - No touch AuthoredRows.kt, AuthoredCoaches.kt, CoachRegistry.kt,
-    DifficultyGate.kt. No logger changes (36b). No overall section (36c).
-    No visual restyling beyond the chips row itself.
+    DifficultyGate.kt. No overall section (36c). No visual restyling beyond
+    the logger header.
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113
