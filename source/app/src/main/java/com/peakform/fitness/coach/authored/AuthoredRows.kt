@@ -130,12 +130,12 @@ object AuthoredRows {
         AuthoredRow("ohp_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "overhead_press", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 2, "LONGEVITY" to 1)),
     )
     val barbellRowRows = listOf(
-        AuthoredRow("br_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "barbell_row", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "6-8", pct1RM = 0.75, restSeconds = 120, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("br_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "barbell_row", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "4", pct1RM = 0.80, restSeconds = 120, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
         AuthoredRow("br_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "barbell_row", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.70, restSeconds = 90, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
         AuthoredRow("br_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "barbell_row", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("HYPERTROPHY" to 3, "STRENGTH" to 2, "LONGEVITY" to 1)),
     )
     val frontSquatRows = listOf(
-        AuthoredRow("fs_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "front_squat", "STRONGER", "BUILD", "intermediate", "*", "*", 5, "5", pct1RM = 0.75, restSeconds = 240, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("fs_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "front_squat", "STRONGER", "BUILD", "intermediate", "*", "*", 5, "4", pct1RM = 0.80, restSeconds = 240, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
         AuthoredRow("fs_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "front_squat", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.70, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
         AuthoredRow("fs_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "front_squat", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 2, "LONGEVITY" to 1)),
     )
@@ -165,6 +165,111 @@ object AuthoredRows {
         AuthoredRow("fp_blue_maintain_maintain", "rogue-band-tension/chart.md", "Blue row", "face_pull", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "15-20", bandColour = "blue", restSeconds = 45, components = mapOf("HYPERTROPHY" to 3, "LONGEVITY" to 1)),
     )
 
+    // ── v35b: 16 new coaches (6 Prilepin + 6 Rogue + 3 Sommer + 1 McGill side plank) ──
+
+    // PART 1 — Compound barbell from Prilepin (6 coaches)
+
+    val sumoDeadliftRows = listOf(
+        AuthoredRow("sd_novice_stronger_base", "rippetoe-2011/novice-lp.md", "Novice table", "sumo_deadlift", "STRONGER", "BASE", "novice", "*", "*", 1, "5", pct1RM = 0.65, restSeconds = 300, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2, "POWER" to 1)),
+        AuthoredRow("sd_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "sumo_deadlift", "STRONGER", "BUILD", "intermediate", "*", "*", 3, "4", pct1RM = 0.80, restSeconds = 300, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("sd_adv_stronger_peak", "prilepin-1974/chart.md", "90+ row", "sumo_deadlift", "STRONGER", "PEAK", "advanced", "*", "*", 3, "2", pct1RM = 0.90, restSeconds = 300, components = mapOf("STRENGTH" to 5, "POWER" to 2)),
+        AuthoredRow("sd_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "sumo_deadlift", "BIGGER", "BUILD", "intermediate", "*", "*", 3, "6", pct1RM = 0.75, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("sd_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "sumo_deadlift", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "6", pct1RM = 0.70, restSeconds = 120, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 2, "LONGEVITY" to 1)),
+    )
+    val inclineBenchPressRows = listOf(
+        AuthoredRow("ibp_novice_stronger_base", "rippetoe-2011/novice-lp.md", "Novice table", "incline_bench_press", "STRONGER", "BASE", "novice", "*", "*", 3, "5", pct1RM = 0.65, restSeconds = 180, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2, "POWER" to 1)),
+        AuthoredRow("ibp_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "incline_bench_press", "STRONGER", "BUILD", "intermediate", "*", "*", 5, "4", pct1RM = 0.80, restSeconds = 180, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("ibp_adv_stronger_peak", "prilepin-1974/chart.md", "90+ row", "incline_bench_press", "STRONGER", "PEAK", "advanced", "*", "*", 5, "2", pct1RM = 0.90, restSeconds = 240, components = mapOf("STRENGTH" to 5, "POWER" to 2)),
+        AuthoredRow("ibp_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "incline_bench_press", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.75, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("ibp_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "incline_bench_press", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 2, "LONGEVITY" to 1)),
+    )
+    val closeGripBenchPressRows = listOf(
+        AuthoredRow("cgbp_novice_stronger_base", "rippetoe-2011/novice-lp.md", "Novice table", "close_grip_bench_press", "STRONGER", "BASE", "novice", "*", "*", 3, "5", pct1RM = 0.65, restSeconds = 180, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2, "POWER" to 1)),
+        AuthoredRow("cgbp_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "close_grip_bench_press", "STRONGER", "BUILD", "intermediate", "*", "*", 5, "4", pct1RM = 0.80, restSeconds = 180, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2)),
+        AuthoredRow("cgbp_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "close_grip_bench_press", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.75, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("cgbp_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "close_grip_bench_press", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 2, "LONGEVITY" to 1)),
+    )
+    val pendlayRowRows = listOf(
+        AuthoredRow("pdr_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "pendlay_row", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "4", pct1RM = 0.80, restSeconds = 120, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("pdr_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "pendlay_row", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.70, restSeconds = 90, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("pdr_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "pendlay_row", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("HYPERTROPHY" to 3, "STRENGTH" to 2, "LONGEVITY" to 1)),
+    )
+    val pushPressRows = listOf(
+        AuthoredRow("pp_novice_stronger_base", "rippetoe-2011/novice-lp.md", "Novice table", "push_press", "STRONGER", "BASE", "novice", "*", "*", 3, "5", pct1RM = 0.65, restSeconds = 180, components = mapOf("STRENGTH" to 5, "POWER" to 2, "HYPERTROPHY" to 1)),
+        AuthoredRow("pp_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "push_press", "STRONGER", "BUILD", "intermediate", "*", "*", 5, "4", pct1RM = 0.80, restSeconds = 180, components = mapOf("STRENGTH" to 5, "POWER" to 2)),
+        AuthoredRow("pp_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "push_press", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "8-12", pct1RM = 0.75, restSeconds = 120, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("pp_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "push_press", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "10", pct1RM = 0.70, restSeconds = 90, components = mapOf("STRENGTH" to 3, "POWER" to 2, "LONGEVITY" to 1)),
+    )
+    val powerCleanRows = listOf(
+        AuthoredRow("pc_int_stronger_build", "prilepin-1974/chart.md", "80-89% row", "power_clean", "STRONGER", "BUILD", "intermediate", "*", "*", 5, "3", pct1RM = 0.80, restSeconds = 180, components = mapOf("POWER" to 5, "STRENGTH" to 3)),
+        AuthoredRow("pc_int_hypertrophy_build", "prilepin-1974/chart.md", "70-79% row", "power_clean", "BIGGER", "BUILD", "intermediate", "*", "*", 4, "5", pct1RM = 0.70, restSeconds = 180, components = mapOf("POWER" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("pc_int_maintain_maintain", "prilepin-1974/chart.md", "70-79% row", "power_clean", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "5", pct1RM = 0.70, restSeconds = 180, components = mapOf("POWER" to 3, "LONGEVITY" to 2)),
+    )
+
+    // PART 2 — Banded from Rogue (6 coaches; red hypertrophy, green stronger, blue maintain; ladder mirror of BandedLateralRaiseAuthoredCoach)
+
+    val bandedFacePullRows = listOf(
+        AuthoredRow("bfp_red_hypertrophy_base", "rogue-band-tension/chart.md", "Red row", "banded_face_pull", "BIGGER", "BASE", "novice", "*", "*", 3, "15-20", bandColour = "red", restSeconds = 45, components = mapOf("HYPERTROPHY" to 4, "ENDURANCE" to 1)),
+        AuthoredRow("bfp_green_stronger_build", "rogue-band-tension/chart.md", "Green row", "banded_face_pull", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "12-15", bandColour = "green", restSeconds = 60, components = mapOf("STRENGTH" to 3, "HYPERTROPHY" to 3)),
+        AuthoredRow("bfp_blue_maintain_maintain", "rogue-band-tension/chart.md", "Blue row", "banded_face_pull", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "15-20", bandColour = "blue", restSeconds = 45, components = mapOf("HYPERTROPHY" to 3, "LONGEVITY" to 1)),
+    )
+    val bandedPullApartRows = listOf(
+        AuthoredRow("bpa_yellow_hypertrophy_base", "rogue-band-tension/chart.md", "Yellow row", "banded_pull_apart", "BIGGER", "BASE", "novice", "*", "*", 3, "15-20", bandColour = "yellow", restSeconds = 45, components = mapOf("HYPERTROPHY" to 4, "ENDURANCE" to 1)),
+        AuthoredRow("bpa_red_hypertrophy_build", "rogue-band-tension/chart.md", "Red row", "banded_pull_apart", "BIGGER", "BUILD", "intermediate", "*", "*", 3, "15-20", bandColour = "red", restSeconds = 45, components = mapOf("HYPERTROPHY" to 5, "ENDURANCE" to 1)),
+        AuthoredRow("bpa_green_stronger_build", "rogue-band-tension/chart.md", "Green row", "banded_pull_apart", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "8-12", bandColour = "green", restSeconds = 60, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("bpa_blue_maintain_maintain", "rogue-band-tension/chart.md", "Blue row", "banded_pull_apart", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "12-15", bandColour = "blue", restSeconds = 45, components = mapOf("HYPERTROPHY" to 3, "LONGEVITY" to 1)),
+    )
+    val bandedSquatRows = listOf(
+        AuthoredRow("bsq_yellow_hypertrophy_base", "rogue-band-tension/chart.md", "Yellow row", "banded_squat", "BIGGER", "BASE", "novice", "*", "*", 3, "15-20", bandColour = "yellow", restSeconds = 45, components = mapOf("HYPERTROPHY" to 4, "ENDURANCE" to 1)),
+        AuthoredRow("bsq_red_hypertrophy_build", "rogue-band-tension/chart.md", "Red row", "banded_squat", "BIGGER", "BUILD", "intermediate", "*", "*", 3, "15-20", bandColour = "red", restSeconds = 45, components = mapOf("HYPERTROPHY" to 5, "ENDURANCE" to 1)),
+        AuthoredRow("bsq_green_stronger_build", "rogue-band-tension/chart.md", "Green row", "banded_squat", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "8-12", bandColour = "green", restSeconds = 60, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("bsq_blue_maintain_maintain", "rogue-band-tension/chart.md", "Blue row", "banded_squat", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "12-15", bandColour = "blue", restSeconds = 45, components = mapOf("HYPERTROPHY" to 3, "LONGEVITY" to 1)),
+    )
+    val bandedRowRows = listOf(
+        AuthoredRow("br_yellow_hypertrophy_base", "rogue-band-tension/chart.md", "Yellow row", "banded_row", "BIGGER", "BASE", "novice", "*", "*", 3, "15-20", bandColour = "yellow", restSeconds = 45, components = mapOf("HYPERTROPHY" to 4, "ENDURANCE" to 1)),
+        AuthoredRow("br_red_hypertrophy_build", "rogue-band-tension/chart.md", "Red row", "banded_row", "BIGGER", "BUILD", "intermediate", "*", "*", 3, "15-20", bandColour = "red", restSeconds = 45, components = mapOf("HYPERTROPHY" to 5, "ENDURANCE" to 1)),
+        AuthoredRow("br_green_stronger_build", "rogue-band-tension/chart.md", "Green row", "banded_row", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "8-12", bandColour = "green", restSeconds = 60, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("br_blue_maintain_maintain", "rogue-band-tension/chart.md", "Blue row", "banded_row", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "12-15", bandColour = "blue", restSeconds = 45, components = mapOf("HYPERTROPHY" to 3, "LONGEVITY" to 1)),
+    )
+    val bandedGluteBridgeRows = listOf(
+        AuthoredRow("bgb_yellow_hypertrophy_base", "rogue-band-tension/chart.md", "Yellow row", "banded_glute_bridge", "BIGGER", "BASE", "novice", "*", "*", 3, "15-20", bandColour = "yellow", restSeconds = 45, components = mapOf("HYPERTROPHY" to 4, "ENDURANCE" to 1)),
+        AuthoredRow("bgb_red_hypertrophy_build", "rogue-band-tension/chart.md", "Red row", "banded_glute_bridge", "BIGGER", "BUILD", "intermediate", "*", "*", 3, "15-20", bandColour = "red", restSeconds = 45, components = mapOf("HYPERTROPHY" to 5, "ENDURANCE" to 1)),
+        AuthoredRow("bgb_green_stronger_build", "rogue-band-tension/chart.md", "Green row", "banded_glute_bridge", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "8-12", bandColour = "green", restSeconds = 60, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("bgb_blue_maintain_maintain", "rogue-band-tension/chart.md", "Blue row", "banded_glute_bridge", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "12-15", bandColour = "blue", restSeconds = 45, components = mapOf("HYPERTROPHY" to 3, "LONGEVITY" to 1)),
+    )
+    val bandedChestPressRows = listOf(
+        AuthoredRow("bcp_yellow_hypertrophy_base", "rogue-band-tension/chart.md", "Yellow row", "banded_chest_press", "BIGGER", "BASE", "novice", "*", "*", 3, "15-20", bandColour = "yellow", restSeconds = 45, components = mapOf("HYPERTROPHY" to 4, "ENDURANCE" to 1)),
+        AuthoredRow("bcp_red_hypertrophy_build", "rogue-band-tension/chart.md", "Red row", "banded_chest_press", "BIGGER", "BUILD", "intermediate", "*", "*", 3, "15-20", bandColour = "red", restSeconds = 45, components = mapOf("HYPERTROPHY" to 5, "ENDURANCE" to 1)),
+        AuthoredRow("bcp_green_stronger_build", "rogue-band-tension/chart.md", "Green row", "banded_chest_press", "STRONGER", "BUILD", "intermediate", "*", "*", 4, "8-12", bandColour = "green", restSeconds = 60, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 3)),
+        AuthoredRow("bcp_blue_maintain_maintain", "rogue-band-tension/chart.md", "Blue row", "banded_chest_press", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 3, "12-15", bandColour = "blue", restSeconds = 45, components = mapOf("HYPERTROPHY" to 3, "LONGEVITY" to 1)),
+    )
+
+    // PART 3 — Bodyweight from Sommer (3 coaches)
+
+    val invertedRowRows = listOf(
+        AuthoredRow("ir_t1_stronger_base", "sommer-2006/gymnastic-body-tier-table.md", "Tier 1: Band-assisted", "inverted_row", "STRONGER", "BASE", "novice", "*", "*", 3, "5-8", tier = 1, restSeconds = 90, components = mapOf("STRENGTH" to 4, "HYPERTROPHY" to 2, "ENDURANCE" to 1)),
+        AuthoredRow("ir_t2_hypertrophy_build", "sommer-2006/gymnastic-body-tier-table.md", "Tier 2: Negative only", "inverted_row", "BIGGER", "BUILD", "intermediate", "*", "*", 3, "6-10", tier = 2, restSeconds = 90, components = mapOf("HYPERTROPHY" to 5, "STRENGTH" to 2)),
+        AuthoredRow("ir_t3_maintain_maintain", "sommer-2006/gymnastic-body-tier-table.md", "Tier 3: Jump-assisted", "inverted_row", "MAINTAIN", "MAINTAIN", "*", "*", "*", 3, "8-12", tier = 3, restSeconds = 90, components = mapOf("HYPERTROPHY" to 3, "ENDURANCE" to 2, "LONGEVITY" to 1)),
+    )
+    val archerPullUpRows = listOf(
+        AuthoredRow("apu_t8_stronger_build", "sommer-2006/gymnastic-body-tier-table.md", "Tier 8: Archer pull-up", "archer_pull_up", "STRONGER", "BUILD", "*", "*", "*", 3, "2-4", tier = 8, restSeconds = 150, components = mapOf("STRENGTH" to 5, "POWER" to 2)),
+        AuthoredRow("apu_t8_maintain_maintain", "sommer-2006/gymnastic-body-tier-table.md", "Tier 8: Archer pull-up", "archer_pull_up", "MAINTAIN", "MAINTAIN", "*", "*", "*", 2, "2-3", tier = 8, restSeconds = 150, components = mapOf("STRENGTH" to 3, "LONGEVITY" to 1)),
+    )
+    val lSitPullUpRows = listOf(
+        AuthoredRow("lspu_t7_stronger_build", "sommer-2006/gymnastic-body-tier-table.md", "Tier 7: L-sit pull-up", "l_sit_pull_up", "STRONGER", "BUILD", "*", "*", "*", 3, "3-5", tier = 7, restSeconds = 120, components = mapOf("STRENGTH" to 5, "HYPERTROPHY" to 2, "CORE_STABILITY" to 2)),
+        AuthoredRow("lspu_t7_maintain_maintain", "sommer-2006/gymnastic-body-tier-table.md", "Tier 7: L-sit pull-up", "l_sit_pull_up", "MAINTAIN", "MAINTAIN", "*", "*", "*", 2, "3-4", tier = 7, restSeconds = 120, components = mapOf("STRENGTH" to 3, "CORE_STABILITY" to 2, "LONGEVITY" to 1)),
+    )
+
+    // PART 4 — Time-based from McGill SIDE PLANK table (1 coach)
+    // Side plank standards differ from front plank: intermediate male 90s, not 120s.
+
+    val sidePlankRows = listOf(
+        AuthoredRow("sp_novice_endure_base_m", "mcgill-2010/plank-standards.md", "Side plank, novice, male", "side_plank", "ENDURE", "BASE", "novice", "male", "*", 3, "hold", duration = 45.0, restSeconds = 45, components = mapOf("ENDURANCE" to 5, "CORE_STABILITY" to 4)),
+        AuthoredRow("sp_novice_endure_base_f", "mcgill-2010/plank-standards.md", "Side plank, novice, female", "side_plank", "ENDURE", "BASE", "novice", "female", "*", 3, "hold", duration = 35.0, restSeconds = 45, components = mapOf("ENDURANCE" to 5, "CORE_STABILITY" to 4)),
+        AuthoredRow("sp_int_endure_build_m", "mcgill-2010/plank-standards.md", "Side plank, intermediate, male", "side_plank", "ENDURE", "BUILD", "intermediate", "male", "*", 3, "hold", duration = 90.0, restSeconds = 45, components = mapOf("ENDURANCE" to 5, "CORE_STABILITY" to 3)),
+        AuthoredRow("sp_int_maintain_maintain", "mcgill-2010/plank-standards.md", "Maintenance row", "side_plank", "MAINTAIN", "MAINTAIN", "intermediate", "*", "*", 2, "hold", duration = 30.0, restSeconds = 30, components = mapOf("ENDURANCE" to 3, "LONGEVITY" to 2)),
+    )
+
     fun rowsForCoach(coachId: String): List<AuthoredRow> = when (coachId) {
         "back_squat" -> backSquatRows
         "pull_up" -> pullUpRows
@@ -181,10 +286,31 @@ object AuthoredRows {
         "dip" -> dipRows
         "push_up" -> pushUpRows
         "face_pull" -> facePullRows
+        // v35b: 16 new coaches
+        "sumo_deadlift" -> sumoDeadliftRows
+        "incline_bench_press" -> inclineBenchPressRows
+        "close_grip_bench_press" -> closeGripBenchPressRows
+        "pendlay_row" -> pendlayRowRows
+        "push_press" -> pushPressRows
+        "power_clean" -> powerCleanRows
+        "banded_face_pull" -> bandedFacePullRows
+        "banded_pull_apart" -> bandedPullApartRows
+        "banded_squat" -> bandedSquatRows
+        "banded_row" -> bandedRowRows
+        "banded_glute_bridge" -> bandedGluteBridgeRows
+        "banded_chest_press" -> bandedChestPressRows
+        "inverted_row" -> invertedRowRows
+        "archer_pull_up" -> archerPullUpRows
+        "l_sit_pull_up" -> lSitPullUpRows
+        "side_plank" -> sidePlankRows
         else -> emptyList()
     }
 
     fun allRows(): List<AuthoredRow> = backSquatRows + pullUpRows + bandedLateralRaiseRows + plankRows + runningRows +
         deadliftRows + benchPressRows + overheadPressRows + barbellRowRows + frontSquatRows + romanianDeadliftRows +
-        chinUpRows + dipRows + pushUpRows + facePullRows
+        chinUpRows + dipRows + pushUpRows + facePullRows +
+        // v35b: 16 new coaches
+        sumoDeadliftRows + inclineBenchPressRows + closeGripBenchPressRows + pendlayRowRows + pushPressRows + powerCleanRows +
+        bandedFacePullRows + bandedPullApartRows + bandedSquatRows + bandedRowRows + bandedGluteBridgeRows + bandedChestPressRows +
+        invertedRowRows + archerPullUpRows + lSitPullUpRows + sidePlankRows
 }

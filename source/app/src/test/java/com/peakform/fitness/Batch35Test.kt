@@ -13,8 +13,8 @@ class Batch35Test {
 
     @Test
     fun totalAuthoredRows_is48() {
-        // 20 (v34) + 35 (v35: 5+5+4+3+3+3+3+3+3+3) = 55
-        Assert.assertEquals(55, AuthoredRows.allRows().size)
+        // 20 (v34) + 35 (v35: 5+5+4+3+3+3+3+3+3+3) + 58 (v35b: 5+5+4+3+4+3 + 3+4+4+4+4+4 + 3+2+2 + 4) = 113
+        Assert.assertEquals(113, AuthoredRows.allRows().size)
     }
 
     @Test

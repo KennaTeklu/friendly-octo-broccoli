@@ -201,6 +201,6 @@ class Batch34Test {
 
     @Test
     fun totalAuthoredRows() {
-        Assert.assertEquals("Should have 55 authored rows across 15 coaches", 55, AuthoredRows.allRows().size)
+        Assert.assertEquals("Should have 113 authored rows across 31 coaches (55 v34+v35a + 58 v35b)", 113, AuthoredRows.allRows().size)
     }
 }

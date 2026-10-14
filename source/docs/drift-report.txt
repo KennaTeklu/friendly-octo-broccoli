@@ -1,20 +1,26 @@
-=== DRIFT REPORT — v35 ===
+=== DRIFT REPORT — v35b ===
 Generated: 2026-10-13
-Rows checked: 55
+Rows checked: 113
 Drifts found: 0
 
 All rows match their cited sources.
 
---- 15 coaches, 55 authored rows ---
+--- 31 coaches, 113 authored rows ---
 All rows cite one of 7 source files:
-  prilepin-1974/chart.md (24 rows)
-  rippetoe-2011/novice-lp.md (6 rows)
+  prilepin-1974/chart.md (41 rows)
+  rogue-band-tension/chart.md (30 rows)
+  sommer-2006/gymnastic-body-tier-table.md (20 rows)
+  rippetoe-2011/novice-lp.md (8 rows)
+  mcgill-2010/plank-standards.md (8 rows: 4 front plank + 4 side plank)
   rippetoe-2011/assistance.md (3 rows)
-  sommer-2006/gymnastic-body-tier-table.md (13 rows)
-  rogue-band-tension/chart.md (7 rows)
   daniels-2013/vdot-zones.md (3 rows)
-  mcgill-2010/plank-standards.md (4 rows)
+
+--- v35b drift fixes (corrected in this batch) ---
+  - br_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
+                         reps "6-8" → "4" (now in 2-4 zone bound)
+  - fs_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
+                         reps "5"   → "4" (now in 2-4 zone bound)
 
 === DRIFT CHECK COMPLETE ===
-Rows checked: 55
+Rows checked: 113
 Drifts found: 0
