@@ -397,12 +397,22 @@ fun ExerciseCard(
     var isWarmupToggled by remember(exercise.id) { mutableStateOf(exercise.isWarmup) }
     var showInstructions by remember(exercise.id) { mutableStateOf(false) }
 
+    // BATCH-35c B1+B2: resolve the coach ONCE at card top so requirements()
+    // gates both the "Needs 1RM" chip / border state AND the OneRmTestPanel.
+    // Before this fix, reqs was computed AFTER the state, so the panel and chip
+    // rendered for Side Plank / Chin-Up / RDL — none of which declare needs1RM.
+    val coach35c = com.peakform.fitness.coach.CoachRegistry.lookup(exercise.id)
+    val reqs35c = coach35c?.requirements() ?: com.peakform.fitness.coach.authored.CoachRequirements()
+
     // card state
     val has1RM = (ProState.data.exercises[exercise.id]?.tested1RM ?: 0.0) > 0
     val state = when {
         exercise.skipped -> "skipped"
         exercise.actual != null -> "done"
-        !isDrill && !has1RM -> "needs1rm"
+        // B2: gate the needs1rm state on reqs.needs1RM so cards without an
+        // authored coach (or coaches that don't declare needs1RM — Plank,
+        // Pull-Up, BandedLR, Running) don't show the chip / amber border.
+        !isDrill && !has1RM && reqs35c.needs1RM -> "needs1rm"
         else -> "ready"
     }
     val borderColor = when (state) {
@@ -478,13 +488,20 @@ fun ExerciseCard(
         val rx = exercise.prescribed
         val rec = ProState.data.exercises[exercise.id]
 
-        // Resolve the coach for this exercise to get requirements
-        val coach = com.peakform.fitness.coach.CoachRegistry.lookup(exercise.id)
-        val reqs = coach?.requirements() ?: com.peakform.fitness.coach.authored.CoachRequirements()
+        // Re-use the top-of-card coach / requirements (B1+B2). The previous
+        // duplicate lookup is gone; reqs here equals reqs35c above.
+        val coach = coach35c
+        val reqs = reqs35c
         val has1RM = (rec?.tested1RM ?: 0.0) > 0
 
-        // Component chips from authored row (Item 5)
+        // B1: authored row lookup goes through the coach's exerciseIds so library
+        // exercises whose id ("barbell_romanian_deadlift") doesn't match the
+        // rowsForCoach key ("romanian_deadlift") still resolve. The first
+        // exerciseId that has authored rows wins.
         val authoredRow = com.peakform.fitness.coach.authored.AuthoredRows.rowsForCoach(exercise.id).firstOrNull()
+            ?: coach?.exerciseIds?.firstNotNullOfOrNull { id ->
+                com.peakform.fitness.coach.authored.AuthoredRows.rowsForCoach(id).firstOrNull()
+            }
         val components = authoredRow?.components ?: emptyMap()
         if (components.isNotEmpty()) {
             ComponentChipsRow(components)
@@ -711,7 +728,9 @@ fun ExerciseCard(
                         style = ProType.body2, color = c.ok,
                     )
                 } else {
-                    if (!isDrill && !has1RM) {
+                    // B2: gate the 1RM test panel on reqs.needs1RM (same gate the
+                    // prescription line uses). Side Plank, Pull-Up, RDL no longer show it.
+                    if (!isDrill && !has1RM && reqs.needs1RM) {
                         OneRmTestPanel(
                             exerciseId = exercise.id,
                             onDone = { onLogged() },

@@ -52,9 +52,14 @@ class CoachCoverageTest {
 
     @Test
     fun lookup_benchPress() {
+        // BATCH-35c B1: the authored BenchPressAuthoredCoach now wins precedence
+        // over AllCoaches.BenchPress (its requirements() / reconcile() / explain()
+        // overrides are why the registry was extended). The authored coach's
+        // movementName is "Bench Press" (the AllCoaches entry was "Barbell Bench
+        // Press"). The shorter name is the intended post-35c contract.
         val c = CoachRegistry.lookup("bench_press")
         Assert.assertNotNull("BenchPress coach registered", c)
-        Assert.assertEquals("Barbell Bench Press", c!!.movementName)
+        Assert.assertEquals("Bench Press", c!!.movementName)
     }
 
     @Test

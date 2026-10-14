@@ -1,5 +1,5 @@
-=== DRIFT REPORT — v35b ===
-Generated: 2026-10-13
+=== DRIFT REPORT — v35c ===
+Generated: 2026-10-14
 Rows checked: 113
 Drifts found: 0
 
@@ -15,11 +15,27 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v35b drift fixes (corrected in this batch) ---
+--- v35b drift fixes (carried forward, unchanged in v35c) ---
   - br_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
                          reps "6-8" → "4" (now in 2-4 zone bound)
   - fs_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
                          reps "5"   → "4" (now in 2-4 zone bound)
+
+--- v35c changes ---
+  - No new rows. No new coaches. No new sources.
+  - 4 blocker fixes (B1–B4) — UI/routing only, no authored-row changes:
+    B1: CoachRegistry now registers the 31 authored coaches (precedence over
+        AllCoaches). Keyword fallback catches library ids that don't match
+        ("barbell_romanian_deadlift" → RomanianDeadliftAuthoredCoach;
+         "chin-up" → ChinUpAuthoredCoach).
+    B2: 1RM panel + "Needs 1RM" chip gated on coach.requirements().needs1RM.
+    B3: Library opens all-collapsed by default; sort-mode change resets to
+        all-collapsed; Expand/Collapse All visibility mirrors the reference JS.
+    B4: Library "How to do" / "Images" buttons add FLAG_ACTIVITY_NEW_TASK
+        (the missing flag made startActivity from Application context fail
+        silently — the Workout card's openExerciseBrowser always set it).
+  - AuthoredRows.kt untouched. AuthoredCoaches.kt untouched. No new source
+    files. No new authored rows.
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113

@@ -79,30 +79,23 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
     var wikiFor by remember { mutableStateOf<String?>(null) }
     var componentFilter by remember { mutableStateOf<String?>(null) }
 
-    // LB10: persisted collapse state (legacy p4_library_collapsed, PF L36798–36806).
-    // BATCH-4C Gap 1: honor p4_lib_expand_all pref — when "true", start with all
-    // groups EXPANDED (empty collapsed set) instead of the default all-collapsed.
-    var collapsedGroups by remember(Library.groups) {
-        // BATCH-5B: read p4_lib_expand_all + p4_library_collapsed from per-profile prefs.
-        val expandAllPref = com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_LIB_EXPAND_ALL) == "true"
-        val defaultSet = if (expandAllPref) emptySet() else Library.groups.keys.toSet()
-        mutableStateOf(
-            try {
-                com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_LIBRARY_COLLAPSED)?.let {
-                    ProJson.json.decodeFromString(ListSerializer(String.serializer()), it).toSet()
-                } ?: defaultSet
-            } catch (_: Exception) { defaultSet }
-        )
-    }
-    fun persistCollapse() {
-        com.peakform.fitness.core.ProfileSettings.put(ctx, com.peakform.fitness.core.ProfileSettings.K_LIBRARY_COLLAPSED,
-            ProJson.json.encodeToString(ListSerializer(String.serializer()), collapsedGroups.toList()))
-    }
+    // BATCH-35c B3: collapsed-group state now defaults to ALL-COLLAPSED
+    // using the ACTUAL grouped list keys (e.g. "Hamstrings", "Chest", "Lats").
+    // The previous default `Library.groups.keys.toSet()` returned the JSON
+    // source-data group keys ("quads", "hamstrings", …) — wrong case, wrong
+    // key shape — so `group in collapsedGroups` never matched and the library
+    // opened fully EXPANDED despite the code claiming all-collapsed.
+    //
+    // The state is also reset to all-collapsed whenever the sort mode changes
+    // (matches `changeGrouping()` in reference/scripts/app/18-recommendations.js:
+    //   currentGrouping = …; collapsedGroups = {}; saveLibraryCollapse();
+    // so the six sort modes each open collapsed.
+    var collapsedGroups by remember { mutableStateOf<Set<String>?>(null) }
+    var lastGroupBy by remember { mutableIntStateOf(groupBy) }
 
     val mode = ProState.data.user.settings.trainingMode
     val all = remember(ver.intValue, mode) { Library.allLibraryExercises(mode).map { Library.augmented(it) } }
 
-    // (groupings moved to top — BATCH-4C Gap 1, needed for initialGroupBy)
     val filtered = remember(search, all, componentFilter) {
         var list = if (search.length < 2) all
         else {
@@ -163,6 +156,37 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         }
     }
 
+    val groupNames: Set<String> = remember(grouped) { grouped.map { it.first }.toSet() }
+
+    fun persistCollapse() {
+        com.peakform.fitness.core.ProfileSettings.put(ctx, com.peakform.fitness.core.ProfileSettings.K_LIBRARY_COLLAPSED,
+            ProJson.json.encodeToString(ListSerializer(String.serializer()), (collapsedGroups ?: emptySet()).toList()))
+    }
+
+    // Lazy init from prefs, or default to all-collapsed (or all-expanded if the
+    // p4_lib_expand_all pref is "true"). This runs once on first composition
+    // (when collapsedGroups is null).
+    if (collapsedGroups == null) {
+        val expandAllPref = com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_LIB_EXPAND_ALL) == "true"
+        val defaultSet = if (expandAllPref) emptySet() else groupNames
+        val loaded = try {
+            com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_LIBRARY_COLLAPSED)?.let {
+                ProJson.json.decodeFromString(ListSerializer(String.serializer()), it).toSet()
+            }
+        } catch (_: Exception) { null }
+        collapsedGroups = loaded ?: defaultSet
+    }
+
+    // Sort-mode change → reset to all-collapsed (matches reference JS).
+    LaunchedEffect(groupBy) {
+        if (lastGroupBy != groupBy) {
+            val expandAllPref = com.peakform.fitness.core.ProfileSettings.get(ctx, com.peakform.fitness.core.ProfileSettings.K_LIB_EXPAND_ALL) == "true"
+            collapsedGroups = if (expandAllPref) emptySet() else groupNames
+            persistCollapse()
+            lastGroupBy = groupBy
+        }
+    }
+
     // BATCH-4C Gap 1: honor p4_lib_chunk + p4_lib_stream prefs (per-profile).
     // When streaming is ON (default), cap each group at the chunk size (default 20)
     // so the Library loads fast on large databases. When streaming is OFF, show all
@@ -220,12 +244,33 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
             }
         }
         item(key = "hdr_expand_collapse", contentType = "header") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                P4Button("Expand All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
-                    collapsedGroups = emptySet(); persistCollapse()
-                }
-                P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
-                    collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
+            // BATCH-35c B3: Expand All / Collapse All visibility mirrors
+            // refreshLibraryExpandCollapseButtons() in
+            // reference/scripts/app/18-recommendations.js:
+            //   - anyCollapsed = some group is in the collapsed set
+            //   - anyExpanded  = no groups collapsed OR some group not in set
+            //   - show Expand when anyCollapsed; show Collapse when anyExpanded
+            //   - both → mixed; only one → only that one; neither → none
+            // The previous code rendered BOTH unconditionally — which meant the
+            // "no-op" button stayed on screen even when everything was already
+            // collapsed or expanded.
+            val collapsed = collapsedGroups ?: emptySet()
+            val anyCollapsed = collapsed.isNotEmpty() && grouped.any { it.first in collapsed }
+            val anyExpanded = collapsed.isEmpty() || grouped.any { it.first !in collapsed }
+            val showExpand = anyCollapsed
+            val showCollapse = anyExpanded
+            if (showExpand || showCollapse) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (showExpand) {
+                        P4Button("Expand All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(1f)) {
+                            collapsedGroups = emptySet(); persistCollapse()
+                        }
+                    }
+                    if (showCollapse) {
+                        P4Button("Collapse All", style = BtnStyle.SECONDARY, minHeight = 34, modifier = Modifier.weight(if (showExpand) 1f else 1f)) {
+                            collapsedGroups = grouped.map { it.first }.toSet(); persistCollapse()
+                        }
+                    }
                 }
             }
         }
@@ -251,14 +296,15 @@ fun LibraryScreen(onAddToWorkout: (LibraryExercise) -> Unit) {
         }
 
         // ---- groups + cards (lazy) ----
+        val collapsed = collapsedGroups ?: emptySet()
         grouped.forEach { (group, list) ->
-            val isCollapsed = group in collapsedGroups
+            val isCollapsed = group in collapsed
             // group header — always rendered
             item(key = "grp_$group", contentType = "groupHeader") {
                 GlassCard(padding = PaddingValues(0.dp)) {
                     Row(
                         Modifier.fillMaxWidth().clickable {
-                            collapsedGroups = if (isCollapsed) collapsedGroups - group else collapsedGroups + group
+                            collapsedGroups = if (isCollapsed) collapsed - group else collapsed + group
                             persistCollapse()
                         }.padding(horizontal = 16.dp, vertical = 13.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -417,8 +463,17 @@ fun LibraryCard(
 private fun openBrowser(query: String, images: Boolean = false) {
     val ctx = com.peakform.fitness.ui.Fa.appContext ?: return
     val url = "https://www.google.com/search?q=" + android.net.Uri.encode(query) + if (images) "&tbm=isch" else ""
+    // BATCH-35c B4: add FLAG_ACTIVITY_NEW_TASK so startActivity from a non-Activity
+    // (Application) context resolves to the system browser. The Workout card's
+    // openExerciseBrowser() has always set this flag — the Library card's
+    // openBrowser() dropped it, so the "How to do" / "Images" buttons silently
+    // failed (startActivity throws ActivityNotFoundException from a context
+    // with no NEW_TASK flag, caught by the empty except block).
     try {
-        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+        ctx.startActivity(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     } catch (_: Exception) { }
 }
 

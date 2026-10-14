@@ -14,8 +14,8 @@ android {
         applicationId = "com.peakform.fitness"
         minSdk = 26
         targetSdk = 34
-        versionCode = 36
-        versionName = "3.2.1"
+        versionCode = 37
+        versionName = "3.2.2"
     }
 
     signingConfigs {
