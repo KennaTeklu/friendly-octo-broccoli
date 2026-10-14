@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v36b ===
+=== DRIFT REPORT — v37a (v3) ===
 Generated: 2026-10-14
 Rows checked: 113
 Drifts found: 0
@@ -15,30 +15,17 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v35b drift fixes (carried forward, unchanged) ---
-  - br_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
-                         reps "6-8" → "4" (now in 2-4 zone bound)
-  - fs_int_stronger_build: pct1RM 0.75 → 0.80 (was outside 80-89% zone bound)
-                         reps "5"   → "4" (now in 2-4 zone bound)
-
---- v36b changes ---
+--- v37a (v3) changes ---
   - No new rows. No new coaches. No new sources. No new taxonomy fields.
-    No new state types.
-  - WorkoutLogger.kt gains:
-      - data class LoggerHeaderData(...)
-      - fun loadLoggerHeaderData(exerciseId, state): LoggerHeaderData?
-        (pure helper — returns null when taxonomy missing, never throws)
-      - @Composable fun LoggerTaxonomyHeader(exerciseId, state)
-        (renders the header at the top of the LoggerPanel)
-  - LoggerPanel now calls LoggerTaxonomyHeader at the top of its Column,
-    above the set-logging inputs. Missing taxonomy → no header rendered.
-  - OneRmTestPanel header line now shows " · <category> · <difficulty>"
-    (read from exercise_taxonomy.json). Missing taxonomy → no extra chips.
-  - 1RM test panel itself is NOT redesigned — only the header line gained
-    the two fields.
-  - No touch AuthoredRows.kt, AuthoredCoaches.kt, CoachRegistry.kt,
-    DifficultyGate.kt. No overall section (36c). No visual restyling beyond
-    the logger header.
+  - New package: com.peakform.fitness.coach.dossiers
+    - ExerciseDossier.kt — 5 @Serializable data classes per 03-the-dossier.md
+    - DossierRegistry.kt — loads assets/data/dossiers.json at runtime
+    - assets/data/dossiers.json — 1,413 dossier entries (5 cited, 1,408 no-source)
+  - 5 cited exercises (strict complete-phrase + landmark):
+    pull-up, chin-up, archer_pull-up (Sommer); plank, side_plank (McGill)
+  - 1,408 no-source structural-only dossiers (provisional goal, empty everything else)
+  - No touch AuthoredRows/AuthoredCoaches/CoachRegistry/DifficultyGate.
+    No UI wiring. No card changes. No logger changes.
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113

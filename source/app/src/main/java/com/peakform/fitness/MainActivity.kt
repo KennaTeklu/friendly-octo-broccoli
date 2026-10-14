@@ -124,6 +124,7 @@ class MainActivity : ComponentActivity() {
                 // timestamp (a new-user signal — never overwrites if present).
                 com.peakform.fitness.core.ProfileState.stampFirstLaunch(ctx)
                 Library.ensure(ctx)
+                com.peakform.fitness.coach.dossiers.DossierRegistry.ensure(ctx)
                 booted = true
                 if (!MigrationBridge.isDone(ctx) && !MigrationBridge.running) {
                     migrationPhase = "checking"
