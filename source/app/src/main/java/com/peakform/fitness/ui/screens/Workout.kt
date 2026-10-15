@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -446,21 +447,41 @@ fun ExerciseCard(
         !isDrill && !has1RM && reqs35c.needs1RM -> "needs1rm"
         else -> "ready"
     }
-    val borderColor = when (state) {
-        "needs1rm" -> c.warn
-        "done" -> c.ok
+    val borderColor = when {
+        // BATCH-38a: expanded card uses accent border (HTML .exercise-item.active)
+        expanded -> c.accentLine
+        state == "needs1rm" -> c.warn
+        state == "done" -> c.ok
         else -> c.hairline
     }
-    val shape = RoundedCornerShape(18.dp)
+    // BATCH-38a: 16dp radius matches HTML .exercise-item border-radius: 16px (was 18dp)
+    val shape = RoundedCornerShape(16.dp)
 
-    Column(
+    // BATCH-38a: card container uses Box to allow left accent bar overlay.
+    // HTML .exercise-item::before is a 5px left bar with gradient, opacity 0 by default,
+    // opacity 1 on .active. In Compose, we show it when expanded.
+    Box(
         Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(c.surface)
-            .border(2.dp, borderColor, shape)
-            .padding(16.dp),
+            .border(2.dp, borderColor, shape),
     ) {
+        // Left accent bar (HTML ::before) — 5dp wide, accent gradient, visible when expanded
+        if (expanded) {
+            Box(
+                Modifier
+                    .width(5.dp)
+                    .fillMaxHeight()
+                    .align(Alignment.CenterStart)
+                    .background(c.accentGradient),
+            )
+        }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(25.dp),  // BATCH-38a: 25dp matches HTML .exercise-item padding: 25px (was 16dp)
+        ) {
         // header — the toggle target (FIX (audit): the whole card used to be clickable, so a
         // stray tap on labels/paddings collapsed the open logger and destroyed all input).
         Row(
@@ -515,7 +536,8 @@ fun ExerciseCard(
         // v34c Item 4: Card renders only declared fields per coach.requirements().
         // v34c Item 5: Component chips from authored rows.
         // v34d: Declaration sentence + [Coach, go] / [Change] buttons.
-        Spacer(Modifier.height(12.dp))
+        // BATCH-38a: 20dp matches HTML .exercise-header margin-bottom: 20px (was 12dp)
+        Spacer(Modifier.height(20.dp))
         val rx = exercise.prescribed
         val rec = ProState.data.exercises[exercise.id]
 
@@ -866,6 +888,7 @@ fun ExerciseCard(
             }
         }
     }
+    }  // BATCH-38a: close Box wrapper (card container with left accent bar)
 }
 
 /** Reads a boolean from the p4_power_settings JSON (default when absent). */
@@ -892,17 +915,35 @@ internal fun notifFlag(key: String, default: Boolean = true): Boolean {
 @Composable
 fun RxLine(label: String, value: String) {
     val c = LocalProColors.current
-    Column(
+    // BATCH-38a: matches HTML .exercise-prescription styling:
+    //   background: linear-gradient(135deg, rgba(16,185,129,0.05), rgba(59,130,246,0.05))
+    //   padding: 20px
+    //   border-radius: 12px
+    //   border-left: 4px solid var(--success) (= c.ok)
+    Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(c.glass2)
-            .border(1.dp, c.hairline2, RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(12.dp))  // HTML: 12px (was 14dp)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        c.ok.copy(alpha = 0.05f),      // HTML: rgba(16,185,129,0.05)
+                        c.accent.copy(alpha = 0.05f),  // HTML: rgba(59,130,246,0.05)
+                    )
+                )
+            )
+            .border(1.dp, c.hairline2, RoundedCornerShape(12.dp)),
     ) {
-        Text(label, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = 0.8.sp, color = c.accent)
-        Spacer(Modifier.height(2.dp))
-        Text(value, fontSize = 22.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = c.accent, fontFamily = SpaceGrotesk)
+        // Left accent: 4dp solid c.ok (HTML: border-left: 4px solid var(--success))
+        Box(Modifier.width(4.dp).fillMaxHeight().background(c.ok))
+        Column(
+            Modifier.weight(1f).padding(20.dp),  // HTML: 20px padding (was 14/10dp)
+        ) {
+            Text(label, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, letterSpacing = 0.8.sp, color = c.accent)
+            Spacer(Modifier.height(2.dp))
+            Text(value, fontSize = 22.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = c.accent, fontFamily = SpaceGrotesk)
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v37c ===
+=== DRIFT REPORT — v38a ===
 Generated: 2026-10-14
 Rows checked: 113
 Drifts found: 0
@@ -15,15 +15,17 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v37c changes ---
-  - New source: sources/peakform-2026/book.md (1,413 entries — first pass).
-  - Dossiers regenerated: 5 cited (sommer/mcgill), 1,408 peakform-2026.
-  - Tier 1 (.gov/.edu): 0 — no government or university source names any exercise.
-  - Tier 2 (first-pass, peakform-2026): 1,408 (1,407 with convention landmark + 1 unrecognized).
-  - Stimulus profiles + component stimulus now populated for all 1,413 exercises.
-  - Prerequisites now populated as informational sentences (gate not implemented — always open).
-  - UI labels: three-tier system (cited → "Source: <domain>", first-pass → "PeakForm standard", awaiting → "Awaiting human authoring.").
-  - Library chip: three tiers (Coached / PeakForm / Awaiting source).
+--- v38a changes ---
+  - No new rows. No new coaches. No new sources. No new taxonomy fields.
+  - Workout.kt visual parity port:
+    - Card shape: 18dp to 16dp (HTML .exercise-item border-radius: 16px)
+    - Card padding: 16dp to 25dp (HTML .exercise-item padding: 25px)
+    - Card border color: expanded to c.accentLine (HTML .exercise-item.active)
+    - Left accent bar: 5dp, accentGradient, visible when expanded (HTML ::before)
+    - Header to content spacing: 12dp to 20dp (HTML .exercise-header margin-bottom: 20px)
+    - RxLine: shape 14dp to 12dp, bg gradient ok to accent at 0.05f,
+      left border 4dp c.ok, padding 20dp (HTML .exercise-prescription)
+  - No new color tokens — all HTML values map to existing ProColors tokens.
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113
