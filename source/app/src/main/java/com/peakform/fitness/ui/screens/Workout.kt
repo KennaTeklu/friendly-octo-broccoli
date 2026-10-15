@@ -452,7 +452,8 @@ fun ExerciseCard(
         expanded -> c.accentLine
         state == "needs1rm" -> c.warn
         state == "done" -> c.ok
-        else -> c.hairline
+        // BATCH-38b: non-active border = tintLine (HTML --p4-tint-line)
+        else -> c.tintLine
     }
     // BATCH-38a: 16dp radius matches HTML .exercise-item border-radius: 16px (was 18dp)
     val shape = RoundedCornerShape(16.dp)
@@ -464,17 +465,19 @@ fun ExerciseCard(
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(c.surface)
+            // BATCH-38b: card bg = tintBg (HTML .exercise-item background with --p4-tint)
+            .background(c.tintBg)
             .border(2.dp, borderColor, shape),
     ) {
-        // Left accent bar (HTML ::before) — 5dp wide, accent gradient, visible when expanded
+        // Left accent bar (HTML ::before) — 5dp wide, visible when expanded
+        // BATCH-38b: gradient = accent → tintStrong (was accent → lighten)
         if (expanded) {
             Box(
                 Modifier
                     .width(5.dp)
                     .fillMaxHeight()
                     .align(Alignment.CenterStart)
-                    .background(c.accentGradient),
+                    .background(Brush.linearGradient(listOf(c.accent, c.tintStrong))),
             )
         }
         Column(

@@ -1,5 +1,5 @@
-=== DRIFT REPORT — v38a ===
-Generated: 2026-10-14
+=== DRIFT REPORT — v38b ===
+Generated: 2026-10-15
 Rows checked: 113
 Drifts found: 0
 
@@ -15,17 +15,15 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v38a changes ---
+--- v38b changes ---
   - No new rows. No new coaches. No new sources. No new taxonomy fields.
-  - Workout.kt visual parity port:
-    - Card shape: 18dp to 16dp (HTML .exercise-item border-radius: 16px)
-    - Card padding: 16dp to 25dp (HTML .exercise-item padding: 25px)
-    - Card border color: expanded to c.accentLine (HTML .exercise-item.active)
-    - Left accent bar: 5dp, accentGradient, visible when expanded (HTML ::before)
-    - Header to content spacing: 12dp to 20dp (HTML .exercise-header margin-bottom: 20px)
-    - RxLine: shape 14dp to 12dp, bg gradient ok to accent at 0.05f,
-      left border 4dp c.ok, padding 20dp (HTML .exercise-prescription)
-  - No new color tokens — all HTML values map to existing ProColors tokens.
+  - ProTheme.kt: added 4 CSS-derived tint tokens (tint, tintStrong, tintBg, tintLine)
+    using lerp() — ported from app.html L3753-3756.
+  - Workout.kt: card bg = tintBg (was surface), border = tintLine (was hairline),
+    left accent bar gradient = accent to tintStrong (was accentGradient).
+  - Library.kt: card bg = tintBg (was surface2), border = tintLine (was hairline).
+  - No new color tokens beyond the 4 tints — all derive from existing accent.
+  - No touch dossiers, book, coaches, AuthoredRows/Coaches, DifficultyGate.
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113

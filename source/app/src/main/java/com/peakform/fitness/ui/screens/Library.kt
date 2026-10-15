@@ -392,8 +392,9 @@ fun LibraryCard(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(c.surface2)
-            .border(1.dp, c.hairline, RoundedCornerShape(14.dp))
+            // BATCH-38b: card bg = tintBg, border = tintLine (HTML .exercise-item tint system)
+            .background(c.tintBg)
+            .border(1.dp, c.tintLine, RoundedCornerShape(14.dp))
             .clickable { onOpen() }
             .padding(13.dp),
     ) {

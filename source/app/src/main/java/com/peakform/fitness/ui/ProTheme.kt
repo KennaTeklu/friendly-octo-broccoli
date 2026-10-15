@@ -11,6 +11,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -75,20 +76,19 @@ data class ProColors(
     val warn: Color,
     val bad: Color,
     val accentId: String,
+    // BATCH-38b: CSS tint system port from app.html L3753-3756.
+    // Light: color-mix(in srgb, accent N%, #FFFFFF / #F7F9FC)
+    // Dark:  lerp toward dark surface (#10141C) / bg (#07090D)
+    val tint: Color,
+    val tintStrong: Color,
+    val tintBg: Color,
+    val tintLine: Color,
 ) {
     val accentGradient: Brush
         get() = Brush.linearGradient(listOf(accent, lighten(accent, 0.28f)))
 
     val primaryButtonShadow: Brush get() = accentGradient
 
-    /** BATCH-5B: short tint (text / icons on surface) — accent at 100%. */
-    val tint: Color get() = accent
-    /** BATCH-5B: strong tint (filled buttons / active chips) — accent gradient. */
-    val tintStrong: Brush get() = accentGradient
-    /** BATCH-5B: tinted background (soft chip bg / selected row). */
-    val tintBg: Color get() = accentSoft
-    /** BATCH-5B: tinted border / divider line. */
-    val tintLine: Color get() = accentLine
     /** BATCH-5B: muted ink (body2 captions) — text2. */
     val inkSoft: Color get() = text2
     /** BATCH-5B: focus-ring color for inputs. */
@@ -123,34 +123,55 @@ data class ProColors(
 }
 
 fun buildProColors(dark: Boolean, accent: AccentDef): ProColors = if (dark) {
+    // BATCH-38b: dark mode tint system — lerp toward dark surface (#10141C) / bg (#07090D)
+    // The HTML dark mode doesn't define explicit tint vars; these are the dark
+    // equivalents of the light-mode color-mix values from app.html L3753-3756.
+    val s = Color(0xFF10141C)  // surface
+    val b = Color(0xFF07090D)  // bg
+    val a = accent.darkHex
     ProColors(
         dark = true,
-        bg = Color(0xFF07090D), bg2 = Color(0xFF0B0E14),
-        surface = Color(0xFF10141C), surface2 = Color(0xFF151B25), surface3 = Color(0xFF1B2230),
+        bg = b, bg2 = Color(0xFF0B0E14),
+        surface = s, surface2 = Color(0xFF151B25), surface3 = Color(0xFF1B2230),
         hairline = Color(0x2494A3B8), hairline2 = Color(0x4294A3B8),
         text = Color(0xFFF2F4F8), text2 = Color(0xFFB7BDC9), text3 = Color(0xFF8A919E),
         glass = Color(0xB810141C), glass2 = Color(0xDB0B0E14),
-        accent = accent.darkHex,
-        accentSoft = accent.darkHex.copy(alpha = 0.14f),
-        accentLine = accent.darkHex.copy(alpha = 0.38f),
+        accent = a,
+        accentSoft = a.copy(alpha = 0.14f),
+        accentLine = a.copy(alpha = 0.38f),
         onAccent = accent.onDark,
         ok = Color(0xFF34D399), warn = Color(0xFFFBBF24), bad = Color(0xFFF87171),
         accentId = accent.id,
+        // Dark tints: lerp(surface, accent, fraction) = surface * (1-f) + accent * f
+        tint = lerp(s, a, 0.09f),        // 9% accent toward dark surface
+        tintStrong = lerp(s, a, 0.17f),  // 17% accent toward dark surface
+        tintBg = lerp(b, a, 0.06f),      // 6% accent toward dark bg
+        tintLine = lerp(s, a, 0.24f),    // 24% accent toward dark surface
     )
 } else {
+    // BATCH-38b: light mode tint system — from app.html L3753-3756
+    // color-mix(in srgb, accent N%, #FFFFFF / #F7F9FC)
+    val w = Color.White
+    val b = Color(0xFFF4F6F9)  // page bg
+    val a = accent.lightHex
     ProColors(
         dark = false,
-        bg = Color(0xFFF4F6F9), bg2 = Color.White,
-        surface = Color.White, surface2 = Color(0xFFF2F4F8), surface3 = Color(0xFFE8ECF2),
+        bg = b, bg2 = Color.White,
+        surface = w, surface2 = Color(0xFFF2F4F8), surface3 = Color(0xFFE8ECF2),
         hairline = Color(0x1A0F172A), hairline2 = Color(0x2E0F172A),
         text = Color(0xFF10141C), text2 = Color(0xFF3D4451), text3 = Color(0xFF6A7280),
         glass = Color(0xCCFFFFFF), glass2 = Color(0xF0FFFFFF),
-        accent = accent.lightHex,
-        accentSoft = accent.lightHex.copy(alpha = 0.10f),
-        accentLine = accent.lightHex.copy(alpha = 0.32f),
+        accent = a,
+        accentSoft = a.copy(alpha = 0.10f),
+        accentLine = a.copy(alpha = 0.32f),
         onAccent = accent.onLight,
         ok = Color(0xFF34D399), warn = Color(0xFFFBBF24), bad = Color(0xFFF87171),
         accentId = accent.id,
+        // Light tints: lerp(white, accent, fraction) = white * (1-f) + accent * f
+        tint = lerp(w, a, 0.09f),         // 9% accent + 91% white (app.html L3753)
+        tintStrong = lerp(w, a, 0.17f),  // 17% accent + 83% white (L3754)
+        tintBg = lerp(b, a, 0.06f),       // 6% accent + 94% page bg (L3755)
+        tintLine = lerp(w, a, 0.24f),     // 24% accent + 76% white (L3756)
     )
 }
 
