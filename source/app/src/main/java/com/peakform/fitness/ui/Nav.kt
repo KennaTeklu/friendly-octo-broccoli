@@ -56,6 +56,7 @@ val SHEET_CELLS = listOf(
     SheetCell("settings", "fa-gear", "Settings"),
     SheetCell("resume", "fa-play", "Resume"),
     SheetCell("export", "fa-file-export", "Export"),
+    SheetCell("import", "fa-file-import", "Import"),
     SheetCell("backup", "fa-cloud-arrow-down", "Backup"),
     SheetCell("themes", "fa-palette", "Themes"),
     SheetCell("glossary", "fa-spell-check", "Words"),

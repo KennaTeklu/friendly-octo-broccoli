@@ -2,6 +2,8 @@ package com.peakform.fitness.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,7 +18,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.peakform.fitness.core.ProState
@@ -281,51 +286,125 @@ fun VolumeBars(ver: Int = 0) {
 
 // ---------------- 1.4 progress additions ----------------
 
-/** SC1: 11-component radar (mpComponentRadar port). */
+/** SC1: 11-component radar (mpComponentRadar port).
+ *  BATCH-38c: Rebuilt to match the HTML's Chart.js radar:
+ *    - 11 labeled axes (Strength, Endurance, Cardio, Flexibility, Body Comp,
+ *      Power, Speed, Agility, Balance, Coordination, Reaction)
+ *    - 5 scale rings (0, 20, 40, 60, 80, 100) — stepSize=20, min=0, max=100
+ *    - Filled polygon with accent at 18% opacity + accent border at 2px
+ *    - Per-component colored vertex dots (4px radius, 1.5px border in surface color)
+ *    - Axis labels positioned outside the ring at font 11sp SemiBold
+ *    - Grid lines + angle lines at hairline2
+ */
 @Composable
 fun ComponentRadar(ver: Int = 0) {
     val c = LocalProColors.current
+
+    // The 11 components — matching HTML MP_COMPONENTS order + colors
+    data class RadarComponent(val id: String, val short: String, val color: Color)
+    val components = remember {
+        listOf(
+            RadarComponent("muscular_strength", "Strength", Color(0xFFE74C3C)),
+            RadarComponent("muscular_endurance", "Endurance", Color(0xFF3498DB)),
+            RadarComponent("cardiorespiratory_endurance", "Cardio", Color(0xFFE67E22)),
+            RadarComponent("flexibility", "Flexibility", Color(0xFF9B59B6)),
+            RadarComponent("body_composition", "Body Comp", Color(0xFF1ABC9C)),
+            RadarComponent("power", "Power", Color(0xFFF39C12)),
+            RadarComponent("speed", "Speed", Color(0xFFE91E63)),
+            RadarComponent("agility", "Agility", Color(0xFF2ECC71)),
+            RadarComponent("balance", "Balance", Color(0xFF16A085)),
+            RadarComponent("coordination", "Coordination", Color(0xFF2980B9)),
+            RadarComponent("reaction_time", "Reaction", Color(0xFFC0392B)),
+        )
+    }
+
     val values = remember(ver) {
         val sub = Stats.calculateLongevityScore().sub
-        val keys = listOf(
-            "cardio_endurance", "strength", "mobility", "balance", "core_stability",
-            "power", "agility", "coordination", "flexibility", "muscular_endurance", "reaction_time",
-        )
-        keys.map { k -> (sub[k] ?: sub.entries.map { it.value }.average().takeIf { !it.isNaN() }?.toInt() ?: 40).toDouble().coerceIn(5.0, 100.0) }
+        components.map { comp ->
+            (sub[comp.id] ?: sub.entries.map { it.value }.average().takeIf { !it.isNaN() }?.toInt() ?: 40)
+                .toDouble().coerceIn(5.0, 100.0)
+        }
     }
-    Canvas(Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(12.dp)).background(c.bg2)) {
-        val n = values.size
-        if (n < 3) return@Canvas
-        val cx = size.width / 2
-        val cy = size.height / 2
-        val r = min(size.width, size.height) / 2 * 0.78f
-        // grid rings
-        for (ring in 1..4) {
-            val rr = r * ring / 4
-            val path = Path()
-            for (i in 0..n) {
-                val ang = (2 * Math.PI * (i % n) / n) - Math.PI / 2
-                val x = cx + cos(ang).toFloat() * rr
-                val y = cy + sin(ang).toFloat() * rr
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    val n = components.size
+    if (n < 3) return
+
+    // Canvas height: 320dp to fit labels outside the ring
+    val canvasHeight = 320.dp
+
+    BoxWithConstraints(Modifier.fillMaxWidth().height(canvasHeight).clip(RoundedCornerShape(12.dp)).background(c.bg2)) {
+        val boxW = maxWidth
+        val boxH = maxHeight
+        val rDp = min(boxW.value, boxH.value) / 2 * 0.70f
+
+        Canvas(Modifier.fillMaxSize()) {
+            val cx = size.width / 2
+            val cy = size.height / 2
+            val r = min(size.width, size.height) / 2 * 0.70f
+            val gridColor = c.hairline2
+
+            // BATCH-38c: 5 scale rings (0, 20, 40, 60, 80, 100) — stepSize=20
+            for (ring in 1..5) {
+                val rr = r * ring / 5
+                val path = Path()
+                for (i in 0..n) {
+                    val ang = (2 * Math.PI * (i % n) / n) - Math.PI / 2
+                    val x = cx + cos(ang).toFloat() * rr
+                    val y = cy + sin(ang).toFloat() * rr
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path, gridColor, style = Stroke(width = 1.5f))
             }
-            drawPath(path, c.hairline2, style = Stroke(width = 2f))
+
+            // BATCH-38c: angle lines (from center to each axis vertex)
+            for (i in 0 until n) {
+                val ang = (2 * Math.PI * i / n) - Math.PI / 2
+                val x = cx + cos(ang).toFloat() * r
+                val y = cy + sin(ang).toFloat() * r
+                drawLine(gridColor, Offset(cx, cy), Offset(x, y), strokeWidth = 1f)
+            }
+
+            // BATCH-38c: data polygon — filled at 18% accent opacity (HTML: p6HexA(p4acc, 0.18))
+            val dataPath = Path()
+            for (i in 0..n) {
+                val idx = i % n
+                val ang = (2 * Math.PI * idx / n) - Math.PI / 2
+                val v = (values[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
+                val x = cx + cos(ang).toFloat() * r * v
+                val y = cy + sin(ang).toFloat() * r * v
+                if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
+            }
+            drawPath(dataPath, c.accent.copy(alpha = 0.18f))
+            drawPath(dataPath, c.accent, style = Stroke(width = 2f))
+
+            // BATCH-38c: vertex dots — per-component colored, 4px radius, 1.5px border in surface
+            for (i in 0 until n) {
+                val ang = (2 * Math.PI * i / n) - Math.PI / 2
+                val v = (values[i].toFloat() / 100f).coerceIn(0.05f, 1f)
+                val x = cx + cos(ang).toFloat() * r * v
+                val y = cy + sin(ang).toFloat() * r * v
+                drawCircle(c.surface, radius = 6f, center = Offset(x, y))
+                drawCircle(components[i].color, radius = 4f, center = Offset(x, y))
+            }
         }
-        // data polygon
-        val dataPath = Path()
-        for (i in 0..n) {
-            val idx = i % n
-            val ang = (2 * Math.PI * idx / n) - Math.PI / 2
-            val v = (values[idx].toFloat() / 100f).coerceIn(0.05f, 1f)
-            val x = cx + cos(ang).toFloat() * r * v
-            val y = cy + sin(ang).toFloat() * r * v
-            if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
+
+        // BATCH-38c: axis labels — positioned outside the ring
+        components.forEachIndexed { i, comp ->
+            val ang = (2 * Math.PI * i / n) - Math.PI / 2
+            val labelR = rDp * 1.18f
+            val offsetX = (labelR * cos(ang)).toFloat().dp
+            val offsetY = (labelR * sin(ang)).toFloat().dp
+
+            Text(
+                comp.short,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = c.text2,
+                modifier = Modifier.offset(x = offsetX, y = offsetY).align(Alignment.Center),
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+            )
         }
-        drawPath(dataPath, c.accent.copy(alpha = 0.22f))
-        drawPath(dataPath, c.accent, style = Stroke(width = 4f))
     }
-    val labels = listOf("Cardio", "Strength", "Mobility", "Balance", "Core", "Power", "Agility", "Coordination", "Flexibility", "Endurance", "Reaction")
-    Text(labels.joinToString(" · "), style = ProType.small, color = c.text3, maxLines = 2)
 }
 
 /**

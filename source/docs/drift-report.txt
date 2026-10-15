@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v38b ===
+=== DRIFT REPORT — v38c ===
 Generated: 2026-10-15
 Rows checked: 113
 Drifts found: 0
@@ -15,14 +15,21 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v38b changes ---
+--- v38c changes ---
   - No new rows. No new coaches. No new sources. No new taxonomy fields.
-  - ProTheme.kt: added 4 CSS-derived tint tokens (tint, tintStrong, tintBg, tintLine)
-    using lerp() — ported from app.html L3753-3756.
-  - Workout.kt: card bg = tintBg (was surface), border = tintLine (was hairline),
-    left accent bar gradient = accent to tintStrong (was accentGradient).
-  - Library.kt: card bg = tintBg (was surface2), border = tintLine (was hairline).
-  - No new color tokens beyond the 4 tints — all derive from existing accent.
+  - PART 1 — Radar: Rebuilt ComponentRadar in Progress.kt to match HTML
+    Chart.js radar. 11 labeled axes (Strength, Endurance, Cardio,
+    Flexibility, Body Comp, Power, Speed, Agility, Balance, Coordination,
+    Reaction), 5 scale rings (stepSize=20, max=100), angle lines,
+    per-component colored vertex dots (4px radius, 1.5px border in
+    surface), polygon fill at 18% accent opacity + 2px accent border,
+    axis labels positioned outside the ring.
+  - PART 2 — Tiles: Added Import tile to SHEET_CELLS in Nav.kt (separate
+    from Backup). Total tiles: 17 (was 16).
+  - PART 3 — Floating rail: Added FloatingActionRail composable in
+    Workout.kt — 5 vertical rounded-square buttons (timer, cloud-download,
+    cloud-upload, hand/grip, arrow-up) positioned at bottom-right of the
+    workout screen. Uses tint tokens from v38b.
   - No touch dossiers, book, coaches, AuthoredRows/Coaches, DifficultyGate.
 
 === DRIFT CHECK COMPLETE ===

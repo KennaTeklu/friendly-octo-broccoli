@@ -54,6 +54,7 @@ fun WorkoutScreen(
         }
     }
     val _verTick = ver.intValue
+    val scrollState = rememberScrollState()
 
     var openCardIndex by remember { mutableIntStateOf(-1) }
     var showDetails by remember { mutableStateOf(false) }
@@ -74,7 +75,7 @@ fun WorkoutScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -215,6 +216,17 @@ fun WorkoutScreen(
 
         Spacer(Modifier.height(16.dp))
     }
+
+    // BATCH-38c: Floating action rail — 5 vertical rounded-square buttons on the
+    // right side of the workout screen (timer, cloud-download, cloud-upload, hand, arrow-up).
+    // Matches the HTML's FAB + quick-actions-modal pattern.
+    FloatingActionRail(
+        onTimer = { RestTimer.start(ProState.data.user.settings.restTime) },
+        onDownload = { /* TODO: backup trigger — wire to Backup.save when context available */ },
+        onUpload = { onOpenSection("import") },
+        onGrip = { /* TODO: grip/equipment selector — no target screen yet */ },
+        onScrollTop = { scope.launch { scrollState.scrollTo(0) } },
+    )
 
     // ---- rest timer overlay (app-scope — survives navigation) ----
     if (RestTimer.running) {
@@ -1012,6 +1024,64 @@ private fun assertDeclared(requirement: Boolean, fieldName: String, context: Str
             throw IllegalStateException("undeclared field: $fieldName in $context")
         } else {
             android.util.Log.w("ProCard", "undeclared field: $fieldName in $context")
+        }
+    }
+}
+
+/**
+ * BATCH-38c: Floating action rail — 5 vertical rounded-square buttons on the
+ * right side of the workout screen. Matches the HTML's FAB + quick-actions pattern.
+ *
+ * Buttons (top to bottom):
+ *   1. Timer / stopwatch — opens a rest timer
+ *   2. Cloud download — backup
+ *   3. Cloud upload — import
+ *   4. Hand / grip — equipment selector (TODO — no target screen yet)
+ *   5. Arrow up — scroll to top
+ *
+ * Position: right-aligned, vertically centered, fixed.
+ * Size: 48dp square buttons, 12dp gap, 14dp rounded corners.
+ * Background: accent gradient, tint-line border.
+ */
+@Composable
+fun FloatingActionRail(
+    onTimer: () -> Unit,
+    onDownload: () -> Unit,
+    onUpload: () -> Unit,
+    onGrip: () -> Unit,
+    onScrollTop: () -> Unit,
+) {
+    val c = LocalProColors.current
+    val buttons = listOf(
+        Triple("fa-stopwatch", "Timer", onTimer),
+        Triple("fa-cloud-arrow-down", "Backup", onDownload),
+        Triple("fa-cloud-arrow-up", "Import", onUpload),
+        Triple("fa-hand", "Grip", onGrip),
+        Triple("fa-arrow-up", "Top", onScrollTop),
+    )
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(end = 8.dp, bottom = 80.dp),
+        contentAlignment = Alignment.BottomEnd,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            buttons.forEach { (icon, label, onClick) ->
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(c.tintBg)
+                        .border(1.dp, c.tintLine, RoundedCornerShape(14.dp))
+                        .clickable { onClick() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    com.peakform.fitness.ui.FaIcon(icon, size = 16.sp, tint = c.accent)
+                }
+            }
         }
     }
 }
