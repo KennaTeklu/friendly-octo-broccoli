@@ -88,6 +88,101 @@ object RegenerateButtonState {
     fun showsProgress(regenerating: Boolean): Boolean = regenerating
 }
 
+/**
+ * BATCH-39e-2 — Progress overlay that replaces each Regenerate button while
+ * `regenerating == true`. The overlay occupies the exact slot where the
+ * button was (the caller passes the same `modifier` it would have passed
+ * to P4Button — typically `Modifier.weight(1f)` for the top button and
+ * `Modifier.fillMaxWidth()` for the bottom button).
+ *
+ * Layout (matches the spec's Column shape verbatim):
+ *   - Row: CircularProgressIndicator (16dp, accent) + Spacer + Text(phase)
+ *   - LinearProgressIndicator: determinate when genTotal > 1, indeterminate
+ *     when genTotal <= 1
+ *   - Text: "$genStep of $genTotal"
+ *
+ * Tint tokens: c.accent for the bar/spinner fill, c.tintLine for the track,
+ * c.tintBg for the background — all from v38b's tint system.
+ *
+ * When `genPhase == null` the header text falls back to "Building your
+ * workout" (the v39c fallback). When `genTotal <= 1` (a fast path with no
+ * stable step count) the LinearProgressIndicator renders in indeterminate
+ * mode — `progress` parameter is omitted.
+ */
+@Composable
+fun GenerateProgressOverlay(
+    genPhase: String?,
+    genStep: Int,
+    genTotal: Int,
+    modifier: Modifier = Modifier,
+) {
+    val c = LocalProColors.current
+    val indeterminate = genTotal <= 1
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.tintBg)
+            .border(1.dp, c.tintLine, RoundedCornerShape(12.dp))
+            .padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                color = c.accent,
+                strokeWidth = 2.dp,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = genPhase ?: "Building your workout",
+                style = ProType.body,
+                color = c.text,
+            )
+        }
+        if (indeterminate) {
+            androidx.compose.material3.LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                color = c.accent,
+                trackColor = c.tintLine,
+            )
+        } else {
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { (genStep.toFloat() / genTotal.toFloat()).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                color = c.accent,
+                trackColor = c.tintLine,
+            )
+        }
+        Text(
+            text = "$genStep of $genTotal",
+            style = ProType.small,
+            color = c.text3,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+}
+
+/**
+ * BATCH-39e-2 — Pure helper for the overlay's visible/enabled state.
+ *
+ * `overlayVisibleForButton(regenerating, genPhase)` returns true when the
+ * overlay should replace a Regenerate button (regenerating is true AND a
+ * phase has been reported — i.e. genPhase != null). When this returns
+ * false, the button itself renders normally.
+ *
+ * `progressFraction(genStep, genTotal)` returns the 0..1 fraction for the
+ * determinate LinearProgressIndicator. Returns 0f for the indeterminate
+ * branch (the UI ignores it there).
+ */
+object GenerateOverlayState {
+    fun overlayVisibleForButton(regenerating: Boolean, genPhase: String?): Boolean =
+        regenerating && genPhase != null
+
+    fun progressFraction(genStep: Int, genTotal: Int): Float =
+        if (genTotal > 1) (genStep.toFloat() / genTotal.toFloat()).coerceIn(0f, 1f) else 0f
+
+    fun isIndeterminate(genTotal: Int): Boolean = genTotal <= 1
+}
+
 @Composable
 fun WorkoutScreen(
     onRequireGenerate: () -> Unit,
@@ -139,7 +234,14 @@ fun WorkoutScreen(
     var confirmReplace by remember { mutableStateOf<Int?>(null) }
     // BATCH-39c: regenerating flag drives the in-screen progress indicator + disables the
     // Regenerate buttons while Generator.performGenerateWorkout is running.
+    // BATCH-39e-2: granular progress state — genPhase/genStep/genTotal drive the
+    // in-button overlay (replaces the v39c spinner + label swap). The overlay
+    // renders in the exact slot where each Regenerate button was, so the user
+    // sees progress at the position they tapped.
     var regenerating by remember { mutableStateOf(false) }
+    var genPhase by remember { mutableStateOf<String?>(null) }
+    var genStep by remember { mutableStateOf(0) }
+    var genTotal by remember { mutableStateOf(1) }
 
     val workout = ProState.currentWorkout
     Column(
@@ -153,8 +255,19 @@ fun WorkoutScreen(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Today's Workout", style = ProType.sectionTitle, color = c.text, modifier = Modifier.weight(1f))
             // BATCH-2: top regenerate button (regenerateWorkoutBtn, same flow as bottom)
-            // BATCH-39c: disabled + shows progress while regenerating.
-            if (workout != null && workout.exercises.isNotEmpty()) {
+            // BATCH-39e-2: when regenerating, replace the button with the
+            // GenerateProgressOverlay composable. The overlay occupies the
+            // exact slot where the button was — it does NOT scroll with the
+            // page (it's in the same Row position as the button was, anchored
+            // to the title row).
+            if (regenerating) {
+                GenerateProgressOverlay(
+                    genPhase = genPhase,
+                    genStep = genStep,
+                    genTotal = genTotal,
+                    modifier = Modifier.weight(1f),
+                )
+            } else if (workout != null && workout.exercises.isNotEmpty()) {
                 P4Button(
                     RegenerateButtonState.buttonLabel(regenerating),
                     icon = if (regenerating) "fa-spinner" else "fa-rotate",
@@ -270,30 +383,28 @@ fun WorkoutScreen(
             }
 
             // BATCH-2: bottom regenerate button (bottomRegenerateWorkoutBtn — same flow as top)
-            // BATCH-39c: disabled + shows progress while regenerating.
-            P4Button(
-                if (regenerating) "Regenerating…" else "Regenerate Workout",
-                icon = if (regenerating) "fa-spinner" else "fa-rotate",
-                style = BtnStyle.SECONDARY,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = RegenerateButtonState.buttonEnabled(regenerating),
-            ) {
-                confirmRegenerate = true
-            }
-            // BATCH-39c: indeterminate progress indicator while the regenerate coroutine is in flight.
-            if (RegenerateButtonState.showsProgress(regenerating)) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface2).padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            // BATCH-39e-2: when regenerating, replace the button with the
+            // GenerateProgressOverlay composable. The overlay occupies the
+            // exact slot where the button was — full-width, in normal flow
+            // (scrolls with the page because it lives inside the workout
+            // Column, but at the bottom of the exercise list it's typically
+            // in view when the user taps Regenerate).
+            if (regenerating) {
+                GenerateProgressOverlay(
+                    genPhase = genPhase,
+                    genStep = genStep,
+                    genTotal = genTotal,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                P4Button(
+                    "Regenerate Workout",
+                    icon = "fa-rotate",
+                    style = BtnStyle.SECONDARY,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = RegenerateButtonState.buttonEnabled(regenerating),
                 ) {
-                    androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = c.accent,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text("Building your workout…", style = ProType.small, color = c.text2)
+                    confirmRegenerate = true
                 }
             }
 
@@ -419,10 +530,24 @@ fun WorkoutScreen(
                 // withContext(Dispatchers.IO); notifyChanged routes to Main via
                 // withContext(Dispatchers.Main). The `regenerating` flag drives
                 // the in-screen progress indicator + disables the buttons.
+                //
+                // BATCH-39e-2: pass an onProgress callback that updates the
+                // genPhase/genStep/genTotal Compose states via
+                // withContext(Dispatchers.Main). Both Regenerate buttons then
+                // render the GenerateProgressOverlay composable in their slot.
                 regenerating = true
+                genPhase = null
+                genStep = 0
+                genTotal = com.peakform.fitness.engine.Generator.ProgressPhases.TOTAL
                 scope.launch(Dispatchers.Default) {
                     try {
-                        val result = Generator.performGenerateWorkout(suppressConfirm = true)
+                        val result = Generator.performGenerateWorkout(suppressConfirm = true) { phase, step, total ->
+                            withContext(Dispatchers.Main) {
+                                genPhase = phase
+                                genStep = step
+                                genTotal = total
+                            }
+                        }
                         withContext(Dispatchers.IO) {
                             ProState.currentWorkout = result.workout
                             ProState.performSave()
@@ -431,10 +556,12 @@ fun WorkoutScreen(
                             ProState.notifyChanged()
                             ver.intValue++
                             regenerating = false
+                            genPhase = null
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             regenerating = false
+                            genPhase = null
                             ProLog.w("WORKOUT", "regenerate failed: ${e.message}")
                         }
                     }

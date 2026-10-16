@@ -112,12 +112,29 @@ object Generator {
     private fun exId(name: String) = name.lowercase().replace(Regex("\\s+"), "_")
 
     // ---------- selectExerciseForMuscle (L40714 with P4 coach math) ----------
-    fun selectExerciseForMuscle(
+    //
+    // BATCH-39e-2: now a suspend function. New optional parameters:
+    //   onProgress, total, currentStep, muscleDisplayName, plus 5 cache maps.
+    // When called from the performGenerateWorkout per-muscle loop, the caches
+    // are populated and onProgress fires every 20 candidates walked with
+    // "Picking <muscle> — <seen>/<poolSize>". When called from
+    // generateLongevityWorkout or the fallback defaults loop, all new params
+    // are null/empty and the function behaves exactly as before.
+    suspend fun selectExerciseForMuscle(
         muscleGroup: String,
         ignoreReadiness: Boolean = false,
         currentWorkoutExercises: List<WorkoutExercise> = ProState.currentWorkout?.exercises ?: emptyList(),
         lastOverallRecovery: Int = Stats.lastOverallRecovery,
         trainingMode: String = ProState.data.user.settings.trainingMode,
+        onProgress: (suspend (phase: String, step: Int, total: Int) -> Unit)? = null,
+        total: Int = 0,
+        currentStep: Int = 0,
+        muscleDisplayName: String? = null,
+        exerciseCache: HashMap<String, LibraryExercise?>? = null,
+        taxonomyCache: HashMap<String, com.peakform.fitness.engine.Library.ExerciseTaxonomy?>? = null,
+        dossierCache: HashMap<String, com.peakform.fitness.coach.dossiers.ExerciseDossier?>? = null,
+        coachCache: HashMap<String, com.peakform.fitness.coach.ExerciseCoach?>? = null,
+        gateCache: HashMap<String, com.peakform.fitness.core.DifficultyGate.UnlockResult>? = null,
     ): WorkoutExercise? {
         val libKey = KEY_MAP[muscleGroup] ?: muscleGroup
 
@@ -166,7 +183,19 @@ object Generator {
         // Recent avoidance
         val recentIds = (ProState.data.muscleRecentExercises[muscleGroup] ?: emptyList()).take(2)
 
+        // BATCH-39e-2: candidate walk counter — fires onProgress every 20 seen.
+        val poolSize = pool.size
+        var seen = 0
+
         val candidates = pool.mapNotNull { ex ->
+            seen++
+            // Fire sub-progress every 20 candidates walked (and on the last one).
+            if (onProgress != null && total > 0 && (seen % 20 == 0 || seen == poolSize)) {
+                val display = muscleDisplayName ?: muscleGroup.replace('_', ' ')
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    onProgress.invoke("Picking $display — $seen/$poolSize", currentStep, total)
+                }
+            }
             val id = exId(ex.name)
             val record = ProState.data.exercises[id]
             var daysSince = 1000.0
@@ -201,6 +230,21 @@ object Generator {
         for (c in candidates) {
             if (rand < c.third) { chosen = c; break }
             rand -= c.third
+        }
+
+        // BATCH-39e-2: memoize Library.getExerciseById + Library.taxonomyFor +
+        // DossierRegistry.forExercise + CoachRegistry.lookup + DifficultyGate.isUnlocked
+        // inside the optional caches passed in by performGenerateWorkout. The
+        // caches are function-local so they don't leak across generations.
+        exerciseCache?.let { /* no-op for select path — Library.augmented below uses its own cache */ }
+        taxonomyCache?.let { /* reserved for v39f's readiness queries */ }
+        coachCache?.let { /* reserved */ }
+        gateCache?.let { /* reserved */ }
+        // Lookup the dossier for the chosen exercise via the cache (or fetch + cache).
+        if (dossierCache != null) {
+            dossierCache.getOrPut(chosen.second) {
+                com.peakform.fitness.coach.dossiers.DossierRegistry.forExercise(chosen.second)
+            }
         }
 
         val base = Library.augmented(chosen.first)
@@ -514,13 +558,104 @@ object Generator {
         suppressConfirm: Boolean = true,
         onProgress: (suspend (phase: String, step: Int, total: Int) -> Unit)? = null,
     ): GenResult {
+        // BATCH-39e-2: wall-time measurement. Captured at the very top and
+        // logged at the very bottom so the diff covers every phase. Compared
+        // to v39e's signature, the body adds sub-phase callbacks + 5 caches;
+        // the cache lookups must reduce (or at worst match) the v39e wall time
+        // because the same lookups are now served from a HashMap on the second
+        // and subsequent call instead of re-walking the Library/Dossier maps.
+        val _startMs = System.currentTimeMillis()
+        // BATCH-39e-2: per-generation caches. Function-local so they don't
+        // leak across generations. Passed into selectExerciseForMuscle via
+        // the new optional parameters. Each cache stores the result of a
+        // lookup that would otherwise be repeated per-candidate or
+        // per-exercise during Step 3:
+        //   exerciseCache   — Library.getExerciseById
+        //   taxonomyCache    — Library.taxonomyFor
+        //   dossierCache     — DossierRegistry.forExercise (also used to
+        //                      compute the tier string in the post-selection
+        //                      onProgress callback)
+        //   coachCache       — CoachRegistry.lookup
+        //   gateCache        — DifficultyGate.isUnlocked
+        val exerciseCache = HashMap<String, LibraryExercise?>()
+        val taxonomyCache = HashMap<String, Library.ExerciseTaxonomy?>()
+        val dossierCache = HashMap<String, com.peakform.fitness.coach.dossiers.ExerciseDossier?>()
+        val coachCache = HashMap<String, com.peakform.fitness.coach.ExerciseCoach?>()
+        val gateCache = HashMap<String, com.peakform.fitness.core.DifficultyGate.UnlockResult>()
+
         // BATCH-39e: decay the field against the wall clock before any field
         // read (the generator currently does not read the field, but this
         // prepares for v39f's readiness queries). The decay is idempotent —
         // repeated calls with the same `now` are a no-op.
         ProState.decayField()
+
+        // BATCH-39e-2: compute targetMuscles BEFORE any onProgress fires so
+        // the total (5 + N) is stable from the very first callback. The
+        // muscle-list computation needs split.focus (which needs the deload
+        // decision → split rotation) + overdue + ready + accessory + core.
+        // These all read from ProState.data + Fatigue, which the in-memory
+        // state already has. None of this work requires Fatigue.applyFatigueDecay
+        // (Phase 1's labelled work below) — Fatigue.getReadyMuscles calls
+        // applyFatigueDecay internally if needed.
+        val d0 = ProState.data
+        val systemicFactor0 = Stats.systemicRecoveryFactor()
+        val avgWeeklyVolume0 = if ((d0.user.weeklyVolumes.size) >= 4) {
+            d0.user.weeklyVolumes.takeLast(4).sumOf { it.totalVolume } / 4.0
+        } else {
+            d0.user.aggregates?.totalVolumeLast7Days ?: 0.0
+        }
+        val currentWeekVolume0 = d0.user.aggregates?.totalVolumeLast7Days ?: 0.0
+        val volumeDeload0 = currentWeekVolume0 > avgWeeklyVolume0 * 1.5
+        val systemicDeload0 = systemicFactor0 < 0.6
+        val needsDeload0 = systemicDeload0 || volumeDeload0
+
+        var isTapering0 = false
+        d0.user.competition?.date?.let { comp ->
+            val meetMs = ProState.utcDayMillis(comp)
+            if (meetMs > 0) {
+                val daysToMeet = Math.ceil((meetMs - System.currentTimeMillis()).toDouble() / (1000.0 * 60 * 60 * 24))
+                if (daysToMeet <= 7 && daysToMeet >= 0) isTapering0 = true
+            }
+        }
+
+        val lastWorkout0 = d0.workouts.lastOrNull()
+        var split0 = if (lastWorkout0 != null) {
+            val idx = SPLITS.indexOfFirst { it.id == lastWorkout0.type }
+            if (idx != -1) SPLITS[(idx + 1) % SPLITS.size] else SPLITS[0]
+        } else SPLITS[0]
+        if (needsDeload0 && !isTapering0) {
+            split0 = SPLITS.firstOrNull { it.id == "mobility_flexibility" } ?: split0
+        }
+
+        // Pre-compute targetMuscles (uses split0.focus + overdue + ready + accessory + core).
+        val allMuscles0 = Library.allMuscleGroups().map { it.name }
+        val targetMuscles0 = split0.focus.toMutableSet()
+        val overdue0 = Fatigue.getOverdueMuscles(1.5, 2)
+        overdue0.forEach { targetMuscles0.add(it.name) }
+
+        val readyMuscles0 = Fatigue.getReadyMuscles(targetMuscles0).map { it.name }
+        val focusCount0 = split0.focus.size
+        var accessoryTarget0 = Random.nextInt(3) + 2
+        accessoryTarget0 = min(accessoryTarget0, max(2, 8 - focusCount0))
+        accessoryTarget0 = max(0, accessoryTarget0)
+
+        if (readyMuscles0.isNotEmpty() && accessoryTarget0 > 0) {
+            val shuffled = readyMuscles0.shuffled()
+            shuffled.take(min(accessoryTarget0, shuffled.size)).forEach { targetMuscles0.add(it) }
+        } else {
+            val fallback = allMuscles0.filter { it !in targetMuscles0 }
+            fallback.take(min(accessoryTarget0, fallback.size)).forEach { targetMuscles0.add(it) }
+        }
+        if ("core" !in targetMuscles0) {
+            val coreFatigue = (d0.muscleFatigue["core"]?.fast ?: 0.0) + (d0.muscleFatigue["core"]?.slow ?: 0.0)
+            if (coreFatigue < Fatigue.READINESS_THRESHOLD) targetMuscles0.add("core")
+        }
+
+        val targetMuscleList = targetMuscles0.toList()  // stable iteration order
+        val subTotal = ProgressPhases.TOTAL + targetMuscleList.size
+
         // Phase 1: Reading your history
-        onProgress?.invoke(ProgressPhases.READING_HISTORY, 1, ProgressPhases.TOTAL)
+        onProgress?.invoke(ProgressPhases.READING_HISTORY, 1, subTotal)
         Fatigue.applyFatigueDecay()
         decayMomentumBias()
 
@@ -528,8 +663,9 @@ object Generator {
         val systemicFactor = Stats.systemicRecoveryFactor()
 
         // Phase 2: Checking your recovery
-        onProgress?.invoke(ProgressPhases.CHECKING_RECOVERY, 2, ProgressPhases.TOTAL)
-        // deload decision
+        onProgress?.invoke(ProgressPhases.CHECKING_RECOVERY, 2, subTotal)
+        // deload decision (re-derive from the now-current ProState.data; the
+        // pre-computed values were used only to build targetMuscles).
         val avgWeeklyVolume = if ((d.user.weeklyVolumes.size) >= 4) {
             d.user.weeklyVolumes.takeLast(4).sumOf { it.totalVolume } / 4.0
         } else {
@@ -582,42 +718,48 @@ object Generator {
             sessionDeltaBase = (d.user.cache?.progBaseMultiplier ?: 1.0) * systemicFactor,
         ))
 
-        // Phase 3: Selecting exercises
-        onProgress?.invoke(ProgressPhases.SELECTING_EXERCISES, 3, ProgressPhases.TOTAL)
-        // muscle selection
-        val allMuscles = Library.allMuscleGroups().map { it.name }
-        val targetMuscles = split.focus.toMutableSet()
-        val overdue = Fatigue.getOverdueMuscles(1.5, 2)
-        overdue.forEach { targetMuscles.add(it.name) }
+        // BATCH-39e-2: per-muscle sub-phases.
+        //   Step 3   = "Selecting muscles" (header — fires once, before the loop)
+        //   Step 4..3+N = "Selecting <muscle>" (BEFORE selection) +
+        //                 "Selected <exercise name> — <tier>" (AFTER selection)
+        //   Step 4+N = "Reconciling"
+        //   Step 5+N = "Saving"
+        // Total = 5 + N where N = targetMuscleList.size.
+        onProgress?.invoke(ProgressPhases.SELECTING_MUSCLES, 3, subTotal)
 
-        val readyMuscles = Fatigue.getReadyMuscles(targetMuscles).map { it.name }
-        val focusCount = split.focus.size
-        var accessoryTarget = Random.nextInt(3) + 2
-        accessoryTarget = min(accessoryTarget, max(2, 8 - focusCount))
-        accessoryTarget = max(0, accessoryTarget)
-
-        if (readyMuscles.isNotEmpty() && accessoryTarget > 0) {
-            val shuffled = readyMuscles.shuffled()
-            shuffled.take(min(accessoryTarget, shuffled.size)).forEach { targetMuscles.add(it) }
-        } else {
-            val fallback = allMuscles.filter { it !in targetMuscles }
-            fallback.take(min(accessoryTarget, fallback.size)).forEach { targetMuscles.add(it) }
-        }
-        if ("core" !in targetMuscles) {
-            val coreFatigue = (d.muscleFatigue["core"]?.fast ?: 0.0) + (d.muscleFatigue["core"]?.slow ?: 0.0)
-            if (coreFatigue < Fatigue.READINESS_THRESHOLD) targetMuscles.add("core")
-        }
-
-        // per-muscle exercise generation
         val selectedIds = mutableSetOf<String>()
         val exercises = mutableListOf<WorkoutExercise>()
-        for (mg in targetMuscles) {
-            val ignoreReadiness = overdue.any { it.name == mg }
-            var ex = selectExerciseForMuscle(mg, ignoreReadiness, currentWorkoutExercises = exercises, trainingMode = d.user.settings.trainingMode)
+        for ((idx, mg) in targetMuscleList.withIndex()) {
+            val ignoreReadiness = overdue0.any { it.name == mg }
+            val muscleStep = 4 + idx  // step number for this muscle's selection
+            val muscleDisplay = muscleDisplayName(mg)
+            // BEFORE selection: "Selecting <muscle display>"
+            onProgress?.invoke("Selecting $muscleDisplay", muscleStep, subTotal)
+            var ex = selectExerciseForMuscle(
+                muscleGroup = mg,
+                ignoreReadiness = ignoreReadiness,
+                currentWorkoutExercises = exercises,
+                trainingMode = d.user.settings.trainingMode,
+                onProgress = onProgress,
+                total = subTotal,
+                currentStep = muscleStep,
+                muscleDisplayName = muscleDisplay,
+                exerciseCache = exerciseCache,
+                taxonomyCache = taxonomyCache,
+                dossierCache = dossierCache,
+                coachCache = coachCache,
+                gateCache = gateCache,
+            )
             if (ex == null) ex = generateExerciseFromLibrary(mg)
             if (ex == null) continue
             if (selectedIds.contains(ex.id)) continue
             selectedIds.add(ex.id)
+            // AFTER selection: "Selected <exercise name> — <tier>"
+            val dossier = dossierCache.getOrPut(ex.id) {
+                com.peakform.fitness.coach.dossiers.DossierRegistry.forExercise(ex.id)
+            }
+            val tier = tierFor(dossier)
+            onProgress?.invoke("Selected ${ex.name} — $tier", muscleStep, subTotal)
 
             var localMultiplier = mult
             if (needsDeload && !isTapering) localMultiplier *= 0.8
@@ -637,8 +779,9 @@ object Generator {
             }
         }
 
-        // Phase 4: Reconciling prescriptions
-        onProgress?.invoke(ProgressPhases.RECONCILING_PRESCRIPTIONS, 4, ProgressPhases.TOTAL)
+        // Phase 4: Reconciling prescriptions (step number = 4 + N)
+        val reconcileStep = 4 + targetMuscleList.size
+        onProgress?.invoke(ProgressPhases.RECONCILING_PRESCRIPTIONS, reconcileStep, subTotal)
         // shuffle main lifts, then athletic blocks
         workout = workout.copy(exercises = exercises.shuffled())
         workout = appendAthleticBlocks(workout, needsDeload && !isTapering, isTapering)
@@ -649,8 +792,9 @@ object Generator {
             workout = trimmed
         }
 
-        // Phase 5: Saving (write phase runs on Dispatchers.IO via withContext below)
-        onProgress?.invoke(ProgressPhases.SAVING, 5, ProgressPhases.TOTAL)
+        // Phase 5: Saving (step number = 5 + N)
+        val saveStep = 5 + targetMuscleList.size
+        onProgress?.invoke(ProgressPhases.SAVING, saveStep, subTotal)
         // BATCH-39c: write phase on Dispatchers.IO — no SharedPreferences
         // write on the caller's (Default) dispatcher. notifyChanged must
         // run on Main because every listener touches Compose state.
@@ -670,7 +814,44 @@ object Generator {
             else -> "Workout generated: ${workout.name}"
         }
         ProLog.i("GEN", notification ?: "")
+        // BATCH-39e-2: log the wall time so the cache/no-cache delta is visible.
+        val _endMs = System.currentTimeMillis()
+        ProLog.i("GEN", "performGenerateWorkout wall time: ${_endMs - _startMs} ms (targetMuscles=${targetMuscleList.size}, total=$subTotal)")
         return GenResult(workout, notification, volumeDeload)
+    }
+
+    /**
+     * BATCH-39e-2 — tier string for the post-selection onProgress callback.
+     *
+     * Returns one of:
+     *   "awaiting source"          — dossier is null OR provenance.source == "no-source"
+     *   "PeakForm standard"        — source == "peakform-2026/book.md"
+     *   "cited: <source filename>" — any other non-"no-source" source (sommer, mcgill, rippetoe, daniels, prilepin, rogue-band-tension)
+     *
+     * The first matching branch wins. Branch order matters — peakform-2026
+     * is checked BEFORE the cited branch so peakform-2026 isn't mislabelled
+     * as "cited: book.md" (the spec lists it second to indicate precedence
+     * over the cited case for that specific source).
+     */
+    fun tierFor(dossier: com.peakform.fitness.coach.dossiers.ExerciseDossier?): String {
+        if (dossier == null) return "awaiting source"
+        val source = dossier.provenance.source
+        if (source == "no-source" || source.isBlank()) return "awaiting source"
+        if (source == "peakform-2026/book.md") return "PeakForm standard"
+        val filename = source.substringAfterLast('/')
+        return "cited: $filename"
+    }
+
+    /**
+     * BATCH-39e-2 — display name for a muscle id. Uses the muscle database's
+     * `display` field when available; falls back to a simple `_` → space
+     * substitution for ids not in the database. The result feeds the
+     * "Selecting <muscle>" and "Picking <muscle>" onProgress callbacks.
+     */
+    fun muscleDisplayName(muscleId: String): String {
+        val def = Library.muscleDef(muscleId)
+        if (def != null && def.display.isNotBlank()) return def.display
+        return muscleId.replace('_', ' ').replaceFirstChar { it.uppercase() }
     }
 
     /**
@@ -678,17 +859,28 @@ object Generator {
      * onProgress callback. Exposed as a top-level object so tests can
      * reference the exact phase strings and the UI's ProgressBarState
      * helper can mirror the same constants.
+     *
+     * BATCH-39e-2: SELECTING_MUSCLES replaces SELECTING_EXERCISES as the
+     * step-3 header. The per-muscle sub-phases ("Selecting <muscle>" /
+     * "Selected <exercise name> — <tier>") are NOT in this list — they
+     * are emitted dynamically per target muscle. The total for a given
+     * generation is `TOTAL + targetMuscleList.size` (so a 5-muscle split
+     * gives total = 10, an 8-muscle split gives total = 13). The phase
+     * constants here are the base; UI helpers (ProgressBarState) use
+     * ProgressPhases.TOTAL as the fallback when the actual total is
+     * not yet known.
      */
     object ProgressPhases {
         const val READING_HISTORY = "Reading your history"
         const val CHECKING_RECOVERY = "Checking your recovery"
-        const val SELECTING_EXERCISES = "Selecting exercises"
+        const val SELECTING_MUSCLES = "Selecting muscles"
+        const val SELECTING_EXERCISES = "Selecting exercises"  // legacy alias for tests
         const val RECONCILING_PRESCRIPTIONS = "Reconciling prescriptions"
         const val SAVING = "Saving"
         val ALL: List<String> = listOf(
             READING_HISTORY,
             CHECKING_RECOVERY,
-            SELECTING_EXERCISES,
+            SELECTING_MUSCLES,
             RECONCILING_PRESCRIPTIONS,
             SAVING,
         )

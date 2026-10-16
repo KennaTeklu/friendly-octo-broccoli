@@ -78,6 +78,18 @@ class Batch39dTest {
     }
 
     // 1. performGenerateWorkout invokes onProgress for every phase in order
+    //
+    // BATCH-39e-2: the step-3 header was renamed from "Selecting exercises"
+    // to "Selecting muscles" and the total now varies per run (5 + N where
+    // N = targetMuscles.size, depending on ready/overdue muscles). This test
+    // verifies the stable parts of the contract:
+    //   - the first callback is "Reading your history" at step 1
+    //   - the second callback is "Checking your recovery" at step 2
+    //   - the third callback is "Selecting muscles" at step 3
+    //   - the second-to-last callback is "Reconciling prescriptions"
+    //   - the last callback is "Saving"
+    //   - the total reported on every callback is the same within a single run
+    //   - steps are monotonically non-decreasing
     @Test
     fun performGenerateWorkout_invokesOnProgressForEveryPhaseInOrder() {
         ProState.data = freshPersona()
@@ -93,79 +105,77 @@ class Batch39dTest {
             }
         }
 
-        // Must fire exactly 5 times — one per phase.
-        assertEquals(
-            "onProgress must fire exactly 5 times (one per phase); got ${recorded.size}",
-            5,
-            recorded.size,
+        // Must fire at least 5 times (the 5 base phases; per-muscle sub-phases
+        // add to this depending on targetMuscles.size).
+        assertTrue(
+            "onProgress must fire at least 5 times; got ${recorded.size}",
+            recorded.size >= 5,
         )
 
-        // Phases must match ProgressPhases.ALL in order.
-        val expectedPhases = Generator.ProgressPhases.ALL
-        recorded.forEachIndexed { i, (phase, _, _) ->
-            assertEquals(
-                "phase[$i] must be ${expectedPhases[i]} (was $phase)",
-                expectedPhases[i],
-                phase,
+        // First three callbacks: the stable prefix.
+        assertEquals("phase[0] must be Reading your history",
+            Generator.ProgressPhases.READING_HISTORY, recorded[0].first)
+        assertEquals("step[0] must be 1", 1, recorded[0].second)
+        assertEquals("phase[1] must be Checking your recovery",
+            Generator.ProgressPhases.CHECKING_RECOVERY, recorded[1].first)
+        assertEquals("step[1] must be 2", 2, recorded[1].second)
+        assertEquals("phase[2] must be Selecting muscles",
+            Generator.ProgressPhases.SELECTING_MUSCLES, recorded[2].first)
+        assertEquals("step[2] must be 3", 3, recorded[2].second)
+
+        // Last two callbacks: the stable suffix.
+        val lastIdx = recorded.size - 1
+        assertEquals("last phase must be Saving",
+            Generator.ProgressPhases.SAVING, recorded[lastIdx].first)
+        assertEquals("second-to-last phase must be Reconciling prescriptions",
+            Generator.ProgressPhases.RECONCILING_PRESCRIPTIONS, recorded[lastIdx - 1].first)
+
+        // Total must be stable across all callbacks in a single run (the
+        // total is `5 + targetMuscles.size`, computed once at Step 3).
+        val firstTotal = recorded[0].third
+        assertTrue("total must be >= 5 (got $firstTotal)", firstTotal >= 5)
+        recorded.forEachIndexed { i, (_, _, total) ->
+            assertEquals("total[$i] must match total[0] (single-run stability)", firstTotal, total)
+        }
+
+        // Steps must be monotonically non-decreasing.
+        for (i in 1 until recorded.size) {
+            assertTrue(
+                "step[$i] (${recorded[i].second}) must be >= step[${i-1}] (${recorded[i-1].second})",
+                recorded[i].second >= recorded[i-1].second,
             )
         }
 
-        // Steps must be 1..5 in ascending order.
-        recorded.forEachIndexed { i, (_, step, _) ->
-            assertEquals(
-                "step[$i] must be ${i + 1} (was $step)",
-                i + 1,
-                step,
-            )
-        }
-
-        // Total must be 5 on every callback.
-        recorded.forEach { (_, _, total) ->
-            assertEquals(
-                "total must be ${Generator.ProgressPhases.TOTAL}",
-                Generator.ProgressPhases.TOTAL,
-                total,
-            )
-        }
+        // The last step number must equal the total (the Saving phase is the
+        // final step).
+        assertEquals("last step must equal total",
+            firstTotal, recorded[lastIdx].second)
     }
 
-    // 2. The phase count is stable (same total each run)
+    // 2. The phase count is stable (same total each run) — within a single run
+    //
+    // BATCH-39e-2: the total is no longer stable ACROSS runs (targetMuscles
+    // varies with ready/overdue state, which depends on Fatigue and RNG). But
+    // it IS stable WITHIN a single run — every callback sees the same total
+    // because subTotal = 5 + targetMuscleList.size is computed once. This
+    // test verifies the within-run stability contract.
     @Test
-    fun performGenerateWorkout_phaseCountIsStable_acrossRuns() {
+    fun performGenerateWorkout_phaseTotalIsStableWithinRun() {
         ProState.data = freshPersona()
         ProState.currentWorkout = null
 
-        val totalsRun1 = mutableListOf<Int>()
+        val totals = mutableListOf<Int>()
         runBlocking {
-            Generator.performGenerateWorkout { _, _, total -> totalsRun1.add(total) }
+            Generator.performGenerateWorkout { _, _, total -> totals.add(total) }
         }
 
-        ProState.data = freshPersona()
-        ProState.currentWorkout = null
-
-        val totalsRun2 = mutableListOf<Int>()
-        runBlocking {
-            Generator.performGenerateWorkout { _, _, total -> totalsRun2.add(total) }
+        // All totals within this single run must be the same.
+        assertTrue("at least one callback must fire", totals.isNotEmpty())
+        val firstTotal = totals[0]
+        assertTrue("total must be >= 5 (got $firstTotal)", firstTotal >= 5)
+        totals.forEachIndexed { i, t ->
+            assertEquals("total[$i] must match total[0] (within-run stability)", firstTotal, t)
         }
-
-        // Both runs must produce the same total sequence.
-        assertEquals(
-            "phase totals must be stable across runs (size mismatch)",
-            totalsRun1.size,
-            totalsRun2.size,
-        )
-        totalsRun1.forEachIndexed { i, t ->
-            assertEquals(
-                "phase totals must be stable across runs (index $i)",
-                t,
-                totalsRun2[i],
-            )
-        }
-        // The stable total is 5.
-        assertTrue(
-            "all phase totals must be 5 (got $totalsRun1)",
-            totalsRun1.all { it == Generator.ProgressPhases.TOTAL },
-        )
     }
 
     // 3. genPhase resets to null after generation completes
