@@ -28,9 +28,12 @@ import com.peakform.fitness.engine.Generator
 import com.peakform.fitness.engine.Library
 import com.peakform.fitness.engine.OneRm
 import com.peakform.fitness.engine.Sessions
+import com.peakform.fitness.ProLog
 import com.peakform.fitness.ui.*
 import com.peakform.fitness.ui.components.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Workout — 1:1 port of #workout-section with the P4 card system (scr-workout.md):
@@ -39,6 +42,51 @@ import kotlinx.coroutines.launch
  * logger (weight stepper, sets, per-set reps, RPE chips), complete-workout flow,
  * rest-timer overlay, no-workout empty state.
  */
+
+/**
+ * BATCH-39c — Pure helper for the no-coach-but-dossier case.
+ *
+ * When the exercise has no authored coach (or the coach's requirements() all
+ * return false), the card used to always render "No prescription available
+ * — no coach requirements declared." even for exercises whose dossier exists
+ * with a PeakForm landmark. Now: when the dossier has a goal with a label
+ * or landmark, render "PeakForm standard — no coach yet" instead — the
+ * dossier tier block above the prescription already showed the goal and
+ * landmark, so this string tells the user that the dossier layer is the
+ * source of truth while a coach is being authored.
+ *
+ * Returns null when the requirements branch shouldn't fire (i.e. at least
+ * one requirement is true) — the card's outer if/else handles that path.
+ */
+object WorkoutCardMessages {
+    const val NO_COACH_DOSSIER_PRESENT = "PeakForm standard — no coach yet"
+    const val NO_COACH_NO_DOSSIER = "No prescription available — no coach requirements declared."
+
+    fun noCoachMessage(
+        dossier: com.peakform.fitness.coach.dossiers.ExerciseDossier?,
+    ): String {
+        val hasGoal = dossier?.goals?.firstOrNull()?.let {
+            it.landmark.isNotBlank() || it.label.isNotBlank()
+        } == true
+        return if (hasGoal) NO_COACH_DOSSIER_PRESENT else NO_COACH_NO_DOSSIER
+    }
+}
+
+/**
+ * BATCH-39c — Pure helper for the regenerate button label/state.
+ *
+ * `buttonLabel(regenerating)` returns the button text. `buttonEnabled(regenerating)`
+ * returns whether the button is clickable. `showsProgress(regenerating)`
+ * returns whether the in-screen progress indicator should be visible. These
+ * exist as testable pure functions — the card itself just calls them with
+ * the live `regenerating` state.
+ */
+object RegenerateButtonState {
+    fun buttonLabel(regenerating: Boolean): String =
+        if (regenerating) "Regenerating…" else "Regenerate"
+    fun buttonEnabled(regenerating: Boolean): Boolean = !regenerating
+    fun showsProgress(regenerating: Boolean): Boolean = regenerating
+}
 
 @Composable
 fun WorkoutScreen(
@@ -89,6 +137,9 @@ fun WorkoutScreen(
     // BATCH-2: regenerate confirm (top + bottom buttons share the same flow) + replace confirm
     var confirmRegenerate by remember { mutableStateOf(false) }
     var confirmReplace by remember { mutableStateOf<Int?>(null) }
+    // BATCH-39c: regenerating flag drives the in-screen progress indicator + disables the
+    // Regenerate buttons while Generator.performGenerateWorkout is running.
+    var regenerating by remember { mutableStateOf(false) }
 
     val workout = ProState.currentWorkout
     Column(
@@ -102,8 +153,15 @@ fun WorkoutScreen(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Today's Workout", style = ProType.sectionTitle, color = c.text, modifier = Modifier.weight(1f))
             // BATCH-2: top regenerate button (regenerateWorkoutBtn, same flow as bottom)
+            // BATCH-39c: disabled + shows progress while regenerating.
             if (workout != null && workout.exercises.isNotEmpty()) {
-                P4Button("Regenerate", icon = "fa-rotate", style = BtnStyle.GHOST, minHeight = 34, onClick = { confirmRegenerate = true })
+                P4Button(
+                    RegenerateButtonState.buttonLabel(regenerating),
+                    icon = if (regenerating) "fa-spinner" else "fa-rotate",
+                    style = BtnStyle.GHOST, minHeight = 34,
+                    enabled = RegenerateButtonState.buttonEnabled(regenerating),
+                    onClick = { confirmRegenerate = true },
+                )
             }
         }
 
@@ -212,8 +270,31 @@ fun WorkoutScreen(
             }
 
             // BATCH-2: bottom regenerate button (bottomRegenerateWorkoutBtn — same flow as top)
-            P4Button("Regenerate Workout", icon = "fa-rotate", style = BtnStyle.SECONDARY, modifier = Modifier.fillMaxWidth()) {
+            // BATCH-39c: disabled + shows progress while regenerating.
+            P4Button(
+                if (regenerating) "Regenerating…" else "Regenerate Workout",
+                icon = if (regenerating) "fa-spinner" else "fa-rotate",
+                style = BtnStyle.SECONDARY,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = RegenerateButtonState.buttonEnabled(regenerating),
+            ) {
                 confirmRegenerate = true
+            }
+            // BATCH-39c: indeterminate progress indicator while the regenerate coroutine is in flight.
+            if (RegenerateButtonState.showsProgress(regenerating)) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface2).padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = c.accent,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text("Building your workout…", style = ProType.small, color = c.text2)
+                }
             }
 
             // complete button
@@ -332,12 +413,31 @@ fun WorkoutScreen(
             cancelText = "Cancel",
             onConfirm = {
                 confirmRegenerate = false
-                scope.launch {
-                    val result = Generator.performGenerateWorkout(suppressConfirm = true)
-                    ProState.currentWorkout = result.workout
-                    ProState.performSave()
-                    ProState.notifyChanged()
-                    ver.intValue++
+                // BATCH-39c: launch on Dispatchers.Default — the generator walks
+                // 1,413 exercises, runs difficulty gates, and reconciles coaches
+                // (>5s of CPU). Internal generator writes route to IO via
+                // withContext(Dispatchers.IO); notifyChanged routes to Main via
+                // withContext(Dispatchers.Main). The `regenerating` flag drives
+                // the in-screen progress indicator + disables the buttons.
+                regenerating = true
+                scope.launch(Dispatchers.Default) {
+                    try {
+                        val result = Generator.performGenerateWorkout(suppressConfirm = true)
+                        withContext(Dispatchers.IO) {
+                            ProState.currentWorkout = result.workout
+                            ProState.performSave()
+                        }
+                        withContext(Dispatchers.Main) {
+                            ProState.notifyChanged()
+                            ver.intValue++
+                            regenerating = false
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            regenerating = false
+                            ProLog.w("WORKOUT", "regenerate failed: ${e.message}")
+                        }
+                    }
                 }
             },
             onDismiss = { confirmRegenerate = false },
@@ -740,8 +840,19 @@ fun ExerciseCard(
                     )
                 }
             } else if (!reqs.needs1RM && !reqs.needsBand && !reqs.needsBodyweight && !reqs.needsDuration && !reqs.needsDistance && !reqs.needsPace && !reqs.needsWeight) {
-                // All false → exercise name + chips only, no prescription line
-                Text("No prescription available — no coach requirements declared.", style = ProType.small, color = c.text3)
+                // All-false requirements branch. This fires when there is no
+                // authored coach (CoachRegistry.lookup returned null or a
+                // generic with default empty requirements). Before BATCH-39c
+                // the card always showed "No prescription available — no
+                // coach requirements declared." even for exercises whose
+                // DOSSIER exists with a PeakForm landmark. Now the
+                // WorkoutCardMessages helper picks the right string based on
+                // whether the dossier has a goal with a landmark or label.
+                Text(
+                    WorkoutCardMessages.noCoachMessage(dossier),
+                    style = ProType.small,
+                    color = if (WorkoutCardMessages.noCoachMessage(dossier) == WorkoutCardMessages.NO_COACH_DOSSIER_PRESENT) c.text2 else c.text3,
+                )
             } else {
                 // Render only fields the coach declares
                 val parts = mutableListOf<String>()

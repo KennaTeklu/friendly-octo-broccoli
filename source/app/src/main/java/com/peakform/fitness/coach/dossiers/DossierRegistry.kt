@@ -41,6 +41,15 @@ object DossierRegistry {
 
     @Volatile private var loaded = false
 
+    /**
+     * BATCH-39c: readiness flag for the UI. Use this to gate UI calls that
+     * depend on the dossier layer without blocking on `ensure`. While
+     * `isReady == false`, `forExercise` returns null and the card must
+     * show the fallback (awaiting dossier). The card must NOT block
+     * waiting for the load.
+     */
+    val isReady: Boolean get() = loaded
+
     /** Test hook (JVM): optional first-chance asset source. */
     @Volatile var testAssetLoader: ((String) -> String?)? = null
 

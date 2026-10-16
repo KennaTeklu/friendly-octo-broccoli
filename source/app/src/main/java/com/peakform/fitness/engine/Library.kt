@@ -110,6 +110,15 @@ object Library {
 
     @Volatile private var loaded = false
 
+    /**
+     * BATCH-39c: readiness flag for the UI. While `isReady == false`, the
+     * library data structures (groups, taxonomy, muscleDatabase, …) are
+     * empty and all lookups (getExerciseById, taxonomyFor, …) return null.
+     * The UI must NOT block waiting for the load — render the fallback
+     * and let ProState.notifyChanged re-render once the load completes.
+     */
+    val isReady: Boolean get() = loaded
+
     /** Test hook (JVM): optional first-chance asset source. */
     @Volatile var testAssetLoader: ((String) -> String?)? = null
 

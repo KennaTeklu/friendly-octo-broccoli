@@ -14,8 +14,8 @@ android {
         applicationId = "com.peakform.fitness"
         minSdk = 26
         targetSdk = 34
-        versionCode = 50
-        versionName = "3.6.1"
+        versionCode = 51
+        versionName = "3.6.2"
     }
 
     signingConfigs {
@@ -121,4 +121,9 @@ dependencies {
     testImplementation("androidx.test:core-ktx:1.6.1")
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("io.github.takahirom.roborazzi:roborazzi:1.26.0")
+    // BATCH-39c: Generator.performGenerateWorkout + generateLongevityWorkout are
+    // now suspend and internally route to Dispatchers.Main for notifyChanged.
+    // JVM tests need a Main dispatcher installed via Dispatchers.setMain before
+    // any withContext(Dispatchers.Main) call. Provided by kotlinx-coroutines-test.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

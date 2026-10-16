@@ -10,6 +10,11 @@ import com.peakform.fitness.engine.Stats
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.io.File
@@ -27,17 +32,27 @@ import org.junit.Assert.assertFalse
  * logs every set the app asks for, fails a rep-max occasionally, tracks bodyweight,
  * then audits stats/recovery/progress and exercises backup -> wipe -> restore.
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class JourneyTest {
 
     private lateinit var dataDir: File
 
     @Before
     fun setUp() {
+        // BATCH-39c: Generator.performGenerateWorkout is now suspend and
+        // internally routes to Dispatchers.Main for notifyChanged. Install
+        // a Main dispatcher for JVM tests.
+        Dispatchers.setMain(Dispatchers.Unconfined)
         dataDir = sequenceOf("src/main/assets/data", "app/src/main/assets/data")
             .map { File(it) }.firstOrNull { it.isDirectory }
             ?: error("assets/data not found from ${File(".").absolutePath}")
         Library.ensureForTest { name -> File(dataDir, name).readText() }
         ProState.initialized = true
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
     }
 
     private fun freshPersona(): WorkoutData {
@@ -130,7 +145,7 @@ class JourneyTest {
         val failureMsgs = mutableListOf<String>()
 
         repeat(12) { session ->
-            val gen = Generator.performGenerateWorkout(60)
+            val gen = runBlocking { Generator.performGenerateWorkout(60) }
             val w = gen.workout
             assertTrue("session $session generated 0 exercises", w.exercises.isNotEmpty())
             assertTrue("session $session generated ${w.exercises.size} exercises (>20 unrealistic)", w.exercises.size <= 20)
@@ -161,7 +176,7 @@ class JourneyTest {
             val mu = tracked?.id?.let { ProState.data.exercises[it]?.mu }
             if (tracked != null && mu != null) muTimeline.getOrPut(tracked.id) { mutableListOf() }.add(mu)
 
-            val comp = Sessions.completeWorkout(logged, generateNext = true)
+            val comp = runBlocking { Sessions.completeWorkout(logged, generateNext = true) }
             assertTrue("volume must be > 0", comp.totalVolume > 0)
             assertFinite(comp.totalVolume, "totalVolume s$session")
             assertTrue("recommendedRest out of range", comp.workout.recommendedRest!! in 0.0..14.0)
@@ -227,7 +242,7 @@ class JourneyTest {
         d.user.muscleEWMA?.forEach { (m, v) -> assertFinite(v, "ewma $m") }
 
         // generation with a deloaded/fatigued state must not crash and must respect budget
-        val genAfter = Generator.performGenerateWorkout(25)
+        val genAfter = runBlocking { Generator.performGenerateWorkout(25) }
         assertTrue(genAfter.workout.exercises.isNotEmpty())
         val chip = Generator.chipData(genAfter.workout)
         assertTrue("chip est time must respect budget-ish", chip == null || chip.estTime in 5..120)
@@ -237,7 +252,7 @@ class JourneyTest {
         }
 
         // longevity workout (the fully implemented generator)
-        val longevity = Generator.generateLongevityWorkout()
+        val longevity = runBlocking { Generator.generateLongevityWorkout() }
         assertTrue("longevity workout empty", longevity.workout.exercises.isNotEmpty())
     }
 
@@ -252,9 +267,9 @@ class JourneyTest {
         ProState.currentWorkout = null
         val rnd = Random(7)
         repeat(5) { _ ->
-            val gen = Generator.performGenerateWorkout(null)
+            val gen = runBlocking { Generator.performGenerateWorkout(null) }
             val logged = logAllExercises(gen.workout, rnd, null)
-            Sessions.completeWorkout(logged, generateNext = false)
+            runBlocking { Sessions.completeWorkout(logged, generateNext = false) }
         }
         val before = ProState.data
 
@@ -408,7 +423,7 @@ class JourneyTest {
         }
 
         // applyPerformance rejects garbage weights (the UI's guard rail)
-        val gen = Generator.performGenerateWorkout(45)
+        val gen = runBlocking { Generator.performGenerateWorkout(45) }
         val w0 = gen.workout
         if (w0.exercises.isNotEmpty() && (w0.exercises[0].prescribed.weight ?: 0.0) > 0) {
             val bad = Sessions.applyPerformance(w0, 0, ActualPerformance(weight = 0.0, sets = 3, reps = listOf(8.0)), "")

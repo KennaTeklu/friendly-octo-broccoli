@@ -45,6 +45,8 @@ import com.peakform.fitness.ui.components.P4Button
 import com.peakform.fitness.ui.components.SectionTitle
 import com.peakform.fitness.ui.screens.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -123,8 +125,15 @@ class MainActivity : ComponentActivity() {
                 // BATCH-4B item 6: stamp the active profile's first-launch
                 // timestamp (a new-user signal — never overwrites if present).
                 com.peakform.fitness.core.ProfileState.stampFirstLaunch(ctx)
-                Library.ensure(ctx)
-                com.peakform.fitness.coach.dossiers.DossierRegistry.ensure(ctx)
+                // BATCH-39c: Library.ensure + DossierRegistry.ensure parse 1.8 MB+
+                // of JSON. Run on Dispatchers.IO so the main thread is free to
+                // render the boot splash and process touch events. The card and
+                // every other consumer must handle null (the pre-load state)
+                // via `Library.isReady` / `DossierRegistry.isReady`.
+                withContext(Dispatchers.IO) {
+                    Library.ensure(ctx)
+                    com.peakform.fitness.coach.dossiers.DossierRegistry.ensure(ctx)
+                }
                 booted = true
                 if (!MigrationBridge.isDone(ctx) && !MigrationBridge.running) {
                     migrationPhase = "checking"
@@ -232,6 +241,12 @@ fun AppShell(
     var paletteOpen by remember { mutableStateOf(false) }
     var showStreakRecovery by remember { mutableStateOf(false) }
     var confettiTick by remember { mutableIntStateOf(0) }
+    // BATCH-39c: global regenerate indicator. Set by generateAndGo (time-wizard
+    // "Generate New") and by LaunchedEffect(genLongevity). The workout screen's
+    // own Regenerate button has its own local state and does not touch this —
+    // the two flows are mutually exclusive (time wizard closes before the
+    // workout screen appears).
+    var regenerating by remember { mutableStateOf(false) }
     val snack = remember { mutableStateOf<String?>(null) }
     val shellScope = rememberCoroutineScope()
 
@@ -319,9 +334,27 @@ fun AppShell(
             section = "health"
             return
         }
-        shellScope.launch {
-            Generator.performGenerateWorkout(budget)
-            section = "workout"
+        // BATCH-39c: launch on Dispatchers.Default — the generator walks
+        // 1,413 exercises, runs difficulty gates, and reconciles coaches
+        // (>5s of CPU). Internal generator writes route to IO via
+        // withContext(Dispatchers.IO); notifyChanged routes to Main via
+        // withContext(Dispatchers.Main). The `regenerating` flag drives the
+        // global overlay (regeneratingOverlay) below.
+        regenerating = true
+        shellScope.launch(Dispatchers.Default) {
+            try {
+                Generator.performGenerateWorkout(budget)
+                withContext(Dispatchers.Main) {
+                    section = "workout"
+                    regenerating = false
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    regenerating = false
+                    snack.value = "Generation failed: ${e.message}"
+                    ProLog.w("SHELL", "generateAndGo failed: ${e.message}")
+                }
+            }
         }
     }
 
@@ -338,11 +371,25 @@ fun AppShell(
     }
 
     // FIX (audit): the Longevity Workout was a dead end — the flag was written but never read.
+    // BATCH-39c: same off-Main pattern as generateAndGo.
     LaunchedEffect(genLongevity) {
         if (genLongevity) {
             genLongevity = false
-            Generator.generateLongevityWorkout()
-            section = "workout"
+            regenerating = true
+            shellScope.launch(Dispatchers.Default) {
+                try {
+                    Generator.generateLongevityWorkout()
+                    withContext(Dispatchers.Main) {
+                        section = "workout"
+                        regenerating = false
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        regenerating = false
+                        ProLog.w("SHELL", "generateLongevity failed: ${e.message}")
+                    }
+                }
+            }
         }
     }
 
@@ -598,6 +645,36 @@ fun AppShell(
         if (showProfilePicker && !onboardingActive) {
             Box(Modifier.fillMaxSize().background(c.bg.copy(alpha = 0.92f))) {
                 ProfilesScreen(onClose = { showProfilePicker = false })
+            }
+        }
+
+        // BATCH-39c: global regenerate overlay — shows when generateAndGo or
+        // LaunchedEffect(genLongevity) is running. Centered card with an
+        // indeterminate CircularProgressIndicator + a "Building your workout…"
+        // label. The overlay is non-cancelable (the generator cannot be safely
+        // cancelled mid-write); it self-dismisses when the coroutine finishes.
+        if (regenerating) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(c.bg.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.glass2)
+                        .padding(horizontal = 22.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        strokeWidth = 2.5.dp,
+                        color = c.accent,
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Text("Building your workout…", style = ProType.body2, color = c.text)
+                }
             }
         }
         } // end key-handler Box

@@ -394,7 +394,13 @@ object Sessions {
      *
      * Legacy backend sync (GAS payload / syncTrialWorkoutCount) has no native equivalent — omitted.
      */
-    fun completeWorkout(workoutIn: WorkoutRecord, generateNext: Boolean): CompletionResult {
+    /**
+     * BATCH-39c: now a suspend function. Generator.performGenerateWorkout
+     * is suspend (writes on IO, notify on Main); completeWorkout calls it
+     * when generateNext == true. Caller is in a coroutine scope already
+     * (Workout.kt scope.launch), so adding `suspend` is safe.
+     */
+    suspend fun completeWorkout(workoutIn: WorkoutRecord, generateNext: Boolean): CompletionResult {
         var completed = workoutIn
         completed = if (completed.activeDates.isNotEmpty()) {
             completed.copy(activeDates = completed.activeDates.toList())
@@ -433,7 +439,13 @@ object Sessions {
 
         var nextGenerated = false
         if (generateNext) {
-            Generator.performGenerateWorkout(null)
+            // BATCH-39c: Generator.performGenerateWorkout is suspend; its
+            // internal write phase is on IO and notifyChanged on Main, but
+            // the CPU-bound exercise selection should still run on Default,
+            // not on the caller's (often Main) dispatcher.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                Generator.performGenerateWorkout(null)
+            }
             nextGenerated = true
         }
         // legacy updateHeaderNameAndStreak() — UI concern.

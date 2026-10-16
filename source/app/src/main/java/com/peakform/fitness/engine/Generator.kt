@@ -8,6 +8,8 @@ import com.peakform.fitness.core.Settings
 import com.peakform.fitness.core.WorkoutExercise
 import com.peakform.fitness.core.WorkoutRecord
 import com.peakform.fitness.core.Prescription
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.math.exp
@@ -472,7 +474,15 @@ object Generator {
     // ---------- performGenerateWorkout (L36069) ----------
     data class GenResult(val workout: WorkoutRecord, val notification: String?, val deloadByVolume: Boolean)
 
-    fun performGenerateWorkout(timeBudgetMin: Int? = null, suppressConfirm: Boolean = true): GenResult {
+    /**
+     * BATCH-39c: now a suspend function. Callers must launch on
+     * `Dispatchers.Default` for the CPU-bound exercise selection /
+     * prescription math, and the function internally routes the
+     * ProState/SharedPreferences writes onto `Dispatchers.IO` and
+     * the listener-notification (notifyChanged) onto `Dispatchers.Main`.
+     * No SharedPreferences write happens on the caller's dispatcher.
+     */
+    suspend fun performGenerateWorkout(timeBudgetMin: Int? = null, suppressConfirm: Boolean = true): GenResult {
         Fatigue.applyFatigueDecay()
         decayMomentumBias()
 
@@ -595,10 +605,17 @@ object Generator {
             workout = trimmed
         }
 
-        ProState.currentWorkout = workout
-        ProState.saveCurrentWorkoutToStorage()
-        ProState.performSave()
-        ProState.notifyChanged()
+        // BATCH-39c: write phase on Dispatchers.IO — no SharedPreferences
+        // write on the caller's (Default) dispatcher. notifyChanged must
+        // run on Main because every listener touches Compose state.
+        withContext(Dispatchers.IO) {
+            ProState.currentWorkout = workout
+            ProState.saveCurrentWorkoutToStorage()
+            ProState.performSave()
+        }
+        withContext(Dispatchers.Main) {
+            ProState.notifyChanged()
+        }
 
         val notification = when {
             needsDeload && !isTapering && volumeDeload -> "Deload triggered by high weekly volume. Reduce intensity."
@@ -701,7 +718,11 @@ object Generator {
     }
 
     // ---------- longevity workout (L45177) ----------
-    fun generateLongevityWorkout(): GenResult {
+    /**
+     * BATCH-39c: now a suspend function. Same write routing as
+     * performGenerateWorkout — IO for writes, Main for notifyChanged.
+     */
+    suspend fun generateLongevityWorkout(): GenResult {
         Fatigue.applyFatigueDecay()
         val targetMuscles = mutableSetOf<String>()
 
@@ -736,10 +757,15 @@ object Generator {
             exercises = exercises,
         )
         workout = appendAthleticBlocks(workout, isDeload = true, isTaper = false)
-        ProState.currentWorkout = workout
-        ProState.saveCurrentWorkoutToStorage()
-        ProState.performSave()
-        ProState.notifyChanged()
+        // BATCH-39c: write phase on IO, notify on Main.
+        withContext(Dispatchers.IO) {
+            ProState.currentWorkout = workout
+            ProState.saveCurrentWorkoutToStorage()
+            ProState.performSave()
+        }
+        withContext(Dispatchers.Main) {
+            ProState.notifyChanged()
+        }
         return GenResult(workout, "Longevity workout generated", false)
     }
 
