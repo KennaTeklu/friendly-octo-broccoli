@@ -358,6 +358,47 @@ fun WorkoutScreen(
                 scope.launch {
                     val result = Sessions.completeWorkout(workout, generateNext = true)
                     celebration = result
+                    // BATCH-39a: build and append a SessionRecord from the completed workout.
+                    // Only exercises with at least one completed set are included.
+                    // Skipped exercises are included with skipped=true.
+                    val sessionExercises = workout.exercises.map { ex ->
+                        val actual = ex.actual
+                        if (ex.skipped) {
+                            com.peakform.fitness.core.state.StateModel.ExerciseRecord(
+                                exerciseId = ex.id,
+                                sets = emptyList(),
+                                skipped = true,
+                            )
+                        } else if (actual != null && actual.sets > 0) {
+                            val setRecords = (0 until actual.sets).map { i ->
+                                com.peakform.fitness.core.state.StateModel.SetRecord(
+                                    reps = actual.reps.getOrNull(i)?.toInt() ?: 0,
+                                    load = actual.weight,
+                                    rpe = actual.rpeList.getOrNull(i),
+                                    durationSeconds = actual.durations.getOrNull(i),
+                                    completed = true,
+                                )
+                            }.filter { it.reps > 0 || (it.durationSeconds ?: 0.0) > 0 }
+                            com.peakform.fitness.core.state.StateModel.ExerciseRecord(
+                                exerciseId = ex.id,
+                                sets = setRecords,
+                                skipped = false,
+                            )
+                        } else {
+                            null
+                        }
+                    }.filterNotNull()
+
+                    // Only write a session if at least one exercise has completed sets
+                    if (sessionExercises.any { it.sets.isNotEmpty() }) {
+                        val sessionRecord = com.peakform.fitness.core.state.StateModel.SessionRecord(
+                            id = "session_${System.currentTimeMillis()}",
+                            userId = ProState.activeProfileId,
+                            timestamp = System.currentTimeMillis(),
+                            exercises = sessionExercises,
+                        )
+                        ProState.appendSession(sessionRecord)
+                    }
                     ProState.notifyChanged()
                     // C5: PR toast + C2 confetti(130) on a BIGGER day
                     val prHit = result.celebrationLines.any { it.contains("PR", ignoreCase = true) || it.contains("best", ignoreCase = true) } ||

@@ -124,4 +124,38 @@ object StateModel {
         StimulusField("tuneTarget", "Tune target flag", "boolean", "false"),
         StimulusField("periodPhase", "Period phase", "enum", "none", null, listOf("none", "follicular", "ovulation", "luteal", "menstrual")),
     )
+
+    // ---- BATCH-39a: Session state schema (source/docs/system/08-session-state.md) ----
+
+    /** One logged unit of work. A set of exercises performed by one user at one time. */
+    @Serializable
+    data class SessionRecord(
+        val id: String,
+        val userId: String,
+        val timestamp: Long,
+        val exercises: List<ExerciseRecord>,
+        val overallFelt: String? = null,      // "easy", "solid", "tough"
+        val notes: String? = null,
+    )
+
+    /** Per-exercise record within a session. */
+    @Serializable
+    data class ExerciseRecord(
+        val exerciseId: String,
+        val sets: List<SetRecord>,
+        val skipped: Boolean = false,
+        val goalId: String? = null,           // which goal was active
+        val felt: String? = null,
+    )
+
+    /** One completed set within an exercise record. */
+    @Serializable
+    data class SetRecord(
+        val reps: Int,
+        val load: Double = 0.0,               // 0 for bodyweight
+        val tempo: String? = null,            // "3-1-2", "explosive", etc.
+        val rpe: Double? = null,              // 1-10
+        val durationSeconds: Double? = null,  // for holds
+        val completed: Boolean = true,
+    )
 }

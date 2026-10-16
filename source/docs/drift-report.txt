@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v38d ===
+=== DRIFT REPORT — v39a ===
 Generated: 2026-10-15
 Rows checked: 113
 Drifts found: 0
@@ -15,17 +15,19 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v38d changes ---
+--- v39a changes ---
   - No new rows. No new coaches. No new sources. No new taxonomy fields.
-  - PART 1 — Backup button: Wired cloud-download rail button to
-    Backup.exportCompleteV1(ctx) via rememberLauncherForActivityResult
-    (CreateDocument("application/json")). Same pattern as Settings.kt.
-  - PART 2 — Grip button: Built GripEquipmentSheet composable (uses
-    GlassDialogHost pattern from Dialogs.kt). Contents: 8 equipment
-    values (from exercise_taxonomy.json) + 7 grip values (from library
-    exercise names). Selection stored via ProfileSettings.put(ctx,
-    "p8_grip_pref", selection).
-  - No touch dossiers, book, coaches, AuthoredRows/Coaches, DifficultyGate.
+  - New schema: SessionRecord, ExerciseRecord, SetRecord added to StateModel.kt
+    per source/docs/system/08-session-state.md.
+  - New storage: ProState.sessions (List<SessionRecord>), per-profile via
+    ProPrefs key p8_sessions_<profileId>. Loaded in loadAll(), saved on append.
+  - New accessors: ProState.appendSession(), ProState.recentSessions(exerciseId, limit).
+  - Write path: Workout.kt complete-dialog onConfirm builds a SessionRecord
+    from the workout's exercises (ActualPerformance → SetRecord) and calls
+    ProState.appendSession(). Skipped exercises included with skipped=true.
+    Sessions with zero completed sets are not written.
+  - No field writes. No stimulus computation. No recovery curves. No read
+    interface. Write-only batch.
 
 === DRIFT CHECK COMPLETE ===
 Rows checked: 113

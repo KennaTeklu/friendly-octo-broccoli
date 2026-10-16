@@ -38,6 +38,9 @@ object ProState {
     @Volatile var initialized: Boolean = false
     @Volatile var activeProfileId: String = Profiles.DEFAULT
 
+    // BATCH-39a: session records (append-only). Stored per profile via ProPrefs.
+    @Volatile var sessions: List<com.peakform.fitness.core.state.StateModel.SessionRecord> = emptyList()
+
     private var store: ProStore? = null
     private var ctx: Context? = null
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -96,6 +99,61 @@ object ProState {
     fun notifyChanged() {
         val ls = synchronized(listeners) { listeners.toList() }
         ls.forEach { try { it() } catch (_: Exception) {} }
+    }
+
+    // ---- BATCH-39a: session state (append-only) ----
+    // Sessions are stored per profile via ProPrefs, keyed "p8_sessions_<profileId>".
+    // Loaded in loadAll(), saved on append via saveSessions().
+
+    private val SESSIONS_KEY_PREFIX = "p8_sessions_"
+    private val sessionsMutex = kotlinx.coroutines.sync.Mutex()
+
+    /** Load sessions for the active profile from ProPrefs. Called in loadAll(). */
+    private fun loadSessions() {
+        val c = ctx ?: return
+        val key = SESSIONS_KEY_PREFIX + activeProfileId
+        val raw = ProPrefs.get(c, key) ?: run {
+            sessions = emptyList()
+            return
+        }
+        try {
+            sessions = ProJson.json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(
+                    com.peakform.fitness.core.state.StateModel.SessionRecord.serializer()
+                ), raw
+            )
+        } catch (_: Exception) {
+            sessions = emptyList()
+        }
+    }
+
+    /** Save sessions for the active profile to ProPrefs. Called after append. */
+    private fun saveSessions() {
+        val c = ctx ?: return
+        val key = SESSIONS_KEY_PREFIX + activeProfileId
+        val raw = ProJson.json.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(
+                com.peakform.fitness.core.state.StateModel.SessionRecord.serializer()
+            ), sessions
+        )
+        ProPrefs.put(c, key, raw)
+    }
+
+    /** Append a session record. Append-only — existing records are never mutated. */
+    fun appendSession(record: com.peakform.fitness.core.state.StateModel.SessionRecord) {
+        synchronized(this) {
+            sessions = sessions + record
+            saveSessions()
+        }
+        notifyChanged()
+    }
+
+    /** Return recent sessions that include the given exerciseId, most recent first. */
+    fun recentSessions(exerciseId: String, limit: Int = 10): List<com.peakform.fitness.core.state.StateModel.SessionRecord> {
+        return sessions
+            .filter { session -> session.exercises.any { it.exerciseId == exerciseId } }
+            .sortedByDescending { it.timestamp }
+            .take(limit)
     }
 
     // ---------- time helpers (legacy uses local ISO strings; day-diffs UTC-midnight) ----------
@@ -166,7 +224,9 @@ object ProState {
         }
         currentWorkout = best
         initialized = true
-        ProLog.i("STORE", "loaded: workouts=${d.workouts.size} exercises=${d.exercises.size} saved=${saved != null} emergency=${emergency != null} draft=${best != null}")
+        // BATCH-39a: load session records per profile
+        loadSessions()
+        ProLog.i("STORE", "loaded: workouts=${d.workouts.size} exercises=${d.exercises.size} saved=${saved != null} emergency=${emergency != null} draft=${best != null} sessions=${sessions.size}")
         notifyChanged()
     }
 
