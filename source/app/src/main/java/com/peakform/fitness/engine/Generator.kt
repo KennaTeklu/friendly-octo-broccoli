@@ -475,20 +475,55 @@ object Generator {
     data class GenResult(val workout: WorkoutRecord, val notification: String?, val deloadByVolume: Boolean)
 
     /**
+     * BATCH-39d: progress callback. Invoked after each major phase of the
+     * generator with the phase label, the 1-indexed step number, and the
+     * total step count. The callback is a suspend lambda so callers can
+     * bridge to other dispatchers (typically `withContext(Dispatchers.Main)`
+     * to update Compose state). The callback itself runs on the generator's
+     * dispatcher (Dispatchers.Default — the caller must launch on Default).
+     *
+     * Phase order:
+     *   1. "Reading your history"     — Fatigue.applyFatigueDecay + decayMomentumBias + ProState.data read + systemicRecoveryFactor
+     *   2. "Checking your recovery"    — deload decision + split rotation + cycle phase + multiplier
+     *   3. "Selecting exercises"       — muscle selection + per-muscle exercise generation loop
+     *   4. "Reconciling prescriptions" — athletic blocks + time-wizard trim
+     *   5. "Saving"                    — write phase (runs on Dispatchers.IO)
+     *
+     * The total is stable: 5 phases per call. The Saving phase runs on
+     * Dispatchers.IO via withContext — the callback is invoked just before
+     * the dispatcher switch so the UI sees the "Saving" label appear.
+     */
+    fun interface OnGenerateProgress {
+        suspend fun onProgress(phase: String, step: Int, total: Int)
+    }
+
+    /**
      * BATCH-39c: now a suspend function. Callers must launch on
      * `Dispatchers.Default` for the CPU-bound exercise selection /
      * prescription math, and the function internally routes the
      * ProState/SharedPreferences writes onto `Dispatchers.IO` and
      * the listener-notification (notifyChanged) onto `Dispatchers.Main`.
      * No SharedPreferences write happens on the caller's dispatcher.
+     *
+     * BATCH-39d: optional `onProgress` callback invoked after each phase.
+     * The callback is a suspend lambda so callers can safely bridge to
+     * `Dispatchers.Main` for Compose-state updates.
      */
-    suspend fun performGenerateWorkout(timeBudgetMin: Int? = null, suppressConfirm: Boolean = true): GenResult {
+    suspend fun performGenerateWorkout(
+        timeBudgetMin: Int? = null,
+        suppressConfirm: Boolean = true,
+        onProgress: (suspend (phase: String, step: Int, total: Int) -> Unit)? = null,
+    ): GenResult {
+        // Phase 1: Reading your history
+        onProgress?.invoke(ProgressPhases.READING_HISTORY, 1, ProgressPhases.TOTAL)
         Fatigue.applyFatigueDecay()
         decayMomentumBias()
 
         val d = ProState.data
         val systemicFactor = Stats.systemicRecoveryFactor()
 
+        // Phase 2: Checking your recovery
+        onProgress?.invoke(ProgressPhases.CHECKING_RECOVERY, 2, ProgressPhases.TOTAL)
         // deload decision
         val avgWeeklyVolume = if ((d.user.weeklyVolumes.size) >= 4) {
             d.user.weeklyVolumes.takeLast(4).sumOf { it.totalVolume } / 4.0
@@ -542,6 +577,8 @@ object Generator {
             sessionDeltaBase = (d.user.cache?.progBaseMultiplier ?: 1.0) * systemicFactor,
         ))
 
+        // Phase 3: Selecting exercises
+        onProgress?.invoke(ProgressPhases.SELECTING_EXERCISES, 3, ProgressPhases.TOTAL)
         // muscle selection
         val allMuscles = Library.allMuscleGroups().map { it.name }
         val targetMuscles = split.focus.toMutableSet()
@@ -595,6 +632,8 @@ object Generator {
             }
         }
 
+        // Phase 4: Reconciling prescriptions
+        onProgress?.invoke(ProgressPhases.RECONCILING_PRESCRIPTIONS, 4, ProgressPhases.TOTAL)
         // shuffle main lifts, then athletic blocks
         workout = workout.copy(exercises = exercises.shuffled())
         workout = appendAthleticBlocks(workout, needsDeload && !isTapering, isTapering)
@@ -605,6 +644,8 @@ object Generator {
             workout = trimmed
         }
 
+        // Phase 5: Saving (write phase runs on Dispatchers.IO via withContext below)
+        onProgress?.invoke(ProgressPhases.SAVING, 5, ProgressPhases.TOTAL)
         // BATCH-39c: write phase on Dispatchers.IO — no SharedPreferences
         // write on the caller's (Default) dispatcher. notifyChanged must
         // run on Main because every listener touches Compose state.
@@ -625,6 +666,28 @@ object Generator {
         }
         ProLog.i("GEN", notification ?: "")
         return GenResult(workout, notification, volumeDeload)
+    }
+
+    /**
+     * BATCH-39d: the stable phase list and total count used by the
+     * onProgress callback. Exposed as a top-level object so tests can
+     * reference the exact phase strings and the UI's ProgressBarState
+     * helper can mirror the same constants.
+     */
+    object ProgressPhases {
+        const val READING_HISTORY = "Reading your history"
+        const val CHECKING_RECOVERY = "Checking your recovery"
+        const val SELECTING_EXERCISES = "Selecting exercises"
+        const val RECONCILING_PRESCRIPTIONS = "Reconciling prescriptions"
+        const val SAVING = "Saving"
+        val ALL: List<String> = listOf(
+            READING_HISTORY,
+            CHECKING_RECOVERY,
+            SELECTING_EXERCISES,
+            RECONCILING_PRESCRIPTIONS,
+            SAVING,
+        )
+        const val TOTAL: Int = 5
     }
 
     fun decayMomentumBias() {
@@ -721,11 +784,25 @@ object Generator {
     /**
      * BATCH-39c: now a suspend function. Same write routing as
      * performGenerateWorkout — IO for writes, Main for notifyChanged.
+     *
+     * BATCH-39d: optional `onProgress` callback invoked at the same 5
+     * stable phase boundaries as performGenerateWorkout. The longevity
+     * flow has no deload decision, so phases 1, 3, 4, 5 are real work
+     * and phase 2 is a no-op recovery check (still reported for UI
+     * consistency — the user sees the same 5-step bar).
      */
-    suspend fun generateLongevityWorkout(): GenResult {
+    suspend fun generateLongevityWorkout(
+        onProgress: (suspend (phase: String, step: Int, total: Int) -> Unit)? = null,
+    ): GenResult {
+        // Phase 1: Reading your history
+        onProgress?.invoke(ProgressPhases.READING_HISTORY, 1, ProgressPhases.TOTAL)
         Fatigue.applyFatigueDecay()
         val targetMuscles = mutableSetOf<String>()
 
+        // Phase 2: Checking your recovery (longevity flow has no deload
+        // decision; this phase is reported for UI parity with the main
+        // generate path).
+        onProgress?.invoke(ProgressPhases.CHECKING_RECOVERY, 2, ProgressPhases.TOTAL)
         // risk-exercise muscles
         for (risk in Stats.assessAgingRisks()) {
             Library.allLibraryExercises(ProState.data.user.settings.trainingMode)
@@ -740,6 +817,8 @@ object Generator {
             listOf("neck", "rhomboids", "rear_delts", "forearms", "foot_intrinsics").forEach { targetMuscles.add(it) }
         }
 
+        // Phase 3: Selecting exercises
+        onProgress?.invoke(ProgressPhases.SELECTING_EXERCISES, 3, ProgressPhases.TOTAL)
         val exercises = mutableListOf<WorkoutExercise>()
         val used = mutableSetOf<String>()
         for (mg in targetMuscles) {
@@ -749,6 +828,8 @@ object Generator {
             exercises.add(generateExercisePrescription(ex, 1.0))
         }
 
+        // Phase 4: Reconciling prescriptions
+        onProgress?.invoke(ProgressPhases.RECONCILING_PRESCRIPTIONS, 4, ProgressPhases.TOTAL)
         var workout = WorkoutRecord(
             id = ProState.newWorkoutId(),
             date = ProState.nowIso(),
@@ -757,6 +838,9 @@ object Generator {
             exercises = exercises,
         )
         workout = appendAthleticBlocks(workout, isDeload = true, isTaper = false)
+
+        // Phase 5: Saving (write phase runs on Dispatchers.IO via withContext below)
+        onProgress?.invoke(ProgressPhases.SAVING, 5, ProgressPhases.TOTAL)
         // BATCH-39c: write phase on IO, notify on Main.
         withContext(Dispatchers.IO) {
             ProState.currentWorkout = workout

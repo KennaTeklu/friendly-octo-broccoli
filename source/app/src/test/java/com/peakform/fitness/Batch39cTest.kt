@@ -157,34 +157,20 @@ class Batch39cTest {
     fun generateAndGo_usesDefaultDispatcher() {
         // The signature check: if performGenerateWorkout is NOT suspend,
         // this code will not compile. That's the contract.
-        val isSuspend: Boolean = try {
-            // Look up the method via reflection — Kotlin's suspend marker
-            // adds `kotlin.coroutines.Continuation` as the last parameter.
-            val m = Generator::class.java.getDeclaredMethod(
-                "performGenerateWorkout",
-                java.lang.Integer::class.java,
-                Boolean::class.javaPrimitiveType,
-                kotlin.coroutines.Continuation::class.java,
-            )
-            true
-        } catch (_: NoSuchMethodException) {
-            // The function is not suspend (no Continuation parameter).
-            false
-        }
+        //
+        // BATCH-39d: performGenerateWorkout's signature gained an `onProgress`
+        // callback parameter. The strict getDeclaredMethod lookup in v39c
+        // broke because the parameter list no longer matches. Switched to
+        // a "find any declared method named X whose last parameter is a
+        // Continuation" check — that's the JVM-level marker for a suspend
+        // function regardless of how many parameters it has.
+        val isSuspend: Boolean = isSuspendFunction(Generator::class.java, "performGenerateWorkout")
         Assert.assertTrue(
             "Generator.performGenerateWorkout must be suspend (continuation parameter present)",
             isSuspend,
         )
         // Same for generateLongevityWorkout.
-        val longevitySuspend: Boolean = try {
-            Generator::class.java.getDeclaredMethod(
-                "generateLongevityWorkout",
-                kotlin.coroutines.Continuation::class.java,
-            )
-            true
-        } catch (_: NoSuchMethodException) {
-            false
-        }
+        val longevitySuspend: Boolean = isSuspendFunction(Generator::class.java, "generateLongevityWorkout")
         Assert.assertTrue(
             "Generator.generateLongevityWorkout must be suspend",
             longevitySuspend,
@@ -192,21 +178,23 @@ class Batch39cTest {
         // Same for Sessions.completeWorkout — its caller in Workout.kt
         // is a scope.launch; making completeWorkout suspend is required
         // because it internally calls the (now suspend) generator.
-        val completeSuspend: Boolean = try {
-            Sessions::class.java.getDeclaredMethod(
-                "completeWorkout",
-                com.peakform.fitness.core.WorkoutRecord::class.java,
-                Boolean::class.javaPrimitiveType,
-                kotlin.coroutines.Continuation::class.java,
-            )
-            true
-        } catch (_: NoSuchMethodException) {
-            false
-        }
+        val completeSuspend: Boolean = isSuspendFunction(Sessions::class.java, "completeWorkout")
         Assert.assertTrue(
             "Sessions.completeWorkout must be suspend",
             completeSuspend,
         )
+    }
+
+    /** BATCH-39d: helper — a Kotlin suspend function compiles down to a
+     *  JVM method whose last parameter type is `kotlin.coroutines.Continuation`.
+     *  Returns true iff at least one declared method named `name` has that
+     *  shape. */
+    private fun isSuspendFunction(clazz: Class<*>, name: String): Boolean {
+        return clazz.declaredMethods.any { m ->
+            m.name == name &&
+                m.parameterTypes.isNotEmpty() &&
+                m.parameterTypes.last() == kotlin.coroutines.Continuation::class.java
+        }
     }
 
     // 4. The regenerate button shows progress while active

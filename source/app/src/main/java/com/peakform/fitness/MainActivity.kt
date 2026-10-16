@@ -247,6 +247,14 @@ fun AppShell(
     // the two flows are mutually exclusive (time wizard closes before the
     // workout screen appears).
     var regenerating by remember { mutableStateOf(false) }
+    // BATCH-39d: progress-bar state driven by the generator's onProgress
+    // callback. genPhase is null until the first phase fires and after the
+    // coroutine completes (so the overlay can be hidden in both cases).
+    // genStep/genTotal drive the LinearProgressIndicator's determinate fill
+    // (when total > 1) or indeterminate fallback (when total <= 1).
+    var genPhase by remember { mutableStateOf<String?>(null) }
+    var genStep by remember { mutableStateOf(0) }
+    var genTotal by remember { mutableStateOf(1) }
     val snack = remember { mutableStateOf<String?>(null) }
     val shellScope = rememberCoroutineScope()
 
@@ -340,17 +348,32 @@ fun AppShell(
         // withContext(Dispatchers.IO); notifyChanged routes to Main via
         // withContext(Dispatchers.Main). The `regenerating` flag drives the
         // global overlay (regeneratingOverlay) below.
+        //
+        // BATCH-39d: pass an onProgress callback that routes Compose-state
+        // updates through withContext(Dispatchers.Main) — the callback
+        // itself runs on the generator's dispatcher (Default).
         regenerating = true
+        genPhase = null
+        genStep = 0
+        genTotal = com.peakform.fitness.engine.Generator.ProgressPhases.TOTAL
         shellScope.launch(Dispatchers.Default) {
             try {
-                Generator.performGenerateWorkout(budget)
+                Generator.performGenerateWorkout(budget) { phase, step, total ->
+                    withContext(Dispatchers.Main) {
+                        genPhase = phase
+                        genStep = step
+                        genTotal = total
+                    }
+                }
                 withContext(Dispatchers.Main) {
                     section = "workout"
                     regenerating = false
+                    genPhase = null
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     regenerating = false
+                    genPhase = null
                     snack.value = "Generation failed: ${e.message}"
                     ProLog.w("SHELL", "generateAndGo failed: ${e.message}")
                 }
@@ -372,20 +395,32 @@ fun AppShell(
 
     // FIX (audit): the Longevity Workout was a dead end — the flag was written but never read.
     // BATCH-39c: same off-Main pattern as generateAndGo.
+    // BATCH-39d: same onProgress callback pattern as generateAndGo.
     LaunchedEffect(genLongevity) {
         if (genLongevity) {
             genLongevity = false
             regenerating = true
+            genPhase = null
+            genStep = 0
+            genTotal = com.peakform.fitness.engine.Generator.ProgressPhases.TOTAL
             shellScope.launch(Dispatchers.Default) {
                 try {
-                    Generator.generateLongevityWorkout()
+                    Generator.generateLongevityWorkout { phase, step, total ->
+                        withContext(Dispatchers.Main) {
+                            genPhase = phase
+                            genStep = step
+                            genTotal = total
+                        }
+                    }
                     withContext(Dispatchers.Main) {
                         section = "workout"
                         regenerating = false
+                        genPhase = null
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
                         regenerating = false
+                        genPhase = null
                         ProLog.w("SHELL", "generateLongevity failed: ${e.message}")
                     }
                 }
@@ -648,37 +683,103 @@ fun AppShell(
             }
         }
 
-        // BATCH-39c: global regenerate overlay — shows when generateAndGo or
-        // LaunchedEffect(genLongevity) is running. Centered card with an
-        // indeterminate CircularProgressIndicator + a "Building your workout…"
-        // label. The overlay is non-cancelable (the generator cannot be safely
-        // cancelled mid-write); it self-dismisses when the coroutine finishes.
-        if (regenerating) {
+        // BATCH-39d: global regenerate overlay — shows when generateAndGo or
+        // LaunchedEffect(genLongevity) is running AND at least one phase has
+        // fired (genPhase != null). Replaces v39c's spinner with a Column:
+        //   - phase header text (e.g. "Selecting exercises")
+        //   - LinearProgressIndicator: determinate when total > 1, indeterminate
+        //     when total <= 1 (a fast path)
+        //   - "Step N of M" caption
+        // The overlay is non-cancelable (the generator cannot be safely
+        // cancelled mid-write); it self-dismisses when the coroutine finishes
+        // and genPhase is reset to null. No artificial delay — on fast paths
+        // (sub-500ms generation) the overlay flashes briefly and disappears.
+        if (regenerating && genPhase != null) {
+            val stepTotal = genTotal.coerceAtLeast(0)
+            val indeterminate = stepTotal <= 1
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(c.bg.copy(alpha = 0.55f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Row(
+                Column(
                     Modifier
                         .clip(RoundedCornerShape(16.dp))
                         .background(c.glass2)
-                        .padding(horizontal = 22.dp, vertical = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .padding(horizontal = 26.dp, vertical = 22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        strokeWidth = 2.5.dp,
-                        color = c.accent,
+                    Text(
+                        ProgressBarState.headerText(genPhase),
+                        style = ProType.body2,
+                        color = c.text,
                     )
-                    Spacer(Modifier.width(14.dp))
-                    Text("Building your workout…", style = ProType.body2, color = c.text)
+                    Spacer(Modifier.height(12.dp))
+                    if (indeterminate) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = c.accent,
+                            trackColor = c.tintLine,
+                        )
+                    } else {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { ProgressBarState.progress(genStep, stepTotal) },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = c.accent,
+                            trackColor = c.tintLine,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        ProgressBarState.stepCaption(genStep, stepTotal),
+                        style = ProType.small,
+                        color = c.text3,
+                    )
                 }
             }
         }
         } // end key-handler Box
     }
+}
+
+/**
+ * BATCH-39d — pure helper for the regenerate overlay's progress-bar state.
+ *
+ * `headerText(phase)` returns the user-facing phase label (falls back to
+ * "Building your workout" when phase is null).
+ *
+ * `isIndeterminate(total)` returns true when the bar should render in
+ * indeterminate mode — i.e. when total <= 1 (a fast path with no stable
+ * step count). The spec explicitly says total == 1 is treated as
+ * indeterminate.
+ *
+ * `progress(step, total)` returns the 0..1 fraction for the determinate
+ * bar. Returns 0 when total <= 1 (the indeterminate branch ignores it).
+ *
+ * `stepCaption(step, total)` returns "Step N of M" (or "Step 0 of 1"
+ * for the indeterminate case — the caption is informational only).
+ *
+ * `overlayVisible(regenerating, genPhase)` returns whether the overlay
+ * should render — both the regenerating flag must be set AND a phase
+ * must have been reported. This lets the overlay hide cleanly before
+ * the first phase fires and after the coroutine completes.
+ */
+object ProgressBarState {
+    const val HEADER_FALLBACK = "Building your workout"
+
+    fun headerText(genPhase: String?): String = genPhase ?: HEADER_FALLBACK
+
+    fun isIndeterminate(total: Int): Boolean = total <= 1
+
+    fun progress(step: Int, total: Int): Float =
+        if (total > 1) (step.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+
+    fun stepCaption(step: Int, total: Int): String =
+        if (total > 1) "Step $step of $total" else "Step $step of $total"
+
+    fun overlayVisible(regenerating: Boolean, genPhase: String?): Boolean =
+        regenerating && genPhase != null
 }
 
 /** 56dp compact glass navbar — 1.4 header: fire tiers, emoji avatar, resume pill, palette. */
