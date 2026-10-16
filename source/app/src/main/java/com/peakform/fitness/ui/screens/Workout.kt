@@ -1,5 +1,7 @@
 package com.peakform.fitness.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,6 +57,24 @@ fun WorkoutScreen(
     }
     val _verTick = ver.intValue
     val scrollState = rememberScrollState()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var prToast by remember { mutableStateOf<String?>(null) }
+
+    // BATCH-38d: backup launcher — same pattern as Settings.kt.
+    // On tap, generate the backup JSON via Backup.exportCompleteV1(ctx),
+    // then launch the system file picker to save it.
+    val backupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            val data = com.peakform.fitness.core.Backup.exportCompleteV1(ctx)
+            com.peakform.fitness.core.Backup.writeJsonToUri(ctx, uri, data)
+            prToast = "Backup saved"
+        }
+    }
+
+    // BATCH-38d: grip sheet state
+    var showGripSheet by remember { mutableStateOf(false) }
 
     var openCardIndex by remember { mutableIntStateOf(-1) }
     var showDetails by remember { mutableStateOf(false) }
@@ -66,7 +86,6 @@ fun WorkoutScreen(
     // 1.4: share sheet (SH1–SH4) + BIGGER/STRONGER momentum steering (C3/C4)
     var showShare by remember { mutableStateOf(false) }
     var showMomentum by remember { mutableStateOf(false) }
-    var prToast by remember { mutableStateOf<String?>(null) }
     // BATCH-2: regenerate confirm (top + bottom buttons share the same flow) + replace confirm
     var confirmRegenerate by remember { mutableStateOf(false) }
     var confirmReplace by remember { mutableStateOf<Int?>(null) }
@@ -217,14 +236,15 @@ fun WorkoutScreen(
         Spacer(Modifier.height(16.dp))
     }
 
-    // BATCH-38c: Floating action rail — 5 vertical rounded-square buttons on the
+    // BATCH-38c/38d: Floating action rail — 5 vertical rounded-square buttons on the
     // right side of the workout screen (timer, cloud-download, cloud-upload, hand, arrow-up).
-    // Matches the HTML's FAB + quick-actions-modal pattern.
     FloatingActionRail(
         onTimer = { RestTimer.start(ProState.data.user.settings.restTime) },
-        onDownload = { /* TODO: backup trigger — wire to Backup.save when context available */ },
+        // BATCH-38d: backup wired — launches file picker, saves Backup.exportCompleteV1
+        onDownload = { backupLauncher.launch("peakform-backup-${System.currentTimeMillis()}.json") },
         onUpload = { onOpenSection("import") },
-        onGrip = { /* TODO: grip/equipment selector — no target screen yet */ },
+        // BATCH-38d: grip wired — opens GripEquipmentSheet
+        onGrip = { showGripSheet = true },
         onScrollTop = { scope.launch { scrollState.scrollTo(0) } },
     )
 
@@ -381,6 +401,19 @@ fun WorkoutScreen(
     prToast?.let { msg ->
         LaunchedEffect(msg) { kotlinx.coroutines.delay(2400); prToast = null }
         ToastBanner(msg)
+    }
+
+    // BATCH-38d: Grip equipment sheet
+    if (showGripSheet) {
+        GripEquipmentSheet(
+            visible = true,
+            onDismiss = { showGripSheet = false },
+            onSelect = { selection ->
+                com.peakform.fitness.core.ProfileSettings.put(ctx, "p8_grip_pref", selection)
+                showGripSheet = false
+                prToast = "Grip: $selection"
+            },
+        )
     }
 }
 
@@ -1029,19 +1062,15 @@ private fun assertDeclared(requirement: Boolean, fieldName: String, context: Str
 }
 
 /**
- * BATCH-38c: Floating action rail — 5 vertical rounded-square buttons on the
- * right side of the workout screen. Matches the HTML's FAB + quick-actions pattern.
+ * BATCH-38c/38d: Floating action rail — 5 vertical rounded-square buttons on the
+ * right side of the workout screen.
  *
  * Buttons (top to bottom):
  *   1. Timer / stopwatch — opens a rest timer
- *   2. Cloud download — backup
- *   3. Cloud upload — import
- *   4. Hand / grip — equipment selector (TODO — no target screen yet)
+ *   2. Cloud download — backup (wired in v38d to Backup.exportCompleteV1 + file picker)
+ *   3. Cloud upload — import (wired to onOpenSection("import"))
+ *   4. Hand / grip — opens GripEquipmentSheet (wired in v38d)
  *   5. Arrow up — scroll to top
- *
- * Position: right-aligned, vertically centered, fixed.
- * Size: 48dp square buttons, 12dp gap, 14dp rounded corners.
- * Background: accent gradient, tint-line border.
  */
 @Composable
 fun FloatingActionRail(
@@ -1082,6 +1111,86 @@ fun FloatingActionRail(
                     com.peakform.fitness.ui.FaIcon(icon, size = 16.sp, tint = c.accent)
                 }
             }
+        }
+    }
+}
+
+/**
+ * BATCH-38d: Grip equipment selector sheet.
+ *
+ * A modal sheet (GlassDialogHost pattern from Dialogs.kt) showing a grid of
+ * equipment values (from exercise_taxonomy.json) + grip-specific items found
+ * in the library's exercise names.
+ *
+ * On select: stores the selection via ProfileSettings.put(ctx, "p8_grip_pref", selection).
+ * The selection biases nothing in this batch — it is a preference for future use.
+ */
+@Composable
+fun GripEquipmentSheet(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    if (!visible) return
+    val c = LocalProColors.current
+
+    // Equipment values from exercise_taxonomy.json (8 allowed)
+    val equipmentValues = listOf(
+        "barbell", "dumbbell", "machine", "cable",
+        "band", "bodyweight", "kettlebell", "other",
+    )
+    // Grip-specific values found in the library's exercise names
+    val gripValues = listOf(
+        "Wide Grip", "Close Grip", "Reverse Grip", "Neutral Grip",
+        "Snatch Grip", "Clean Grip", "Pinch Grip",
+    )
+
+    com.peakform.fitness.ui.GlassDialogHost(
+        onDismiss = onDismiss,
+        scrollable = true,
+    ) {
+        Text("Equipment", style = ProType.label, color = c.text)
+        Spacer(Modifier.height(8.dp))
+        // Equipment grid — 4 columns, tinted backgrounds
+        equipmentValues.chunked(4).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { equip ->
+                    Box(
+                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                            .background(c.tintBg)
+                            .border(1.dp, c.tintLine, RoundedCornerShape(10.dp))
+                            .clickable { onSelect(equip) }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(equip.replaceFirstChar { it.uppercase() }, fontSize = 11.sp, color = c.text2, maxLines = 1)
+                    }
+                }
+                // Pad with empty boxes if row is short
+                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Grip Type", style = ProType.label, color = c.text)
+        Spacer(Modifier.height(8.dp))
+        gripValues.chunked(4).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { grip ->
+                    Box(
+                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                            .background(c.tintBg)
+                            .border(1.dp, c.tintLine, RoundedCornerShape(10.dp))
+                            .clickable { onSelect(grip) }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(grip, fontSize = 11.sp, color = c.text2, maxLines = 1)
+                    }
+                }
+                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }

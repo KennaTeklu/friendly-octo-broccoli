@@ -1,4 +1,4 @@
-=== DRIFT REPORT — v38c ===
+=== DRIFT REPORT — v38d ===
 Generated: 2026-10-15
 Rows checked: 113
 Drifts found: 0
@@ -15,21 +15,16 @@ All rows cite one of 7 source files:
   rippetoe-2011/assistance.md (3 rows)
   daniels-2013/vdot-zones.md (3 rows)
 
---- v38c changes ---
+--- v38d changes ---
   - No new rows. No new coaches. No new sources. No new taxonomy fields.
-  - PART 1 — Radar: Rebuilt ComponentRadar in Progress.kt to match HTML
-    Chart.js radar. 11 labeled axes (Strength, Endurance, Cardio,
-    Flexibility, Body Comp, Power, Speed, Agility, Balance, Coordination,
-    Reaction), 5 scale rings (stepSize=20, max=100), angle lines,
-    per-component colored vertex dots (4px radius, 1.5px border in
-    surface), polygon fill at 18% accent opacity + 2px accent border,
-    axis labels positioned outside the ring.
-  - PART 2 — Tiles: Added Import tile to SHEET_CELLS in Nav.kt (separate
-    from Backup). Total tiles: 17 (was 16).
-  - PART 3 — Floating rail: Added FloatingActionRail composable in
-    Workout.kt — 5 vertical rounded-square buttons (timer, cloud-download,
-    cloud-upload, hand/grip, arrow-up) positioned at bottom-right of the
-    workout screen. Uses tint tokens from v38b.
+  - PART 1 — Backup button: Wired cloud-download rail button to
+    Backup.exportCompleteV1(ctx) via rememberLauncherForActivityResult
+    (CreateDocument("application/json")). Same pattern as Settings.kt.
+  - PART 2 — Grip button: Built GripEquipmentSheet composable (uses
+    GlassDialogHost pattern from Dialogs.kt). Contents: 8 equipment
+    values (from exercise_taxonomy.json) + 7 grip values (from library
+    exercise names). Selection stored via ProfileSettings.put(ctx,
+    "p8_grip_pref", selection).
   - No touch dossiers, book, coaches, AuthoredRows/Coaches, DifficultyGate.
 
 === DRIFT CHECK COMPLETE ===
