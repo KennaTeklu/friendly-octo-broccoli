@@ -41,6 +41,12 @@ object ProState {
     // BATCH-39a: session records (append-only). Stored per profile via ProPrefs.
     @Volatile var sessions: List<com.peakform.fitness.core.state.StateModel.SessionRecord> = emptyList()
 
+    // BATCH-39b: the field (current/peak/lastUpdate per muscle and component).
+    // One FieldState per profile, stored under key `p9_field_<profileId>` (ProPrefs).
+    // Write-only and monotonic in this batch. Decay arrives in v39c.
+    @Volatile var field: com.peakform.fitness.core.state.StateModel.FieldState =
+        com.peakform.fitness.core.state.StateModel.FieldState()
+
     private var store: ProStore? = null
     private var ctx: Context? = null
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -92,6 +98,10 @@ object ProState {
         store = null
         data = WorkoutData()
         currentWorkout = null
+        // BATCH-39a/39b: clear derived per-profile caches — they reload from
+        // ProPrefs via loadAll() against the new activeProfileId.
+        sessions = emptyList()
+        field = com.peakform.fitness.core.state.StateModel.FieldState()
         initialized = false
         store = ProStore(context)
     }
@@ -144,9 +154,143 @@ object ProState {
         synchronized(this) {
             sessions = sessions + record
             saveSessions()
+            // BATCH-39b: multiply the session by each exercise's dossier stimulus
+            // profile and add the result to the field. Sessions are the ground
+            // truth — if the field write fails, the session write above still
+            // stands. The field is derived.
+            try {
+                accumulateField(record)
+                saveField()
+            } catch (e: Exception) {
+                ProLog.w("STORE", "field accumulation failed for session ${record.id}: ${e.message}")
+            }
         }
         notifyChanged()
     }
+
+    // ---- BATCH-39b: field accumulation (source/docs/system/07-the-field.md,
+    //      04-stimulus-profiles.md, 08-session-state.md § "The field then reads
+    //      the session and updates") ----
+
+    /**
+     * Multiply each ExerciseRecord in the session by its dossier's stimulus
+     * profile and add the result to the field. Monotonic — only adds, never
+     * decays. Updates peak for each touched slot. Stamps lastUpdate with the
+     * session timestamp.
+     *
+     * Volume per set:
+     *   - For holds (durationSeconds != null && > 0): volume = durationSeconds / 30.0
+     *     (30 s treated as one rep-equivalent, per the spec)
+     *   - Otherwise: volume = reps.toDouble()
+     *
+     * Missing dossier → log warning, skip that exercise. Do not throw.
+     * Empty stimulusProfile AND empty componentStimulus → skip.
+     */
+    private fun accumulateField(record: com.peakform.fitness.core.state.StateModel.SessionRecord) {
+        val newMuscles = field.muscles.toMutableMap()
+        val newComponents = field.components.toMutableMap()
+        val touchedMuscles = mutableSetOf<String>()
+        val touchedComponents = mutableSetOf<String>()
+
+        for (ex in record.exercises) {
+            // Skipped exercises have no completed sets — no contribution.
+            if (ex.skipped) continue
+            // Pull the dossier for this exercise. Missing dossier → warn + skip.
+            val dossier = com.peakform.fitness.coach.dossiers.DossierRegistry.forExercise(ex.exerciseId)
+            if (dossier == null) {
+                ProLog.w("STORE", "no dossier for exerciseId=${ex.exerciseId} — skipping field contribution")
+                continue
+            }
+            // Both maps empty → skip (per spec).
+            val sp = dossier.stimulusProfile
+            val cs = dossier.componentStimulus
+            if (sp.isEmpty() && cs.isEmpty()) continue
+
+            for (setRec in ex.sets) {
+                // Only completed sets contribute.
+                if (!setRec.completed) continue
+                val volume = if (setRec.durationSeconds != null && setRec.durationSeconds > 0.0) {
+                    setRec.durationSeconds / 30.0
+                } else {
+                    setRec.reps.toDouble()
+                }
+                if (volume <= 0.0) continue
+
+                // Distribute volume across muscles.
+                for ((muscleId, weight) in sp) {
+                    if (weight == 0.0) continue
+                    val slot = newMuscles[muscleId]
+                        ?: com.peakform.fitness.core.state.StateModel.FieldSlot()
+                    val newCurrent = slot.current + volume * weight
+                    newMuscles[muscleId] = slot.copy(
+                        current = newCurrent,
+                        peak = maxOf(slot.peak, newCurrent),
+                        lastUpdate = record.timestamp,
+                    )
+                    touchedMuscles += muscleId
+                }
+                // Distribute volume across components.
+                for ((componentName, weight) in cs) {
+                    if (weight == 0.0) continue
+                    val slot = newComponents[componentName]
+                        ?: com.peakform.fitness.core.state.StateModel.FieldSlot()
+                    val newCurrent = slot.current + volume * weight
+                    newComponents[componentName] = slot.copy(
+                        current = newCurrent,
+                        peak = maxOf(slot.peak, newCurrent),
+                        lastUpdate = record.timestamp,
+                    )
+                    touchedComponents += componentName
+                }
+            }
+        }
+
+        if (touchedMuscles.isNotEmpty() || touchedComponents.isNotEmpty()) {
+            field = com.peakform.fitness.core.state.StateModel.FieldState(
+                muscles = newMuscles,
+                components = newComponents,
+            )
+        }
+    }
+
+    // ---- BATCH-39b: field persistence (per-profile ProPrefs key p9_field_<profileId>) ----
+
+    private val FIELD_KEY_PREFIX = "p9_field_"
+
+    /** Load the field for the active profile from ProPrefs. Called in loadAll(). */
+    private fun loadField() {
+        val c = ctx ?: return
+        val key = FIELD_KEY_PREFIX + activeProfileId
+        val raw = ProPrefs.get(c, key) ?: run {
+            field = com.peakform.fitness.core.state.StateModel.FieldState()
+            return
+        }
+        try {
+            field = ProJson.json.decodeFromString(
+                com.peakform.fitness.core.state.StateModel.FieldState.serializer(), raw
+            )
+        } catch (_: Exception) {
+            field = com.peakform.fitness.core.state.StateModel.FieldState()
+        }
+    }
+
+    /** Save the field for the active profile to ProPrefs. Called after accumulation. */
+    private fun saveField() {
+        val c = ctx ?: return
+        val key = FIELD_KEY_PREFIX + activeProfileId
+        val raw = ProJson.json.encodeToString(
+            com.peakform.fitness.core.state.StateModel.FieldState.serializer(), field
+        )
+        ProPrefs.put(c, key, raw)
+    }
+
+    /** Look up a muscle slot in the active profile's field. Null if the muscle was never written. */
+    fun fieldSlot(muscleId: String): com.peakform.fitness.core.state.StateModel.FieldSlot? =
+        field.muscles[muscleId]
+
+    /** Look up a component slot in the active profile's field. Null if the component was never written. */
+    fun componentSlot(componentName: String): com.peakform.fitness.core.state.StateModel.FieldSlot? =
+        field.components[componentName]
 
     /** Return recent sessions that include the given exerciseId, most recent first. */
     fun recentSessions(exerciseId: String, limit: Int = 10): List<com.peakform.fitness.core.state.StateModel.SessionRecord> {
@@ -226,7 +370,9 @@ object ProState {
         initialized = true
         // BATCH-39a: load session records per profile
         loadSessions()
-        ProLog.i("STORE", "loaded: workouts=${d.workouts.size} exercises=${d.exercises.size} saved=${saved != null} emergency=${emergency != null} draft=${best != null} sessions=${sessions.size}")
+        // BATCH-39b: load the field (muscle + component slots) per profile
+        loadField()
+        ProLog.i("STORE", "loaded: workouts=${d.workouts.size} exercises=${d.exercises.size} saved=${saved != null} emergency=${emergency != null} draft=${best != null} sessions=${sessions.size} field.muscles=${field.muscles.size} field.components=${field.components.size}")
         notifyChanged()
     }
 

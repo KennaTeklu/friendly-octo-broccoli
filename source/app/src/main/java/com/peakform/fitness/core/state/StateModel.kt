@@ -158,4 +158,34 @@ object StateModel {
         val durationSeconds: Double? = null,  // for holds
         val completed: Boolean = true,
     )
+
+    // ---- BATCH-39b: The field (source/docs/system/07-the-field.md) ----
+    //
+    // The shared substrate. Where every session writes. Where every coach
+    // will read (v39c+). One FieldState per profile, stored under
+    // ProStore key `p9_field_<profileId>` (ProPrefs-backed, same pattern
+    // as v39a sessions).
+    //
+    // Muscle keys are the ids from exercise_taxonomy.json (chest, quads,
+    // lats, triceps, etc.). Component keys are the 11 short names from
+    // mp_components.json (Strength, Endurance, Cardio, Flexibility,
+    // Body Comp, Power, Speed, Agility, Balance, Coordination, Reaction).
+    //
+    // This batch is write-only and monotonic. Decay arrives in v39c.
+    // Read interface (readinessFor, stimulusFor) arrives in v39d.
+
+    /** One slot in the field — per (user, muscle) or (user, component). */
+    @Serializable
+    data class FieldSlot(
+        val current: Double = 0.0,
+        val peak: Double = 0.0,
+        val lastUpdate: Long = 0L,
+    )
+
+    /** The field for one profile. Two maps: muscles and components. */
+    @Serializable
+    data class FieldState(
+        val muscles: Map<String, FieldSlot> = emptyMap(),
+        val components: Map<String, FieldSlot> = emptyMap(),
+    )
 }
