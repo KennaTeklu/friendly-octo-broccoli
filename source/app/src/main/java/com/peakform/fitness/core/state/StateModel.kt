@@ -188,4 +188,32 @@ object StateModel {
         val muscles: Map<String, FieldSlot> = emptyMap(),
         val components: Map<String, FieldSlot> = emptyMap(),
     )
+
+    // ---- BATCH-39e: Recovery curves (source/docs/system/09-recovery-curves.md) ----
+    //
+    // Per-user, per-muscle time constant for the exponential decay that
+    // shrinks field values back toward zero after a session. Defaults are
+    // authored per muscle bucket (compound=48h, accessory=24h, …). The
+    // schema has `samples` and `source` fields ready for v39e-2 to write
+    // learned curves into — this batch ships defaults + decay only.
+    //
+    // Components get a fixed 24h curve (no authored distinction per the
+    // spec). Stored alongside the field under ProPrefs key
+    // `p9_recovery_<profileId>`.
+
+    /** One recovery curve — per (user, muscle) or (user, component). */
+    @Serializable
+    data class RecoveryCurve(
+        val muscleId: String,
+        val recoveryHours: Double,   // time constant T in exp(-t/T)
+        val source: String,          // "default" or "learned"
+        val samples: Int = 0,        // count of sessions used to learn (0 for default)
+    )
+
+    /** Recovery state for one profile — one curve per muscle that has either
+     *  a default or learned time constant. */
+    @Serializable
+    data class RecoveryState(
+        val curves: Map<String, RecoveryCurve> = emptyMap(),
+    )
 }

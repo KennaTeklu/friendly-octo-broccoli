@@ -514,6 +514,11 @@ object Generator {
         suppressConfirm: Boolean = true,
         onProgress: (suspend (phase: String, step: Int, total: Int) -> Unit)? = null,
     ): GenResult {
+        // BATCH-39e: decay the field against the wall clock before any field
+        // read (the generator currently does not read the field, but this
+        // prepares for v39f's readiness queries). The decay is idempotent —
+        // repeated calls with the same `now` are a no-op.
+        ProState.decayField()
         // Phase 1: Reading your history
         onProgress?.invoke(ProgressPhases.READING_HISTORY, 1, ProgressPhases.TOTAL)
         Fatigue.applyFatigueDecay()

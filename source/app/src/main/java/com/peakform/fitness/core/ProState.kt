@@ -47,6 +47,13 @@ object ProState {
     @Volatile var field: com.peakform.fitness.core.state.StateModel.FieldState =
         com.peakform.fitness.core.state.StateModel.FieldState()
 
+    // BATCH-39e: per-profile recovery curves. One RecoveryState per profile,
+    // stored under key `p9_recovery_<profileId>` (ProPrefs). The decay pass
+    // reads curve.recoveryHours for each slot; missing curves fall back to
+    // RecoveryCurves.defaultHours(muscleId).
+    @Volatile var recovery: com.peakform.fitness.core.state.StateModel.RecoveryState =
+        com.peakform.fitness.core.state.StateModel.RecoveryState()
+
     private var store: ProStore? = null
     private var ctx: Context? = null
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -98,10 +105,11 @@ object ProState {
         store = null
         data = WorkoutData()
         currentWorkout = null
-        // BATCH-39a/39b: clear derived per-profile caches — they reload from
-        // ProPrefs via loadAll() against the new activeProfileId.
+        // BATCH-39a/39b/39e: clear derived per-profile caches — they reload
+        // from ProPrefs via loadAll() against the new activeProfileId.
         sessions = emptyList()
         field = com.peakform.fitness.core.state.StateModel.FieldState()
+        recovery = com.peakform.fitness.core.state.StateModel.RecoveryState()
         initialized = false
         store = ProStore(context)
     }
@@ -154,11 +162,16 @@ object ProState {
         synchronized(this) {
             sessions = sessions + record
             saveSessions()
-            // BATCH-39b: multiply the session by each exercise's dossier stimulus
-            // profile and add the result to the field. Sessions are the ground
-            // truth — if the field write fails, the session write above still
-            // stands. The field is derived.
+            // BATCH-39e: decay-then-accumulate. Decay shrinks every slot per
+            // its recovery curve using the session's timestamp as `now`, then
+            // accumulateField adds the session's volume*weight contributions
+            // on top. The result is the field's view of "stimulus right after
+            // this session was logged" — current reflects both accumulated
+            // decay (from prior sessions) and the new volume (from this one).
+            // Sessions are the ground truth — if the field write fails, the
+            // session write above still stands. The field is derived.
             try {
+                decayField(record.timestamp)
                 accumulateField(record)
                 saveField()
             } catch (e: Exception) {
@@ -284,6 +297,135 @@ object ProState {
         ProPrefs.put(c, key, raw)
     }
 
+    // ---- BATCH-39e: recovery curves + decay (source/docs/system/09-recovery-curves.md,
+    //      07-the-field.md § "Decay") ----
+
+    private val RECOVERY_KEY_PREFIX = "p9_recovery_"
+
+    /** Load the recovery curves for the active profile from ProPrefs. Called in loadAll(). */
+    private fun loadRecovery() {
+        val c = ctx ?: return
+        val key = RECOVERY_KEY_PREFIX + activeProfileId
+        val raw = ProPrefs.get(c, key) ?: run {
+            recovery = com.peakform.fitness.core.state.StateModel.RecoveryState()
+            return
+        }
+        try {
+            recovery = ProJson.json.decodeFromString(
+                com.peakform.fitness.core.state.StateModel.RecoveryState.serializer(), raw
+            )
+        } catch (_: Exception) {
+            recovery = com.peakform.fitness.core.state.StateModel.RecoveryState()
+        }
+    }
+
+    /** Save the recovery curves for the active profile to ProPrefs. */
+    private fun saveRecovery() {
+        val c = ctx ?: return
+        val key = RECOVERY_KEY_PREFIX + activeProfileId
+        val raw = ProJson.json.encodeToString(
+            com.peakform.fitness.core.state.StateModel.RecoveryState.serializer(), recovery
+        )
+        ProPrefs.put(c, key, raw)
+    }
+
+    /**
+     * Look up the recovery curve for a muscle id. Returns a default curve
+     * (source="default", samples=0) when no learned curve exists yet —
+     * v39e-2 will populate learned curves once it has 3+ sessions per
+     * muscle. The returned curve is a fresh copy; mutating it has no
+     * effect on ProState.
+     */
+    fun curveFor(muscleId: String): com.peakform.fitness.core.state.StateModel.RecoveryCurve =
+        recovery.curves[muscleId]
+            ?: com.peakform.fitness.core.state.RecoveryCurves.defaultCurve(muscleId)
+
+    /**
+     * BATCH-39e — decay every slot in the field per its recovery curve.
+     *
+     * Formula per slot (source/docs/system/09-recovery-curves.md § "How the
+     * field uses it"):
+     *
+     *     elapsedHours = (now - slot.lastUpdate) / 3_600_000.0
+     *     T            = recoveryState.curves[muscleId]?.recoveryHours
+     *                    ?: RecoveryCurves.defaultHours(muscleId)  (muscles)
+     *                    ?: RecoveryCurves.defaultHoursForComponent (components)
+     *     factor       = exp(-elapsedHours / T)
+     *     slot.current *= factor
+     *     slot.lastUpdate = now
+     *
+     * Floor: if the decayed current drops below 0.01, zero it (avoids
+     * floating-point dust accumulating forever). Peak is NEVER decayed —
+     * it is the historical max and only grows.
+     *
+     * Idempotent: calling twice with the same `now` produces the same
+     * field state (the second call sees lastUpdate == now → elapsedHours
+     * == 0 → factor == 1 → no change).
+     *
+     * Called from:
+     *   - loadAll() — after loadField() + loadRecovery()
+     *   - Generator.performGenerateWorkout — at the very top, before any
+     *     field read (prepares for v39f)
+     *   - appendSession — at the top of the synchronized block, before
+     *     accumulateField() (decay-then-accumulate)
+     */
+    fun decayField(now: Long = System.currentTimeMillis()) {
+        val newMuscles = field.muscles.toMutableMap()
+        val newComponents = field.components.toMutableMap()
+        var touched = false
+
+        for ((muscleId, slot) in field.muscles) {
+            if (slot.current == 0.0 && slot.peak == 0.0) continue
+            val T = recovery.curves[muscleId]?.recoveryHours
+                ?: com.peakform.fitness.core.state.RecoveryCurves.defaultHours(muscleId)
+            val factor = decayFactor(slot.lastUpdate, now, T)
+            val newCurrent = if (slot.current * factor < 0.01) 0.0 else slot.current * factor
+            if (newCurrent != slot.current || now != slot.lastUpdate) {
+                newMuscles[muscleId] = slot.copy(
+                    current = newCurrent,
+                    // peak is NEVER decayed — historical max only grows.
+                    peak = slot.peak,
+                    lastUpdate = now,
+                )
+                touched = true
+            }
+        }
+
+        for ((componentName, slot) in field.components) {
+            if (slot.current == 0.0 && slot.peak == 0.0) continue
+            val T = recovery.curves[componentName]?.recoveryHours
+                ?: com.peakform.fitness.core.state.RecoveryCurves.defaultHoursForComponent(componentName)
+            val factor = decayFactor(slot.lastUpdate, now, T)
+            val newCurrent = if (slot.current * factor < 0.01) 0.0 else slot.current * factor
+            if (newCurrent != slot.current || now != slot.lastUpdate) {
+                newComponents[componentName] = slot.copy(
+                    current = newCurrent,
+                    peak = slot.peak,
+                    lastUpdate = now,
+                )
+                touched = true
+            }
+        }
+
+        if (touched) {
+            field = com.peakform.fitness.core.state.StateModel.FieldState(
+                muscles = newMuscles,
+                components = newComponents,
+            )
+        }
+    }
+
+    /** exp(-elapsedHours / T) — pure helper for decayField. Returns 1.0 when
+     *  elapsedHours == 0 (idempotency) or when T <= 0 (defensive: no decay
+     *  if the curve is bogus). */
+    private fun decayFactor(lastUpdate: Long, now: Long, T: Double): Double {
+        if (T <= 0.0) return 1.0
+        val elapsedMs = (now - lastUpdate).coerceAtLeast(0L)
+        val elapsedHours = elapsedMs / 3_600_000.0
+        if (elapsedHours == 0.0) return 1.0
+        return kotlin.math.exp(-elapsedHours / T)
+    }
+
     /** Look up a muscle slot in the active profile's field. Null if the muscle was never written. */
     fun fieldSlot(muscleId: String): com.peakform.fitness.core.state.StateModel.FieldSlot? =
         field.muscles[muscleId]
@@ -372,7 +514,16 @@ object ProState {
         loadSessions()
         // BATCH-39b: load the field (muscle + component slots) per profile
         loadField()
-        ProLog.i("STORE", "loaded: workouts=${d.workouts.size} exercises=${d.exercises.size} saved=${saved != null} emergency=${emergency != null} draft=${best != null} sessions=${sessions.size} field.muscles=${field.muscles.size} field.components=${field.components.size}")
+        // BATCH-39e: load recovery curves per profile, then decay the field
+        // against the current wall clock so the field reflects stimulus
+        // decayed up to "right now" (not the last persisted lastUpdate).
+        loadRecovery()
+        decayField()
+        // Persist the decayed field so the next appendSession (and the next
+        // loadAll) sees consistent state — without this, the in-memory
+        // decay is lost on profile switch / process restart.
+        saveField()
+        ProLog.i("STORE", "loaded: workouts=${d.workouts.size} exercises=${d.exercises.size} saved=${saved != null} emergency=${emergency != null} draft=${best != null} sessions=${sessions.size} field.muscles=${field.muscles.size} field.components=${field.components.size} recovery.curves=${recovery.curves.size}")
         notifyChanged()
     }
 
