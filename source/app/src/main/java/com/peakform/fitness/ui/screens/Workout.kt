@@ -718,6 +718,12 @@ fun ExerciseCard(
     val coach35c = com.peakform.fitness.coach.CoachRegistry.lookup(exercise.id)
     val reqs35c = coach35c?.requirements() ?: com.peakform.fitness.coach.authored.CoachRequirements()
 
+    // BATCH-42: resolve 1RM from history/siblings so the test panel only
+    // appears when the system has no way to estimate a 1RM.
+    val oneRmEstimate = remember(exercise.id) {
+        com.peakform.fitness.core.OneRmResolver.resolve(exercise.id)
+    }
+
     // BATCH-35e: difficulty gate. If the exercise is locked, the prescription
     // line is replaced with a lock icon + the gate's reason string. The card
     // itself stays in the list (not removed, not hidden).
@@ -1198,7 +1204,9 @@ fun ExerciseCard(
                 } else {
                     // B2: gate the 1RM test panel on reqs.needs1RM (same gate the
                     // prescription line uses). Side Plank, Pull-Up, RDL no longer show it.
-                    if (!isDrill && !has1RM && reqs.needs1RM) {
+                    val needsOneRmTest = !isDrill && !has1RM && reqs.needs1RM &&
+                        (oneRmEstimate == null || oneRmEstimate.confidence < 0.7)
+                    if (needsOneRmTest) {
                         OneRmTestPanel(
                             exerciseId = exercise.id,
                             onDone = { onLogged() },
@@ -1206,6 +1214,13 @@ fun ExerciseCard(
                             onStartRest = onStartRest,
                         )
                     } else {
+                        oneRmEstimate?.let { est ->
+                            Text(
+                                "1RM: ${est.value.toInt()} lbs (${est.source})",
+                                style = ProType.body2, color = c.text3,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                        }
                         LoggerPanel(
                             exercise = exercise,
                             onSave = { actual, notes ->
