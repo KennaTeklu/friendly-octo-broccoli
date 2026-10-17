@@ -187,6 +187,12 @@ object GenerateOverlayState {
 fun WorkoutScreen(
     onRequireGenerate: () -> Unit,
     onOpenSection: (String) -> Unit,
+    // BATCH-43: optional external scroll state. When the shell provides one
+    // (so the floating Power Dock's arrow-up can scroll this screen back
+    // to top), WorkoutScreen uses it instead of allocating its own. When
+    // null (e.g. preview / standalone test), WorkoutScreen allocates its
+    // own state and behaves exactly as before.
+    externalScrollState: androidx.compose.foundation.ScrollState? = null,
 ) {
     val c = LocalProColors.current
     val scope = rememberCoroutineScope()
@@ -199,7 +205,7 @@ fun WorkoutScreen(
         }
     }
     val _verTick = ver.intValue
-    val scrollState = rememberScrollState()
+    val scrollState = externalScrollState ?: rememberScrollState()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var prToast by remember { mutableStateOf<String?>(null) }
 
@@ -428,17 +434,11 @@ fun WorkoutScreen(
         Spacer(Modifier.height(16.dp))
     }
 
-    // BATCH-38c/38d: Floating action rail — 5 vertical rounded-square buttons on the
-    // right side of the workout screen (timer, cloud-download, cloud-upload, hand, arrow-up).
-    FloatingActionRail(
-        onTimer = { RestTimer.start(ProState.data.user.settings.restTime) },
-        // BATCH-38d: backup wired — launches file picker, saves Backup.exportCompleteV1
-        onDownload = { backupLauncher.launch("peakform-backup-${System.currentTimeMillis()}.json") },
-        onUpload = { onOpenSection("import") },
-        // BATCH-38d: grip wired — opens GripEquipmentSheet
-        onGrip = { showGripSheet = true },
-        onScrollTop = { scope.launch { scrollState.scrollTo(0) } },
-    )
+    // BATCH-43: FloatingActionRail moved to MainActivity shell — it now
+    // renders on every section, not just the workout screen. The rail's
+    // timer / backup / import / grip / scroll-top handlers are wired at
+    // the shell level (see MainActivity's `FloatingActionRail(...)` call).
+    // The Workout screen no longer renders the rail itself.
 
     // ---- rest timer overlay (app-scope — survives navigation) ----
     if (RestTimer.running) {
@@ -1380,15 +1380,38 @@ private fun assertDeclared(requirement: Boolean, fieldName: String, context: Str
 }
 
 /**
- * BATCH-38c/38d: Floating action rail — 5 vertical rounded-square buttons on the
- * right side of the workout screen.
+ * BATCH-38c/38d, BATCH-43: Floating action rail — the Power Dock.
+ *
+ * Source: reference/html/app.html § "POWER DOCK (quick actions, collapsible rail)"
+ *   #p4Dock {
+ *     position: fixed;
+ *     right: 12px;
+ *     bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+ *     z-index: 1620;
+ *     display: flex; flex-direction: column; gap: 8px;
+ *     align-items: flex-end;
+ *   }
+ *   .p4-dock-btn {
+ *     width: 46px; height: 46px;
+ *     border-radius: 16px;
+ *     background: var(--p4-glass);       // <- c.glass (was c.tintBg in v38c)
+ *     backdrop-filter: blur(16px);
+ *     border: 1px solid var(--p4-hairline-2);  // <- c.hairline2 (was c.tintLine)
+ *     color: var(--p4-text-2);           // <- c.text2 (was c.accent — v38c was too loud)
+ *     font-size: 17px;
+ *   }
+ *
+ * BATCH-43: moved from the Workout screen to the MainActivity shell so it
+ * renders on every section (not just the workout). The rail's onScrollTop
+ * now takes a nullable ScrollState — when null (no scroll container on the
+ * current screen) the arrow-up button is hidden.
  *
  * Buttons (top to bottom):
- *   1. Timer / stopwatch — opens a rest timer
- *   2. Cloud download — backup (wired in v38d to Backup.exportCompleteV1 + file picker)
- *   3. Cloud upload — import (wired to onOpenSection("import"))
- *   4. Hand / grip — opens GripEquipmentSheet (wired in v38d)
- *   5. Arrow up — scroll to top
+ *   1. Timer / stopwatch — opens a rest timer (RestTimer.start)
+ *   2. Cloud download — backup (Backup.exportCompleteV1 + CreateDocument)
+ *   3. Cloud upload — import (go("import") → system file picker, BATCH-43)
+ *   4. Hand / grip — opens GripEquipmentSheet
+ *   5. Arrow up — scroll to top (hidden when scrollState == null OR value == 0)
  */
 @Composable
 fun FloatingActionRail(
@@ -1397,36 +1420,43 @@ fun FloatingActionRail(
     onUpload: () -> Unit,
     onGrip: () -> Unit,
     onScrollTop: () -> Unit,
+    scrollState: androidx.compose.foundation.ScrollState? = null,
 ) {
     val c = LocalProColors.current
-    val buttons = listOf(
-        Triple("fa-stopwatch", "Timer", onTimer),
-        Triple("fa-cloud-arrow-down", "Backup", onDownload),
-        Triple("fa-cloud-arrow-up", "Import", onUpload),
-        Triple("fa-hand", "Grip", onGrip),
-        Triple("fa-arrow-up", "Top", onScrollTop),
-    )
+    val showTop = scrollState != null && scrollState.value > 0
+    val buttons = buildList {
+        add(Triple("fa-stopwatch", "Timer", onTimer))
+        add(Triple("fa-cloud-arrow-down", "Backup", onDownload))
+        add(Triple("fa-cloud-arrow-up", "Import", onUpload))
+        add(Triple("fa-hand", "Grip", onGrip))
+        if (showTop) add(Triple("fa-arrow-up", "Top", onScrollTop))
+    }
+    // HTML: position: fixed; right: 12px; bottom: calc(96px + safe-area-inset-bottom).
+    // Compose: align to the bottom-end of the screen with 12dp end padding
+    // and 96dp + navigation-bars bottom padding.
     Box(
         Modifier
             .fillMaxSize()
-            .padding(end = 8.dp, bottom = 80.dp),
+            .padding(end = 12.dp)
+            .padding(bottom = 96.dp)
+            .navigationBarsPadding(),
         contentAlignment = Alignment.BottomEnd,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),  // HTML gap: 8px
         ) {
             buttons.forEach { (icon, label, onClick) ->
                 Box(
                     Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(c.tintBg)
-                        .border(1.dp, c.tintLine, RoundedCornerShape(14.dp))
+                        .size(46.dp)                                          // HTML 46x46
+                        .clip(RoundedCornerShape(16.dp))                      // HTML 16px radius
+                        .background(c.glass)                                   // HTML --p4-glass
+                        .border(1.dp, c.hairline2, RoundedCornerShape(16.dp)) // HTML --p4-hairline-2
                         .clickable { onClick() },
                     contentAlignment = Alignment.Center,
                 ) {
-                    com.peakform.fitness.ui.FaIcon(icon, size = 16.sp, tint = c.accent)
+                    com.peakform.fitness.ui.FaIcon(icon, size = 17.sp, tint = c.text2)  // HTML 17px, --p4-text-2
                 }
             }
         }

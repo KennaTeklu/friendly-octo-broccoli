@@ -276,6 +276,63 @@ fun AppShell(
     val shareText = remember { ProPrefs.get(ctx, "p4_share_text") }
     var showShareImport by remember { mutableStateOf(!shareText.isNullOrBlank()) }
 
+    // BATCH-43 — Import flow. The Import tile in SHEET_CELLS and the
+    // floating rail's cloud-upload button both call go("import"). This
+    // launcher opens the system file picker for "application/json" (and
+    // */* as a fallback because some pickers don't filter). On URI return
+    // we read the text via Backup.readJsonFromUri, then surface the
+    // ImportWarningDialog (same flow as the share-to-app import at L675).
+    var pendingImportText by remember { mutableStateOf<String?>(null) }
+    val importFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            // Read on Dispatchers.IO — openInputStream may block on remote
+            // content providers (Drive, Dropbox, etc.). Hold the result in
+            // pendingImportText and let the dialog below pick it up.
+            shellScope.launch(Dispatchers.IO) {
+                val raw = Backup.readJsonFromUri(ctx, uri)
+                withContext(Dispatchers.Main) {
+                    if (raw.isNullOrBlank()) {
+                        snack.value = "Could not read that file"
+                    } else {
+                        pendingImportText = raw
+                    }
+                }
+            }
+        }
+    }
+
+    // BATCH-43 — Shell-level backup launcher for the Power Dock's cloud-download
+    // button. Mirrors the WorkoutScreen backupLauncher pattern: on URI return,
+    // generate the backup JSON via Backup.exportCompleteV1 and write it to the
+    // picked location. The rail lives at the shell level now (moved out of
+    // Workout.kt in this batch), so the launcher does too.
+    val backupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            shellScope.launch(Dispatchers.IO) {
+                val data = Backup.exportCompleteV1(ctx)
+                Backup.writeJsonToUri(ctx, uri, data)
+                withContext(Dispatchers.Main) {
+                    snack.value = "Backup saved"
+                }
+            }
+        }
+    }
+
+    // BATCH-43 — Shell-level grip sheet state (was in WorkoutScreen). The
+    // Power Dock's grip button opens GripEquipmentSheet from the shell so
+    // it works on every section.
+    var showGripSheet by remember { mutableStateOf(false) }
+
+    // BATCH-43 — Shell-level scroll state for the Power Dock's arrow-up.
+    // Hoisted out of WorkoutScreen so the rail can read its value (to
+    // hide arrow-up when value == 0) and scroll it back to top. Passed
+    // into WorkoutScreen via its externalScrollState parameter.
+    val shellScrollState = rememberScrollState()
+
     // ask-on-boot profile picker (only when multiple profiles and boot picker enabled)
     val askProfiles = remember { Profiles.shouldAskOnBoot(ctx) }
     var showProfilePicker by remember { mutableStateOf(askProfiles) }
@@ -388,6 +445,12 @@ fun AppShell(
         // BATCH-41 — Meta-coach debug tile routes to the audit dialog
         // (visible only when BuildConfig.DEBUG — see SHEET_CELLS in Nav.kt).
         if (target == "metacoach") { metacoachOpen = true; return }
+        // BATCH-43 — "import" routes to the system file picker (no screen).
+        // The Import tile in SHEET_CELLS and the floating rail's cloud-upload
+        // button both reach this branch. The launcher reads the picked file
+        // and stores the text in pendingImportText; the ImportWarningDialog
+        // below renders once pendingImportText is non-null.
+        if (target == "import") { importFileLauncher.launch("application/json"); return }
         section = when (target) {
             "resume" -> "workout"
             "export", "backup" -> "settings"
@@ -484,7 +547,11 @@ fun AppShell(
 
             // ---- screen content ----
             Box(Modifier.weight(1f)) {
-                val scroll = rememberScrollState()
+                // BATCH-43: shellScrollState is hoisted to the shell scope so the
+                // Power Dock's arrow-up can read its value (hide when 0) and scroll
+                // it back to top. WorkoutScreen consumes it via externalScrollState;
+                // other screens continue to allocate their own internal scroll state
+                // (their arrow-up is hidden because shellScrollState stays at 0).
                 Crossfade(targetState = section, animationSpec = androidx.compose.animation.core.tween(180), label = "screens") { s ->
                     when (s) {
                         "dashboard" -> DashboardScreen(
@@ -502,6 +569,9 @@ fun AppShell(
                         "workout" -> WorkoutScreen(
                             onRequireGenerate = { generateAndGo(null) },
                             onOpenSection = { go(it) },
+                            // BATCH-43: pass the shell's scroll state so the
+                            // Power Dock's arrow-up can scroll this screen.
+                            externalScrollState = shellScrollState,
                         )
                         "history" -> HistoryScreen(onOpenSection = { go(it) })
                         "progress" -> ProgressScreen(
@@ -576,6 +646,47 @@ fun AppShell(
                     },
                 )
             }
+        }
+
+        // BATCH-43 — Power Dock. Moved from Workout.kt to the shell so it
+        // renders on every section. The five actions (timer, cloud-download,
+        // cloud-upload, hand, arrow-up) are wired at the shell level. The
+        // arrow-up button is hidden when shellScrollState.value == 0 (no
+        // scroll target on the current screen). The grip sheet and backup
+        // launcher live at the shell level too, so they work everywhere.
+        // Onboarding hides the dock (the wizard has its own controls).
+        if (!onboardingActive) {
+            com.peakform.fitness.ui.screens.FloatingActionRail(
+                onTimer = {
+                    com.peakform.fitness.ui.screens.RestTimer.start(
+                        ProState.data.user.settings.restTime
+                    )
+                },
+                onDownload = {
+                    backupLauncher.launch("peakform-backup-${System.currentTimeMillis()}.json")
+                },
+                onUpload = { go("import") },
+                onGrip = { showGripSheet = true },
+                onScrollTop = {
+                    shellScope.launch {
+                        shellScrollState.scrollTo(0)
+                    }
+                },
+                scrollState = shellScrollState,
+            )
+
+            // Grip sheet (shell-level so the dock's grip button works everywhere).
+            com.peakform.fitness.ui.screens.GripEquipmentSheet(
+                visible = showGripSheet,
+                onDismiss = { showGripSheet = false },
+                onSelect = { sel ->
+                    com.peakform.fitness.core.ProfileSettings.put(
+                        ctx, "p8_grip_pref", sel
+                    )
+                    showGripSheet = false
+                    snack.value = "Grip preference saved"
+                },
+            )
         }
 
         // More sheet
@@ -685,6 +796,31 @@ fun AppShell(
                 onDismiss = {
                     showShareImport = false
                     ProPrefs.remove(ctx, "p4_share_text")
+                },
+            )
+        }
+
+        // BATCH-43 — File-picker import confirmation. The flow mirrors the
+        // share-to-app import above: the picked file's text is held in
+        // pendingImportText by importFileLauncher, then we reuse the same
+        // ImportWarningDialog and the same Backup.import call. The report
+        // comes back as Backup.ImportResult.message (the same string the
+        // share-to-app path uses, surfaced via the snackbar).
+        if (pendingImportText != null) {
+            val raw = pendingImportText!!
+            ImportWarningDialog(
+                onConfirm = {
+                    pendingImportText = null
+                    shellScope.launch(Dispatchers.IO) {
+                        val res = Backup.import(ctx, raw)
+                        withContext(Dispatchers.Main) {
+                            snack.value = res.message
+                            if (res.ok) Badges.bumpCounter(ctx, "imports")
+                        }
+                    }
+                },
+                onDismiss = {
+                    pendingImportText = null
                 },
             )
         }
