@@ -239,6 +239,7 @@ fun AppShell(
     var timeWizard by remember { mutableStateOf(false) }
     var genLongevity by remember { mutableStateOf(false) }
     var paletteOpen by remember { mutableStateOf(false) }
+    var metacoachOpen by remember { mutableStateOf(false) }
     var showStreakRecovery by remember { mutableStateOf(false) }
     var confettiTick by remember { mutableIntStateOf(0) }
     // BATCH-39c: global regenerate indicator. Set by generateAndGo (time-wizard
@@ -384,6 +385,9 @@ fun AppShell(
     fun go(target: String) {
         sheetOpen = false
         if (target == "commands") { paletteOpen = true; return }
+        // BATCH-41 — Meta-coach debug tile routes to the audit dialog
+        // (visible only when BuildConfig.DEBUG — see SHEET_CELLS in Nav.kt).
+        if (target == "metacoach") { metacoachOpen = true; return }
         section = when (target) {
             "resume" -> "workout"
             "export", "backup" -> "settings"
@@ -657,6 +661,14 @@ fun AppShell(
                 if (id != "palette_close") go(id)
             },
         )
+
+        // BATCH-41 — Meta-coach audit dialog. Reached from the "Audit"
+        // tile in SHEET_CELLS (visible only when BuildConfig.DEBUG).
+        // Tap -> runs MetaCoach.audit() -> displays the findings list.
+        // The dialog never auto-corrects anything — it only reports.
+        if (metacoachOpen) {
+            MetaCoachAuditDialog(onDismiss = { metacoachOpen = false })
+        }
 
         // share-to-app pre-import confirmation (I1 copy, verbatim legacy)
         if (showShareImport && shareText != null) {

@@ -86,5 +86,21 @@ class ProApp : Application() {
         } catch (e: Exception) {
             ProLog.w("APP", "notify schedule failed: " + (e.message ?: ""))
         }
+        // BATCH-41 — Meta-coach boot audit. Launches a background
+        // coroutine that runs MetaCoach.audit() and logs every
+        // finding to ProLog under tag "META". The audit is read-only
+        // (no writes to ProState / Field / sessions) and never
+        // surfaces findings to normal users — only to adb logcat
+        // and the files/logs/pro.log ring. The "Audit" tile in
+        // SHEET_CELLS (debug builds only) lets a developer re-run
+        // the audit on demand and inspect the result.
+        try {
+            val scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+            )
+            com.peakform.fitness.coach.MetaCoach.runAtBoot(scope)
+        } catch (e: Exception) {
+            ProLog.w("META", "boot audit launch failed: ${e.message}")
+        }
     }
 }

@@ -45,26 +45,45 @@ val TABS = listOf(
 
 data class SheetCell(val id: String, val icon: String, val label: String)
 
-val SHEET_CELLS = listOf(
-    SheetCell("history", "fa-clock-rotate-left", "History"),
-    SheetCell("recovery", "fa-heart-pulse", "Recovery"),
-    SheetCell("health", "fa-notes-medical", "Health"),
-    SheetCell("badges", "fa-medal", "Badges"),
-    SheetCell("profiles", "fa-user-group", "People"),
-    SheetCell("snapshots", "fa-camera", "Snaps"),
-    SheetCell("mycycle", "fa-calendar-days", "My Cycle"),
-    SheetCell("chronicle", "fa-book-open", "Chronicle"),
-    SheetCell("settings", "fa-gear", "Settings"),
-    SheetCell("resume", "fa-play", "Resume"),
-    SheetCell("export", "fa-file-export", "Export"),
-    SheetCell("import", "fa-file-import", "Import"),
-    SheetCell("backup", "fa-cloud-arrow-down", "Backup"),
-    SheetCell("themes", "fa-palette", "Themes"),
-    SheetCell("glossary", "fa-spell-check", "Words"),
-    SheetCell("studio", "fa-flask-vial", "Studio"),
-    SheetCell("legal", "fa-scale-balanced", "Legal"),
-    SheetCell("commands", "fa-terminal", "Commands"),
-)
+val SHEET_CELLS: List<SheetCell> = buildList {
+    add(SheetCell("history", "fa-clock-rotate-left", "History"))
+    add(SheetCell("recovery", "fa-heart-pulse", "Recovery"))
+    add(SheetCell("health", "fa-notes-medical", "Health"))
+    add(SheetCell("badges", "fa-medal", "Badges"))
+    add(SheetCell("profiles", "fa-user-group", "People"))
+    add(SheetCell("snapshots", "fa-camera", "Snaps"))
+    add(SheetCell("mycycle", "fa-calendar-days", "My Cycle"))
+    add(SheetCell("chronicle", "fa-book-open", "Chronicle"))
+    add(SheetCell("settings", "fa-gear", "Settings"))
+    add(SheetCell("resume", "fa-play", "Resume"))
+    add(SheetCell("export", "fa-file-export", "Export"))
+    add(SheetCell("import", "fa-file-import", "Import"))
+    add(SheetCell("backup", "fa-cloud-arrow-down", "Backup"))
+    add(SheetCell("themes", "fa-palette", "Themes"))
+    add(SheetCell("glossary", "fa-spell-check", "Words"))
+    add(SheetCell("studio", "fa-flask-vial", "Studio"))
+    add(SheetCell("legal", "fa-scale-balanced", "Legal"))
+    add(SheetCell("commands", "fa-terminal", "Commands"))
+    // BATCH-41 — Meta-coach debug tile.
+    //
+    // Source: source/docs/system/16-the-meta-coach.md and
+    // source/docs/architecture/20-the-meta-coach.md.
+    //
+    // The meta-coach is a read-only auditor that watches the coaches
+    // and reports drift / contradictions / envelope violations /
+    // coverage gaps / dossier mismatches. The audit never auto-corrects;
+    // it only flags for a human reviewer.
+    //
+    // This tile is the on-demand entry point from the "Everything else"
+    // sheet. It is wrapped in BuildConfig.DEBUG so release users never
+    // see it; the boot-time audit runs in all builds (logging only).
+    //
+    // Tap -> runs MetaCoach.audit() -> displays the findings in a
+    // MetaCoachAuditDialog. See MainActivity routing for "metacoach".
+    if (com.peakform.fitness.BuildConfig.DEBUG) {
+        add(SheetCell("metacoach", "fa-stethoscope", "Audit"))
+    }
+}
 
 @Composable
 fun GlassDock(
