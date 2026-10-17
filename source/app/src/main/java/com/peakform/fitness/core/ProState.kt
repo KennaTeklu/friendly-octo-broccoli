@@ -177,8 +177,39 @@ object ProState {
             } catch (e: Exception) {
                 ProLog.w("STORE", "field accumulation failed for session ${record.id}: ${e.message}")
             }
+            // BATCH-39g: recompute recovery curves after the field write.
+            // Wrapped in Dispatchers.IO by the caller (Sessions.applyPerformance
+            // already routes through shellScope.launch(Dispatchers.IO)); the
+            // recompute itself is pure CPU + reads the dossier registry, no I/O.
+            try {
+                recomputeRecoveryLocked()
+            } catch (e: Exception) {
+                ProLog.w("STORE", "recovery recompute failed for session ${record.id}: ${e.message}")
+            }
         }
         notifyChanged()
+    }
+
+    /**
+     * BATCH-39g — Recompute every muscle + component recovery curve from
+     * the active profile's session history. Calls [RecoveryLearner.recomputeAll]
+     * with the in-memory sessions list + the current RecoveryState, then
+     * writes the result back to [recovery] and persists it via saveRecovery().
+     *
+     * Must be called inside a synchronized(this) block — the caller
+     * (appendSession or loadAll) is responsible for the lock. Pure CPU
+     * work, no I/O except saveRecovery() at the end.
+     */
+    private fun recomputeRecoveryLocked() {
+        val before = recovery
+        val after = com.peakform.fitness.core.state.RecoveryLearner.recomputeAll(
+            sessions = sessions,
+            current = before,
+        )
+        if (after !== before && after.curves != before.curves) {
+            recovery = after
+            saveRecovery()
+        }
     }
 
     // ---- BATCH-39b: field accumulation (source/docs/system/07-the-field.md,
@@ -518,6 +549,30 @@ object ProState {
         // against the current wall clock so the field reflects stimulus
         // decayed up to "right now" (not the last persisted lastUpdate).
         loadRecovery()
+        // BATCH-39g: one-time migration — if RecoveryState is empty
+        // (pre-v39e profile, or first launch), populate with v39e defaults
+        // for every muscle + component so nothing reads null. Then run
+        // the learning pass on the loaded session history so curves
+        // reflect what the user has actually logged.
+        if (recovery.curves.isEmpty()) {
+            val muscleIds = com.peakform.fitness.engine.Library.allMuscleGroups().map { it.name }
+            val componentNames = com.peakform.fitness.engine.Library.mpComponents.map { it.short }
+            recovery = com.peakform.fitness.core.state.RecoveryLearner.populateDefaults(
+                recovery, muscleIds, componentNames,
+            )
+            saveRecovery()
+        }
+        // BATCH-39g: recompute learned curves from the loaded session
+        // history. Cheap — reads the in-memory sessions list + dossier
+        // registry, no I/O. Wrapped in synchronized(this) so it doesn't
+        // race with a concurrent appendSession.
+        synchronized(this) {
+            try {
+                recomputeRecoveryLocked()
+            } catch (e: Exception) {
+                ProLog.w("STORE", "recovery recompute on loadAll failed: ${e.message}")
+            }
+        }
         decayField()
         // Persist the decayed field so the next appendSession (and the next
         // loadAll) sees consistent state — without this, the in-memory
