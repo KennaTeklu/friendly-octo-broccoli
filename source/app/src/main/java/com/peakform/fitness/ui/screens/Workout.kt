@@ -926,7 +926,15 @@ fun ExerciseCard(
         }
 
         // v34d: Declaration sentence from coach.explain()
-        val declarationText = if (authoredRow != null && coach != null) {
+        // BATCH-39f: also run coach.adjustForReadiness() on the same base
+        // prescription. If the note changes, render the adjustment text
+        // below the declaration sentence in small secondary color. The
+        // adjustment text describes how the prescription was reduced
+        // based on the field's current readiness for the exercise's
+        // primary muscles.
+        val declarationText: String
+        val readinessAdjustmentText: String
+        if (authoredRow != null && coach != null) {
             // Build a prescription from the authored row to pass to explain()
             val pres = com.peakform.fitness.coach.authored.Prescription(
                 sets = authoredRow.sets, reps = authoredRow.reps,
@@ -937,10 +945,26 @@ fun ExerciseCard(
                 sourceRowId = authoredRow.rowId,
             )
             val explained = coach.explain(pres, "STRONGER")
-            if (explained.isNotBlank() && explained != pres.note) explained else ""
-        } else ""
+            declarationText = if (explained.isNotBlank() && explained != pres.note) explained else ""
+            // BATCH-39f: adjustment pass — read the field, possibly modify.
+            val adjusted = coach.adjustForReadiness(pres, exercise.id)
+            readinessAdjustmentText = if (adjusted.note != pres.note && adjusted.note.isNotBlank()) {
+                adjusted.note
+            } else ""
+        } else {
+            declarationText = ""
+            readinessAdjustmentText = ""
+        }
         if (declarationText.isNotBlank()) {
             Text(declarationText, style = ProType.body2.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic), color = c.text2)
+            Spacer(Modifier.height(6.dp))
+        }
+        // BATCH-39f: render the readiness adjustment text under the
+        // declaration sentence when the coach modified the prescription.
+        // Small text, secondary color — matches the spec's "append the
+        // adjustment text under the declaration sentence on the card."
+        if (readinessAdjustmentText.isNotBlank()) {
+            Text(readinessAdjustmentText, style = ProType.small, color = c.text3)
             Spacer(Modifier.height(6.dp))
         }
 

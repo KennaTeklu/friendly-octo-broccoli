@@ -20,6 +20,12 @@ object BackSquatAuthoredCoach : ExerciseCoach {
     override val version = 1
 
     override fun requirements() = CoachRequirements(needs1RM = true, needsWeight = true)
+
+    // BATCH-39f: read the field's readiness for this exercise's primary muscles
+    // and adjust the prescription (drop sets + load when the muscle is recovering).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
+
     override fun message(input: CoachingEngine.CoachInput) = "Brace. Drive through heels."
     override fun progressionFactor(input: CoachingEngine.CoachInput) = 1.0
     override fun deloadTrigger(input: CoachingEngine.CoachInput) = false
@@ -63,6 +69,11 @@ object PullUpAuthoredCoach : ExerciseCoach {
     override val version = 1
 
     override fun requirements() = CoachRequirements(needsBodyweight = true)
+
+    // BATCH-39f: bodyweight — reduce sets only (no load to reduce).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBodyweight(base, exerciseId)
+
     override fun message(input: CoachingEngine.CoachInput) = "Dead hang. Pull chin over."
     override fun progressionFactor(input: CoachingEngine.CoachInput) = 1.0
     override fun deloadTrigger(input: CoachingEngine.CoachInput) = false
@@ -100,6 +111,11 @@ object BandedLateralRaiseAuthoredCoach : ExerciseCoach {
     override val version = 1
 
     override fun requirements() = CoachRequirements(needsBand = true)
+
+    // BATCH-39f: banded — reduce sets only (band colour is the load, not a number).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBanded(base, exerciseId)
+
     override fun message(input: CoachingEngine.CoachInput) = "Band colour is the load."
     override fun progressionFactor(input: CoachingEngine.CoachInput) = 1.0
     override fun deloadTrigger(input: CoachingEngine.CoachInput) = false
@@ -137,6 +153,11 @@ object PlankAuthoredCoach : ExerciseCoach {
     override val version = 1
 
     override fun requirements() = CoachRequirements(needsDuration = true)
+
+    // BATCH-39f: time-based — reduce sets + duration.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustTimeBased(base, exerciseId)
+
     override fun message(input: CoachingEngine.CoachInput) = "Hold. Breathe. Don't sag."
     override fun progressionFactor(input: CoachingEngine.CoachInput) = 1.0
     override fun deloadTrigger(input: CoachingEngine.CoachInput) = false
@@ -175,6 +196,11 @@ object RunningAuthoredCoach : ExerciseCoach {
     override val version = 1
 
     override fun requirements() = CoachRequirements(needsDistance = true, needsPace = true, needsDuration = true)
+
+    // BATCH-39f: cardio — reduce duration only (no sets in the same sense).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCardio(base, exerciseId)
+
     override fun message(input: CoachingEngine.CoachInput) = "Zone 2. Nasal breathing."
     override fun progressionFactor(input: CoachingEngine.CoachInput) = 1.0
     override fun deloadTrigger(input: CoachingEngine.CoachInput) = false
@@ -218,6 +244,10 @@ object DeadliftAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for deadlift at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Deadlift: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Push the floor." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── BenchPressCoach ──
@@ -235,6 +265,10 @@ object BenchPressAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for bench_press at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Bench press: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Drive through heels." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── OverheadPressCoach ──
@@ -252,6 +286,10 @@ object OverheadPressAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for overhead_press at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "OHP: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Glutes tight." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── BarbellRowCoach ──
@@ -270,6 +308,10 @@ object BarbellRowAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for barbell_row at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Row: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Pull to sternum." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── FrontSquatCoach ──
@@ -287,6 +329,10 @@ object FrontSquatAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for front_squat at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Front squat: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Elbows high." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── RomanianDeadliftCoach ──
@@ -304,6 +350,10 @@ object RomanianDeadliftAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for romanian_deadlift at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "RDL: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Hinge, stretch, flat back." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── ChinUpCoach ──
@@ -321,6 +371,10 @@ object ChinUpAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for chin_up at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, tier = matched.first().tier, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Chin-ups: Tier ${p.tier}, ${p.sets}x${p.reps}. Progress leverage." else p.note
+
+    // BATCH-39f: bodyweight — reduce sets only (no load to reduce).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBodyweight(base, exerciseId)
 }
 
 // ── DipCoach ──
@@ -338,6 +392,10 @@ object DipAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for dip at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, tier = matched.first().tier, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Dips: Tier ${p.tier}, ${p.sets}x${p.reps}. Shoulder to elbow." else p.note
+
+    // BATCH-39f: bodyweight — reduce sets only (no load to reduce).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBodyweight(base, exerciseId)
 }
 
 // ── PushUpCoach ──
@@ -355,6 +413,10 @@ object PushUpAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for push_up at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, tier = matched.first().tier, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Push-ups: Tier ${p.tier}, ${p.sets}x${p.reps}. Body straight." else p.note
+
+    // BATCH-39f: bodyweight — reduce sets only (no load to reduce).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBodyweight(base, exerciseId)
 }
 
 // ── FacePullCoach ──
@@ -373,6 +435,10 @@ object FacePullAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for face_pull at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, bandColour = matched.first().bandColour, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Face pulls: ${p.sets}x${p.reps} with ${p.bandColour} band. Pull to face." else p.note
+
+    // BATCH-39f: banded — reduce sets only (band colour is the load).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBanded(base, exerciseId)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -403,6 +469,10 @@ object SumoDeadliftAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for sumo_deadlift at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Sumo deadlift: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Drive the knees out." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── InclineBenchPressCoach ──
@@ -420,6 +490,10 @@ object InclineBenchPressAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for incline_bench_press at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Incline bench: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Bar to upper chest." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── CloseGripBenchPressCoach ──
@@ -437,6 +511,10 @@ object CloseGripBenchPressAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for close_grip_bench_press at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Close-grip bench: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Triceps drive." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── PendlayRowCoach ──
@@ -455,6 +533,10 @@ object PendlayRowAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for pendlay_row at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Pendlay row: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Dead-stop each rep." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── PushPressCoach ──
@@ -472,6 +554,10 @@ object PushPressAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for push_press at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Push press: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Dip — drive — press." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── PowerCleanCoach ──
@@ -492,6 +578,10 @@ object PowerCleanAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for power_clean at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, pct1RM = matched.first().pct1RM, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Power clean: ${p.sets}x${p.reps} at ${(p.pct1RM!! * 100).toInt()}% 1RM. Jump and catch." else p.note
+
+    // BATCH-39f: compound — reduce sets + load.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustCompound(base, exerciseId)
 }
 
 // ── PART 2 — Banded from Rogue (6 coaches) ──
@@ -517,6 +607,10 @@ object BandedFacePullAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for banded_face_pull at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, bandColour = matched.first().bandColour, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Banded face pulls: ${p.sets}x${p.reps} with ${p.bandColour} band. Pull to face." else p.note
+
+    // BATCH-39f: banded — reduce sets only (band colour is the load).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBanded(base, exerciseId)
 }
 
 // ── BandedPullApartCoach ──
@@ -534,6 +628,10 @@ object BandedPullApartAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for banded_pull_apart at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, bandColour = matched.first().bandColour, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Banded pull-aparts: ${p.sets}x${p.reps} with ${p.bandColour} band. Arms straight." else p.note
+
+    // BATCH-39f: banded — reduce sets only (band colour is the load).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBanded(base, exerciseId)
 }
 
 // ── BandedSquatCoach ──
@@ -551,6 +649,10 @@ object BandedSquatAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for banded_squat at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, bandColour = matched.first().bandColour, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Banded squats: ${p.sets}x${p.reps} with ${p.bandColour} band. Push knees out." else p.note
+
+    // BATCH-39f: banded — reduce sets only (band colour is the load).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBanded(base, exerciseId)
 }
 
 // ── BandedRowCoach ──
@@ -568,6 +670,10 @@ object BandedRowAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for banded_row at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, bandColour = matched.first().bandColour, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Banded rows: ${p.sets}x${p.reps} with ${p.bandColour} band. Pull to sternum." else p.note
+
+    // BATCH-39f: banded — reduce sets only (band colour is the load).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBanded(base, exerciseId)
 }
 
 // ── BandedGluteBridgeCoach ──
@@ -585,6 +691,10 @@ object BandedGluteBridgeAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for banded_glute_bridge at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, bandColour = matched.first().bandColour, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Banded glute bridges: ${p.sets}x${p.reps} with ${p.bandColour} band. Squeeze the glutes." else p.note
+
+    // BATCH-39f: banded — reduce sets only (band colour is the load).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBanded(base, exerciseId)
 }
 
 // ── BandedChestPressCoach ──
@@ -602,6 +712,10 @@ object BandedChestPressAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for banded_chest_press at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, bandColour = matched.first().bandColour, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Banded chest press: ${p.sets}x${p.reps} with ${p.bandColour} band. Press straight out." else p.note
+
+    // BATCH-39f: banded — reduce sets only (band colour is the load).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBanded(base, exerciseId)
 }
 
 // ── PART 3 — Bodyweight from Sommer (3 coaches) ──
@@ -622,6 +736,10 @@ object InvertedRowAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for inverted_row at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, tier = matched.first().tier, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Inverted rows: Tier ${p.tier}, ${p.sets}x${p.reps}. Progress leverage." else p.note
+
+    // BATCH-39f: bodyweight — reduce sets only (no load to reduce).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBodyweight(base, exerciseId)
 }
 
 // ── ArcherPullUpCoach (Sommer tier 8) ──
@@ -639,6 +757,10 @@ object ArcherPullUpAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for archer_pull_up at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, tier = matched.first().tier, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Archer pull-ups: Tier ${p.tier}, ${p.sets}x${p.reps}. Shift to one side." else p.note
+
+    // BATCH-39f: bodyweight — reduce sets only (no load to reduce).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBodyweight(base, exerciseId)
 }
 
 // ── LSitPullUpCoach (Sommer tier 7) ──
@@ -656,6 +778,10 @@ object LSitPullUpAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for l_sit_pull_up at $intent/$phase.") else Prescription(matched.first().sets, matched.first().reps, tier = matched.first().tier, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "L-sit pull-ups: Tier ${p.tier}, ${p.sets}x${p.reps}. Legs straight out." else p.note
+
+    // BATCH-39f: bodyweight — reduce sets only (no load to reduce).
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustBodyweight(base, exerciseId)
 }
 
 // ── PART 4 — Time-based from McGill SIDE PLANK table (1 coach) ──
@@ -683,4 +809,8 @@ object SidePlankAuthoredCoach : ExerciseCoach {
         return if (matched.isEmpty()) Prescription(note = "No source row for side_plank at $intent/$phase.") else Prescription(matched.first().sets, reps = "hold", duration = matched.first().duration, restSeconds = matched.first().restSeconds, components = matched.first().components, sourceRowId = matched.first().rowId, note = "Source: ${matched.first().sourceFile}#${matched.first().sourceSection}")
     }
     override fun explain(p: Prescription, intent: String) = if (p.sourceRowId != null) "Side plank: ${p.sets}x${p.duration?.toInt()}s hold per side. Hips stacked." else p.note
+
+    // BATCH-39f: time-based — reduce sets + duration.
+    override fun adjustForReadiness(base: Prescription, exerciseId: String): Prescription =
+        ReadinessAdjuster.adjustTimeBased(base, exerciseId)
 }

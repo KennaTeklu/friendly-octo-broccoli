@@ -767,7 +767,42 @@ object Generator {
             if (muscleDeloadMultiplier < 1.0) localMultiplier *= muscleDeloadMultiplier
 
             val prescribed = generateExercisePrescription(ex, localMultiplier)
-            exercises.add(prescribed)
+            // BATCH-39f: field-read adjustment pass. Look up the coach for this
+            // exercise, build an authored.Prescription from the core.Prescription
+            // generateExercisePrescription returned, run coach.adjustForReadiness,
+            // and write the adjusted numbers back into exercise.prescribed. The
+            // adjustment note (if any) is appended to exercise.progressionNotes
+            // so the card can render it. This means the generated workout already
+            // accounts for what the body has not recovered from — before the user
+            // ever sees the card.
+            val coach = coachCache.getOrPut(ex.id) {
+                com.peakform.fitness.coach.CoachRegistry.lookup(ex.id)
+            }
+            val finalEx = if (coach != null) {
+                val baseAuthored = com.peakform.fitness.coach.authored.Prescription(
+                    sets = prescribed.prescribed.sets,
+                    reps = prescribed.prescribed.reps,
+                    load = prescribed.prescribed.weight,
+                    duration = prescribed.prescribed.duration,
+                )
+                val adjusted = coach.adjustForReadiness(baseAuthored, ex.id)
+                val newPrescribed = prescribed.prescribed.copy(
+                    sets = adjusted.sets,
+                    reps = adjusted.reps,
+                    weight = adjusted.load,
+                    duration = adjusted.duration,
+                )
+                val newNotes = if (adjusted.note != baseAuthored.note && adjusted.note.isNotBlank()) {
+                    val existing = prescribed.progressionNotes
+                    if (existing.isBlank()) adjusted.note else "$existing $adjusted.note"
+                } else {
+                    prescribed.progressionNotes
+                }
+                prescribed.copy(prescribed = newPrescribed, progressionNotes = newNotes)
+            } else {
+                prescribed
+            }
+            exercises.add(finalEx)
         }
 
         // fallback defaults

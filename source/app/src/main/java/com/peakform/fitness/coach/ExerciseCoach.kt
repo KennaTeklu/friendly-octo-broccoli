@@ -54,4 +54,49 @@ interface ExerciseCoach {
 
     /** One-sentence explanation of the prescription in coach voice. */
     fun explain(prescription: com.peakform.fitness.coach.authored.Prescription, intent: String): String = prescription.note
+
+    // ---- v39f additions: field-read adjustment pass ----
+
+    /**
+     * BATCH-39f — Field-read adjustment pass.
+     *
+     * Source: source/docs/system/12-the-coachs-read-loop.md § "Readiness gating"
+     * and § "Response-rate adjustment".
+     *
+     * Called AFTER [reconcile] returns the base prescription. This is an
+     * adjustment pass on top of the selected row — it does NOT change which
+     * row was picked, only the numbers on it. The coach reads the field
+     * via [com.peakform.fitness.core.Field] and decides whether to:
+     *
+     *   - leave the prescription unchanged (readiness >= 0.85)
+     *   - drop a set (readiness in [0.60, 0.85))
+     *   - drop two sets + 10% load (readiness in [0.40, 0.60))
+     *   - return an empty prescription + rest note (readiness < 0.40)
+     *
+     * Default implementation: return [base] unchanged. Coaches that do not
+     * override keep the pre-v39f behavior. Authored coaches that have a
+     * working set already override this with a delegation to one of the
+     * [com.peakform.fitness.coach.authored.ReadinessAdjuster] helpers
+     * (compound, bodyweight, banded, time-based, cardio) based on the
+     * coach's requirements (needs1RM+needsWeight → compound; needsBodyweight
+     * → bodyweight; needsBand → banded; needsDuration → time-based;
+     * needsDistance → cardio).
+     *
+     * The [exerciseId] parameter is the exercise the prescription applies
+     * to. The coach's [exerciseIds] set may contain multiple exercises
+     * (e.g. a generic coach), so the caller passes the specific id. The
+     * coach reads the dossier for that id to find its primary muscles,
+     * then reads [com.peakform.fitness.core.Field.readiness] for each.
+     *
+     * This method is pure — no side effects, no writes to ProState. The
+     * field's state is read but never mutated.
+     *
+     * @param base       the prescription returned by [reconcile]
+     * @param exerciseId the exercise this prescription is for
+     * @return either [base] unchanged, or an adjusted prescription
+     */
+    fun adjustForReadiness(
+        base: com.peakform.fitness.coach.authored.Prescription,
+        exerciseId: String,
+    ): com.peakform.fitness.coach.authored.Prescription = base
 }
