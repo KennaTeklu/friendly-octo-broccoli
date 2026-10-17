@@ -53,6 +53,7 @@ val SHEET_CELLS = listOf(
     SheetCell("profiles", "fa-user-group", "People"),
     SheetCell("snapshots", "fa-camera", "Snaps"),
     SheetCell("mycycle", "fa-calendar-days", "My Cycle"),
+    SheetCell("chronicle", "fa-book-open", "Chronicle"),
     SheetCell("settings", "fa-gear", "Settings"),
     SheetCell("resume", "fa-play", "Resume"),
     SheetCell("export", "fa-file-export", "Export"),

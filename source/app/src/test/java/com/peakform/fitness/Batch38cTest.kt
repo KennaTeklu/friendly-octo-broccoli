@@ -75,8 +75,8 @@ class Batch38cTest {
 
     @Test
     fun sheetCells_has17Tiles() {
-        // 16 original + 1 new (Import) = 17
-        Assert.assertEquals(17, SHEET_CELLS.size)
+        // 17 original + 1 new (Chronicle, BATCH-40) = 18
+        Assert.assertEquals(18, SHEET_CELLS.size)
     }
 
     @Test

@@ -549,6 +549,33 @@ object ProState {
         // against the current wall clock so the field reflects stimulus
         // decayed up to "right now" (not the last persisted lastUpdate).
         loadRecovery()
+
+        // BATCH-40: heal at the top of loadAll, before any other reads of
+        // sessions/field/recovery. The healer fixes inconsistencies between
+        // sessions (ground truth) and the field (derived) + recovery curves.
+        // It never invents a session, never deletes one — only repairs.
+        // See source/docs/system/15-the-chronicle.md § "What the healer does".
+        try {
+            val preHeal = com.peakform.fitness.core.Chronicle.ProStateData(
+                userId = activeProfileId,
+                sessions = sessions,
+                field = field,
+                recovery = recovery,
+            )
+            val healed = com.peakform.fitness.core.Chronicle.heal(preHeal)
+            if (healed != preHeal) {
+                sessions = healed.sessions
+                field = healed.field
+                recovery = healed.recovery
+                // Persist the healed state so the next load sees it.
+                saveSessions()
+                saveField()
+                saveRecovery()
+            }
+        } catch (e: Exception) {
+            ProLog.w("STORE", "heal failed on loadAll: ${e.message}")
+        }
+
         // BATCH-39g: one-time migration — if RecoveryState is empty
         // (pre-v39e profile, or first launch), populate with v39e defaults
         // for every muscle + component so nothing reads null. Then run

@@ -552,6 +552,7 @@ fun AppShell(
                         "pasteimport" -> PasteJsonScreen(onClose = { go("settings") })
                         "feedback" -> FeedbackScreen(onClose = { go("settings") })
                         "mycycle" -> MyCycleScreen(onClose = { go("dashboard") })
+                        "chronicle" -> ChronicleScreen(onClose = { go("dashboard") })
                         "badges" -> BadgeGalleryScreen()
                         // BATCH-5B: 1RM Audit + Lab consoles reachable from Settings.
                         "1rm_audit" -> OneRMAuditScreen(onClose = { go("settings") })
